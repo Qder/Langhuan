@@ -12,6 +12,16 @@ import { findBacklinks, resolveWikiTarget } from "@/lib/search";
 import { getTags, parseFrontmatter } from "@/lib/tags";
 import { countWords, readingMinutes, relativeTime, titleOf, cn } from "@/lib/utils";
 import type { Document } from "@/lib/types";
+import {
+  frontmatterOffset,
+  getPreviewSelectionInfo,
+  isTrivialSelection,
+  locateInMarkdown,
+  srcAttrs,
+} from "@/lib/locate";
+import { rehypeSrcPositions } from "@/lib/locate/rehypeSrcPositions";
+import { PreviewContextMenu, type ContextMenuItem } from "./locate/PreviewContextMenu";
+import { SelectionFloatBar } from "./locate/SelectionFloatBar";
 import "highlight.js/styles/github-dark.css";
 
 function WikiText({ text, docs, onOpen }: { text: string; docs: Document[]; onOpen: (id: string) => void }) {
@@ -50,12 +60,29 @@ function walkChildren(children: React.ReactNode, docs: Document[], onOpen: (id: 
   });
 }
 
-function CodeBlock({ className, children }: { className?: string; children: React.ReactNode }) {
+function CodeBlock({
+  className,
+  children,
+  srcStart,
+  srcEnd,
+}: {
+  className?: string;
+  children: React.ReactNode;
+  srcStart?: number;
+  srcEnd?: number;
+}) {
   const lang = /language-(\w+)/.exec(className || "")?.[1] || "";
   const text = String(children).replace(/\n$/, "");
   const [copied, setCopied] = React.useState(false);
+  const attrs =
+    typeof srcStart === "number" && typeof srcEnd === "number"
+      ? { "data-src-start": srcStart, "data-src-end": srcEnd }
+      : {};
   return (
-    <div className="not-prose my-4 overflow-hidden rounded-[14px] border border-[rgba(236,228,210,0.08)] bg-[#1a1814] text-[#ece4d2]">
+    <div
+      className="not-prose my-4 overflow-hidden rounded-[14px] border border-[rgba(236,228,210,0.08)] bg-[#1a1814] text-[#ece4d2]"
+      {...attrs}
+    >
       <div className="flex items-center gap-2 px-3 py-2 border-b border-[rgba(236,228,210,0.08)] text-xs">
         <span className="h-2.5 w-2.5 rounded-full bg-[#ff5f56]" />
         <span className="h-2.5 w-2.5 rounded-full bg-[#ffbd2e]" />
@@ -96,37 +123,45 @@ function extractOutline(md: string): { id: string; text: string; level: number }
   return out;
 }
 
-function renderCallouts(src: string): string {
-  // Convert > [!tip] Title\n> body into a blockquote with marker paragraph
-  const lines = src.split(/\n/);
-  const out: string[] = [];
-  let i = 0;
-  while (i < lines.length) {
-    const m = lines[i].match(/^>\s*\[!(tip|note|warn)\]\s*(.*)$/i);
-    if (!m) {
-      out.push(lines[i]);
-      i += 1;
-      continue;
-    }
-    const kind = m[1].toLowerCase();
-    const title = m[2] || ({ tip: "提示", note: "说明", warn: "注意" } as Record<string, string>)[kind];
-    const body: string[] = [];
-    i += 1;
-    while (i < lines.length && /^>/.test(lines[i])) {
-      body.push(lines[i].replace(/^>\s?/, ""));
-      i += 1;
-    }
-    out.push(`<div class="callout ${kind}"><div class="callout-title" data-kind="${kind}">${title}</div>\n\n${body.join("\n")}\n\n</div>`);
+function calloutKindFromChildren(children: React.ReactNode): {
+  kind: "tip" | "note" | "warn" | null;
+  title: string;
+  rest: React.ReactNode;
+} {
+  const kids = React.Children.toArray(children);
+  const first = kids[0];
+  if (!React.isValidElement<{ children?: React.ReactNode }>(first)) {
+    return { kind: null, title: "", rest: children };
   }
-  return out.join("\n");
+  const raw = String(
+    React.Children.toArray(first.props.children)
+      .map((c) => (typeof c === "string" ? c : ""))
+      .join("")
+  );
+  const m = raw.match(/^\[!(tip|note|warn)\]\s*(.*)$/i);
+  if (!m) return { kind: null, title: "", rest: children };
+  const kind = m[1].toLowerCase() as "tip" | "note" | "warn";
+  const title =
+    m[2] || ({ tip: "提示", note: "说明", warn: "注意" } as Record<string, string>)[kind];
+  return { kind, title, rest: kids.slice(1) };
 }
+
+type HastNode = {
+  position?: { start?: { offset?: number }; end?: { offset?: number } };
+  properties?: Record<string, unknown>;
+};
 
 export function MarkdownReader({ doc }: { doc: Document }) {
   const documents = useStore((s) => s.documents);
   const getContent = useStore((s) => s.getContent);
   const openDoc = useStore((s) => s.openDoc);
   const setDocTags = useStore((s) => s.setDocTags);
+  const applyLocateResult = useStore((s) => s.applyLocateResult);
+  const pendingPreviewLocate = useStore((s) => s.pendingPreviewLocate);
+  const clearPendingPreviewLocate = useStore((s) => s.clearPendingPreviewLocate);
+  const setStatus = useStore((s) => s.setStatus);
   const content = getContent(doc.id);
+  const fmOffset = frontmatterOffset(content);
   const { body } = parseFrontmatter(content);
   const tags = getTags({ ...doc, content });
   const words = countWords(body);
@@ -134,8 +169,14 @@ export function MarkdownReader({ doc }: { doc: Document }) {
   const backlinks = findBacklinks(documents, doc);
   const [activeHeading, setActiveHeading] = React.useState<string>("");
   const [tagInput, setTagInput] = React.useState("");
-
-  const prepared = React.useMemo(() => renderCallouts(body), [body]);
+  const articleRef = React.useRef<HTMLElement>(null);
+  const [menu, setMenu] = React.useState<{ x: number; y: number } | null>(null);
+  const [floatRect, setFloatRect] = React.useState<{
+    top: number;
+    left: number;
+    bottom: number;
+    right: number;
+  } | null>(null);
 
   React.useEffect(() => {
     const root = document.getElementById("reader-scroll");
@@ -152,29 +193,209 @@ export function MarkdownReader({ doc }: { doc: Document }) {
     root.addEventListener("scroll", onScroll);
     onScroll();
     return () => root.removeEventListener("scroll", onScroll);
-  }, [prepared]);
+  }, [body]);
+
+  const runLocate = React.useCallback(() => {
+    const root = articleRef.current;
+    if (!root) return;
+    const info = getPreviewSelectionInfo(root);
+    if (!info || isTrivialSelection(info.text)) {
+      setStatus("请先选中一段文字");
+      setMenu(null);
+      return;
+    }
+    const result = locateInMarkdown({
+      source: content,
+      selectedText: info.text,
+      startBlock: info.startBlock,
+      endBlock: info.endBlock,
+      anchorPlainOffset: info.anchorPlainOffset,
+    });
+    applyLocateResult(result);
+    setMenu(null);
+    setFloatRect(null);
+  }, [content, applyLocateResult, setStatus]);
+
+  // selection float bar
+  React.useEffect(() => {
+    const onSel = () => {
+      const root = articleRef.current;
+      if (!root) return;
+      const info = getPreviewSelectionInfo(root);
+      if (!info || isTrivialSelection(info.text) || !info.rect || info.rect.width === 0) {
+        setFloatRect(null);
+        return;
+      }
+      setFloatRect({
+        top: info.rect.top,
+        left: info.rect.left,
+        bottom: info.rect.bottom,
+        right: info.rect.right,
+      });
+    };
+    document.addEventListener("selectionchange", onSel);
+    return () => document.removeEventListener("selectionchange", onSel);
+  }, []);
+
+  // ⌘/Ctrl+Enter
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.key !== "Enter" || e.shiftKey) return;
+      const root = articleRef.current;
+      if (!root) return;
+      const sel = window.getSelection();
+      if (!sel || sel.rangeCount === 0) return;
+      if (!root.contains(sel.anchorNode)) return;
+      e.preventDefault();
+      runLocate();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [runLocate]);
+
+  // Source → Preview highlight
+  React.useEffect(() => {
+    if (!pendingPreviewLocate) return;
+    const root = articleRef.current;
+    if (!root) {
+      clearPendingPreviewLocate();
+      return;
+    }
+    const offset = pendingPreviewLocate.offset;
+    const blocks = [...root.querySelectorAll<HTMLElement>("[data-src-start]")];
+    let target: HTMLElement | null = null;
+    for (const el of blocks) {
+      const s = Number(el.getAttribute("data-src-start"));
+      const e = Number(el.getAttribute("data-src-end"));
+      if (offset >= s && offset < e) {
+        target = el;
+        break;
+      }
+      if (offset === e) target = el;
+    }
+    if (target) {
+      target.scrollIntoView({ behavior: "smooth", block: "center" });
+      target.classList.add("lh-preview-flash");
+      const t = window.setTimeout(() => {
+        target?.classList.remove("lh-preview-flash");
+      }, 1200);
+      clearPendingPreviewLocate();
+      return () => clearTimeout(t);
+    }
+    clearPendingPreviewLocate();
+  }, [pendingPreviewLocate, clearPendingPreviewLocate, body]);
 
   const summary = body.replace(/^#.+$/m, "").replace(/\s+/g, " ").trim().slice(0, 80);
+
+  const onContextMenu = (e: React.MouseEvent) => {
+    const root = articleRef.current;
+    if (!root) return;
+    const info = getPreviewSelectionInfo(root);
+    if (!info || isTrivialSelection(info.text)) {
+      // allow default menu
+      return;
+    }
+    e.preventDefault();
+    setMenu({ x: e.clientX, y: e.clientY });
+  };
+
+  const menuItems = React.useMemo((): ContextMenuItem[] => {
+    const root = articleRef.current;
+    const info = root ? getPreviewSelectionInfo(root) : null;
+    const text = info?.text ?? "";
+    return [
+      {
+        id: "locate",
+        label: "在源码中定位",
+        shortcut: "⌘↵",
+        onSelect: () => runLocate(),
+      },
+      {
+        id: "copy",
+        label: "复制",
+        onSelect: async () => {
+          await navigator.clipboard.writeText(text);
+          setStatus("已复制");
+        },
+      },
+      {
+        id: "copy-md",
+        label: "复制为 Markdown",
+        onSelect: async () => {
+          if (info?.startBlock) {
+            const slice = content.slice(
+              info.startBlock.start,
+              (info.endBlock ?? info.startBlock).end
+            );
+            const result = locateInMarkdown({
+              source: content,
+              selectedText: text,
+              startBlock: info.startBlock,
+              endBlock: info.endBlock,
+              anchorPlainOffset: info.anchorPlainOffset,
+            });
+            if (result.precision === "exact" || result.precision === "block") {
+              await navigator.clipboard.writeText(content.slice(result.start, result.end));
+              setStatus("已复制 Markdown");
+              return;
+            }
+            void slice;
+          }
+          await navigator.clipboard.writeText(text);
+          setStatus("已复制");
+        },
+      },
+      {
+        id: "wikilink",
+        label: "添加到双链",
+        onSelect: async () => {
+          const link = `[[${text.trim()}]]`;
+          await navigator.clipboard.writeText(link);
+          setStatus("已复制双链语法");
+        },
+      },
+    ];
+  }, [runLocate, content, setStatus, menu]);
+
+  const withSrc = (
+    Tag: keyof React.JSX.IntrinsicElements,
+    node: HastNode | undefined,
+    props: Record<string, unknown>,
+    children: React.ReactNode
+  ) => {
+    const attrs = srcAttrs(fmOffset, node);
+    return React.createElement(Tag, { ...props, ...attrs }, children);
+  };
 
   return (
     <div className="h-full flex min-h-0">
       <div id="reader-scroll" className="flex-1 overflow-y-auto scroll-thin">
-        <article className="prose-langhuan mx-auto px-4 md:px-8 py-8 animate-enter">
+        <article
+          ref={articleRef}
+          className="prose-langhuan mx-auto px-4 md:px-8 py-8 animate-enter"
+          onContextMenu={onContextMenu}
+        >
           <header className="mb-8 space-y-3 font-ui not-serif">
             <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--muted)]">
-              <span className="rounded-full border border-[var(--border)] px-2 py-0.5 text-[var(--accent)]">Markdown</span>
+              <span className="rounded-full border border-[var(--border)] px-2 py-0.5 text-[var(--accent)]">
+                Markdown
+              </span>
               <span>更新于 {relativeTime(doc.updatedAt)}</span>
               <span>{words} 字</span>
               <span>约 {readingMinutes(words)} 分钟</span>
             </div>
             {summary && (
               <blockquote className="!border-l-[var(--gold)] !text-[var(--muted)] !m-0 font-serif text-base">
-                {summary}{summary.length >= 80 ? "…" : ""}
+                {summary}
+                {summary.length >= 80 ? "…" : ""}
               </blockquote>
             )}
             <div className="flex flex-wrap items-center gap-1.5">
               {tags.map((t) => (
-                <span key={t} className="inline-flex items-center gap-1 rounded-full border border-[var(--border)] px-2 py-0.5 text-xs">
+                <span
+                  key={t}
+                  className="inline-flex items-center gap-1 rounded-full border border-[var(--border)] px-2 py-0.5 text-xs"
+                >
                   {t}
                   <button
                     type="button"
@@ -208,39 +429,107 @@ export function MarkdownReader({ doc }: { doc: Document }) {
 
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
-            rehypePlugins={[rehypeSlug, rehypeRaw, rehypeHighlight]}
+            rehypePlugins={[rehypeSlug, rehypeRaw, rehypeHighlight, rehypeSrcPositions(fmOffset)]}
             components={{
-              p: ({ children }) => <p>{walkChildren(children, documents, openDoc)}</p>,
-              li: ({ children }) => <li>{walkChildren(children, documents, openDoc)}</li>,
-              td: ({ children }) => <td>{walkChildren(children, documents, openDoc)}</td>,
-              h1: ({ children, id }) => <h1 id={id}>{walkChildren(children, documents, openDoc)}</h1>,
-              h2: ({ children, id }) => <h2 id={id}>{walkChildren(children, documents, openDoc)}</h2>,
-              h3: ({ children, id }) => <h3 id={id}>{walkChildren(children, documents, openDoc)}</h3>,
-              code: ({ className, children, ...props }) => {
+              p: ({ node, children, ...props }) =>
+                withSrc("p", node as HastNode, props as Record<string, unknown>, walkChildren(children, documents, openDoc)),
+              li: ({ node, children, ...props }) =>
+                withSrc("li", node as HastNode, props as Record<string, unknown>, walkChildren(children, documents, openDoc)),
+              td: ({ node, children, ...props }) =>
+                withSrc("td", node as HastNode, props as Record<string, unknown>, walkChildren(children, documents, openDoc)),
+              th: ({ node, children, ...props }) =>
+                withSrc("th", node as HastNode, props as Record<string, unknown>, walkChildren(children, documents, openDoc)),
+              tr: ({ node, children, ...props }) =>
+                withSrc("tr", node as HastNode, props as Record<string, unknown>, children),
+              blockquote: ({ node, children, ...props }) => {
+                const { kind, title, rest } = calloutKindFromChildren(children);
+                const attrs = srcAttrs(fmOffset, node as HastNode);
+                if (kind) {
+                  const Icon = kind === "tip" ? Lightbulb : kind === "warn" ? TriangleAlert : Info;
+                  return (
+                    <div className={`callout ${kind}`} {...attrs}>
+                      <div className="callout-title">
+                        <Icon className="h-4 w-4" />
+                        {title}
+                      </div>
+                      <div>{rest}</div>
+                    </div>
+                  );
+                }
+                return (
+                  <blockquote {...(props as React.HTMLAttributes<HTMLQuoteElement>)} {...attrs}>
+                    {walkChildren(children, documents, openDoc)}
+                  </blockquote>
+                );
+              },
+              h1: ({ node, children, id, ...props }) =>
+                withSrc(
+                  "h1",
+                  node as HastNode,
+                  { ...(props as object), id } as Record<string, unknown>,
+                  walkChildren(children, documents, openDoc)
+                ),
+              h2: ({ node, children, id, ...props }) =>
+                withSrc(
+                  "h2",
+                  node as HastNode,
+                  { ...(props as object), id } as Record<string, unknown>,
+                  walkChildren(children, documents, openDoc)
+                ),
+              h3: ({ node, children, id, ...props }) =>
+                withSrc(
+                  "h3",
+                  node as HastNode,
+                  { ...(props as object), id } as Record<string, unknown>,
+                  walkChildren(children, documents, openDoc)
+                ),
+              pre: ({ node, children }) => {
+                // pre wraps code; attach src on CodeBlock via code element
+                void node;
+                return <>{children}</>;
+              },
+              code: ({ node, className, children, ...props }) => {
                 const isBlock = typeof className === "string" && className.includes("language-");
-                if (isBlock) return <CodeBlock className={className}>{children}</CodeBlock>;
+                const attrs = srcAttrs(fmOffset, node as HastNode);
+                if (isBlock) {
+                  return (
+                    <CodeBlock
+                      className={className}
+                      srcStart={attrs["data-src-start"]}
+                      srcEnd={attrs["data-src-end"]}
+                    >
+                      {children}
+                    </CodeBlock>
+                  );
+                }
                 return (
                   <code className={className} {...props}>
                     {children}
                   </code>
                 );
               },
-              pre: ({ children }) => <>{children}</>,
-              // custom callout HTML from preprocessor may come as raw - handle via div
               div: ({ className, children, ...props }) => {
                 if (typeof className === "string" && className.includes("callout")) {
-                  const kind = className.includes("tip") ? "tip" : className.includes("warn") ? "warn" : "note";
+                  const kind = className.includes("tip")
+                    ? "tip"
+                    : className.includes("warn")
+                      ? "warn"
+                      : "note";
                   const Icon = kind === "tip" ? Lightbulb : kind === "warn" ? TriangleAlert : Info;
                   const kids = React.Children.toArray(children);
                   const titleEl = kids.find(
-                    (c) => React.isValidElement(c) && (c.props as { className?: string }).className?.includes("callout-title")
+                    (c) =>
+                      React.isValidElement(c) &&
+                      (c.props as { className?: string }).className?.includes("callout-title")
                   );
                   const rest = kids.filter((c) => c !== titleEl);
                   return (
                     <div className={`callout ${kind}`}>
                       <div className="callout-title">
                         <Icon className="h-4 w-4" />
-                        {titleEl && React.isValidElement(titleEl) ? (titleEl.props as { children?: React.ReactNode }).children : kind}
+                        {titleEl && React.isValidElement(titleEl)
+                          ? (titleEl.props as { children?: React.ReactNode }).children
+                          : kind}
                       </div>
                       <div>{rest}</div>
                     </div>
@@ -254,7 +543,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
               },
             }}
           >
-            {prepared}
+            {body}
           </ReactMarkdown>
         </article>
       </div>
@@ -277,7 +566,8 @@ export function MarkdownReader({ doc }: { doc: Document }) {
                   h.level === 1 && "font-medium",
                   h.level === 2 && "pl-3",
                   h.level === 3 && "pl-5 text-[var(--muted)]",
-                  activeHeading === h.id && "text-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_10%,transparent)]"
+                  activeHeading === h.id &&
+                    "text-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_10%,transparent)]"
                 )}
               >
                 {h.text}
@@ -302,6 +592,11 @@ export function MarkdownReader({ doc }: { doc: Document }) {
           </div>
         </div>
       </aside>
+
+      {menu && (
+        <PreviewContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={() => setMenu(null)} />
+      )}
+      {floatRect && !menu && <SelectionFloatBar rect={floatRect} onLocate={runLocate} />}
     </div>
   );
 }

@@ -3,6 +3,18 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { Document, StatusFeedback, ThemeMode, ViewMode } from "./types";
+import type { LocateResult } from "./locate/types";
+
+export type PendingReveal = {
+  start: number;
+  end: number;
+  nonce: number;
+};
+
+export type PendingPreviewLocate = {
+  offset: number;
+  nonce: number;
+};
 import { createSeedDocuments } from "./seed";
 import { getTags, setHtmlTags, setMdTags } from "./tags";
 import { basename, uniquePath, uid } from "./utils";
@@ -18,6 +30,8 @@ type LanghuanState = {
   sidebarOpen: boolean;
   commandOpen: boolean;
   status: StatusFeedback;
+  pendingReveal: PendingReveal | null;
+  pendingPreviewLocate: PendingPreviewLocate | null;
   setHydrated: (v: boolean) => void;
   setTheme: (t: ThemeMode) => void;
   toggleTheme: () => void;
@@ -26,6 +40,10 @@ type LanghuanState = {
   setTagFilter: (t: string | null) => void;
   setViewMode: (m: ViewMode) => void;
   setStatus: (message: string) => void;
+  applyLocateResult: (result: LocateResult) => void;
+  clearPendingReveal: () => void;
+  requestPreviewLocate: (offset: number) => void;
+  clearPendingPreviewLocate: () => void;
   openHome: () => void;
   openDoc: (id: string) => void;
   getActive: () => Document | null;
@@ -62,6 +80,8 @@ export const useStore = create<LanghuanState>()(
       sidebarOpen: false,
       commandOpen: false,
       status: null,
+      pendingReveal: null,
+      pendingPreviewLocate: null,
 
       setHydrated: (v) => set({ hydrated: v }),
       setTheme: (t) => {
@@ -80,6 +100,35 @@ export const useStore = create<LanghuanState>()(
       setTagFilter: (t) => set({ tagFilter: t }),
       setViewMode: (m) => set({ viewMode: m }),
       setStatus: (message) => set({ status: { message, at: Date.now() } }),
+
+      applyLocateResult: (result) => {
+        if (result.precision === "none") {
+          get().setStatus(result.message);
+          return;
+        }
+        const viewMode = get().viewMode;
+        if (viewMode === "preview") {
+          set({ viewMode: "split" });
+        }
+        set({
+          pendingReveal: {
+            start: result.start,
+            end: result.end,
+            nonce: Date.now(),
+          },
+          status: { message: result.message, at: Date.now() },
+        });
+      },
+
+      clearPendingReveal: () => set({ pendingReveal: null }),
+
+      requestPreviewLocate: (offset) => {
+        set({
+          pendingPreviewLocate: { offset, nonce: Date.now() },
+        });
+      },
+
+      clearPendingPreviewLocate: () => set({ pendingPreviewLocate: null }),
 
       openHome: () => set({ activeId: null }),
       openDoc: (id) => set({ activeId: id, sidebarOpen: false }),

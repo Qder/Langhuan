@@ -1,0 +1,195 @@
+import { describe, expect, it } from "vitest";
+import { buildMdPlainMap } from "./mdPlainMap";
+import { locateInMarkdown, isTrivialSelection } from "./mdLocate";
+import { frontmatterOffset, lineAtOffset } from "./frontmatter";
+import { locateInHtml, buildHtmlVisibleMap } from "./htmlLocate";
+
+describe("frontmatterOffset", () => {
+  it("adds stripped length", () => {
+    const src = `---\ntitle: hi\ntags: [a]\n---\n\n# Hello\n`;
+    const off = frontmatterOffset(src);
+    expect(src.slice(off)).toBe("\n# Hello\n");
+    expect(lineAtOffset(src, off + 1)).toBe(6);
+  });
+});
+
+describe("buildMdPlainMap", () => {
+  it("maps bold + inline code + link spanning selection", () => {
+    const slice = `这是 **加粗** 与 \`code\` 和 [链接](https://example.com) 结束`;
+    const { plain, map } = buildMdPlainMap(slice);
+    expect(plain).toBe("这是 加粗 与 code 和 链接 结束");
+    const sel = "加粗 与 code 和 链接";
+    const idx = plain.indexOf(sel);
+    expect(idx).toBeGreaterThan(0);
+    const start = map[idx];
+    const end = map[idx + sel.length];
+    expect(slice.slice(start, end)).toContain("**");
+    expect(slice.slice(start, end)).toContain("`code`");
+    expect(slice.slice(start, end)).toContain("[链接](");
+  });
+
+  it("maps wikilinks to label without shifting", () => {
+    const slice = `试试打开 [[快速上手]]，或看看。`;
+    const { plain, map } = buildMdPlainMap(slice);
+    expect(plain).toContain("快速上手");
+    expect(plain).not.toContain("[[");
+    const idx = plain.indexOf("快速上手");
+    expect(idx).toBeGreaterThanOrEqual(0);
+    // each plain char maps inside the wikilink body
+    for (let k = 0; k < "快速上手".length; k++) {
+      expect(slice[map[idx + k]]).toBe("快速上手"[k]);
+    }
+    // exclusive end may land after closing ]], which is fine for sentence locate
+    expect(slice.slice(map[idx], map[idx + "快速上手".length])).toContain("快速上手");
+  });
+});
+
+describe("locateInMarkdown", () => {
+  const fm = `---\ntitle: 欢迎\ntags: [入门]\n---\n\n`;
+  const body = `# 欢迎来到琅嬛\n\n琅嬛是一座私人藏书阁——把 **Markdown 笔记**、完整 HTML 页面放进同一套目录。\n\n重复词 重复词 重复词\n\n试试打开 [[快速上手]]，结束。\n`;
+  const source = fm + body;
+  const off = frontmatterOffset(source);
+
+  it("rejects trivial selection", () => {
+    expect(isTrivialSelection("  ")).toBe(true);
+    expect(isTrivialSelection("。")).toBe(true);
+  });
+
+  it("1. locates Chinese paragraph", () => {
+    const para = "琅嬛是一座私人藏书阁——把 **Markdown 笔记**、完整 HTML 页面放进同一套目录。";
+    const start = source.indexOf(para);
+    const end = start + para.length;
+    const result = locateInMarkdown({
+      source,
+      selectedText: "琅嬛是一座私人藏书阁——把 Markdown 笔记、完整 HTML 页面放进同一套目录。",
+      startBlock: { start, end },
+      endBlock: { start, end },
+      anchorPlainOffset: 0,
+    });
+    expect(result.precision).toBe("exact");
+    expect(source.slice(result.start, result.end)).toContain("**Markdown 笔记**");
+    expect(result.message).toMatch(/第 \d+ 行/);
+  });
+
+  it("2. selection spanning bold+code+link includes markers", () => {
+    const slice = `前 **加粗** 与 \`code\` 和 [链接](https://x.com) 后`;
+    const src = fm + slice + "\n";
+    const start = src.indexOf(slice);
+    const result = locateInMarkdown({
+      source: src,
+      selectedText: "加粗 与 code 和 链接",
+      startBlock: { start, end: start + slice.length },
+      endBlock: { start, end: start + slice.length },
+    });
+    expect(result.precision).toBe("exact");
+    const hit = src.slice(result.start, result.end);
+    expect(hit).toContain("**");
+    expect(hit).toContain("`");
+    expect(hit).toContain("[链接](");
+  });
+
+  it("3. duplicate word picks nth by anchor", () => {
+    const line = "重复词 重复词 重复词";
+    const start = source.indexOf(line);
+    const end = start + line.length;
+    const { plain } = buildMdPlainMap(source.slice(start, end));
+    const third = plain.indexOf("重复词", plain.indexOf("重复词", plain.indexOf("重复词") + 1) + 1);
+    const result = locateInMarkdown({
+      source,
+      selectedText: "重复词",
+      startBlock: { start, end },
+      endBlock: { start, end },
+      anchorPlainOffset: third,
+    });
+    expect(result.precision).toBe("exact");
+    // third occurrence in source
+    const first = source.indexOf("重复词", start);
+    const second = source.indexOf("重复词", first + 1);
+    const thirdSrc = source.indexOf("重复词", second + 1);
+    expect(result.start).toBe(thirdSrc);
+  });
+
+  it("4. wikilink sentence does not drift", () => {
+    const line = "试试打开 [[快速上手]]，结束。";
+    const start = source.indexOf(line);
+    const end = start + line.length;
+    const result = locateInMarkdown({
+      source,
+      selectedText: "试试打开 快速上手，结束。",
+      startBlock: { start, end },
+      endBlock: { start, end },
+    });
+    expect(result.precision).toBe("exact");
+    expect(source.slice(result.start, result.end)).toContain("[[快速上手]]");
+  });
+
+  it("5. frontmatter offsets still correct", () => {
+    expect(off).toBeGreaterThan(10);
+    const heading = "# 欢迎来到琅嬛";
+    const start = source.indexOf(heading);
+    const result = locateInMarkdown({
+      source,
+      selectedText: "欢迎来到琅嬛",
+      startBlock: { start, end: start + heading.length },
+      endBlock: { start, end: start + heading.length },
+    });
+    expect(result.start).toBeGreaterThanOrEqual(off);
+    expect(source.slice(result.start, result.end)).toContain("欢迎来到琅嬛");
+  });
+});
+
+describe("locateInHtml", () => {
+  const html = `<!DOCTYPE html>
+<html><head><style>.x{color:red}</style></title></head>
+<body>
+  <div class="card">
+    <h1>沙箱里的小交互</h1>
+    <p>此页在琅嬛中以 sandbox 预览，脚本可运行，但不能读父页面。</p>
+    <div id="count">0</div>
+  </div>
+  <script>
+    let n = 0;
+    document.getElementById("count").textContent = "42-script-only";
+  </script>
+</body></html>`;
+
+  it("6a. locates static paragraph", () => {
+    const result = locateInHtml({
+      source: html,
+      text: "此页在琅嬛中以 sandbox 预览，脚本可运行，但不能读父页面。",
+      before: "小交互",
+      after: "0",
+    });
+    expect(result.precision).toBe("exact");
+    expect(result.message).toMatch(/第 \d+ 行/);
+  });
+
+  it("6b. script-generated text reports clear message", () => {
+    // only inside <script> string
+    const resultInScript = locateInHtml({
+      source: html,
+      text: "42-script-only",
+      before: "",
+      after: "",
+    });
+    expect(resultInScript.precision).toBe("none");
+    expect(resultInScript.message).toContain("脚本生成");
+
+    // dynamic counter value never present in source
+    const resultDynamic = locateInHtml({
+      source: html,
+      text: "12345",
+      before: "",
+      after: "",
+    });
+    expect(resultDynamic.precision).toBe("none");
+    expect(resultDynamic.message).toContain("脚本生成");
+  });
+
+  it("visible map skips style/script", () => {
+    const { visible } = buildHtmlVisibleMap(html);
+    expect(visible).toContain("沙箱里的小交互");
+    expect(visible).not.toContain("color:red");
+    expect(visible).not.toContain("let n");
+  });
+});

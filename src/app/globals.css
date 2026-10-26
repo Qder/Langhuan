@@ -291,3 +291,22 @@ body {
   background: color-mix(in srgb, var(--muted) 35%, transparent);
   border-radius: 99px;
 }
+
+
+/* Preview → Source reveal flash (朱砂) */
+@keyframes lh-cinnabar-flash {
+  0% { opacity: 0; }
+  15% { opacity: 1; }
+  100% { opacity: 0; }
+}
+.lh-reveal-flash {
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+  animation: lh-cinnabar-flash 1.2s ease-out forwards;
+  z-index: 2;
+}
+.lh-preview-flash {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-radius: 4px;
+  transition: background 1.2s ease-out, outline-color 1.2s ease-out;
+}
