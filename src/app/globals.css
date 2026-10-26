@@ -13,6 +13,7 @@
   --border: rgba(43, 38, 31, 0.12);
   --hover: rgba(43, 38, 31, 0.05);
   --card: rgba(255, 252, 245, 0.86);
+  --menu: #fffcf5;
   --shadow: 0 10px 30px rgba(43, 38, 31, 0.06);
   --paper-noise: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
 }
@@ -28,6 +29,7 @@ html.dark {
   --border: rgba(236, 228, 210, 0.12);
   --hover: rgba(236, 228, 210, 0.06);
   --card: rgba(26, 24, 20, 0.92);
+  --menu: #1a1814;
   --shadow: 0 12px 36px rgba(0, 0, 0, 0.35);
   --paper-noise: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.06'/%3E%3C/svg%3E");
 }

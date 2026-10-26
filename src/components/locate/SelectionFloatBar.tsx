@@ -15,7 +15,7 @@ export function SelectionFloatBar({
 
   return (
     <div
-      className="fixed z-[70] flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--card)] px-1.5 py-1 shadow-lg animate-enter font-ui"
+      className="fixed z-[70] flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--menu)] px-1.5 py-1 shadow-lg animate-enter font-ui"
       style={{
         left: mid,
         top,

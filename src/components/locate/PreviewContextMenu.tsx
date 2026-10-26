@@ -73,7 +73,7 @@ export function PreviewContextMenu({
       role="menu"
       aria-label="预览选区菜单"
       style={style}
-      className="min-w-[200px] rounded-2xl border border-[var(--border)] bg-[var(--card)] p-1.5 shadow-xl animate-enter font-ui"
+      className="min-w-[200px] rounded-2xl border border-[var(--border)] bg-[var(--menu)] p-1.5 shadow-xl animate-enter font-ui"
     >
       {items.map((item, i) => (
         <button

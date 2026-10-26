@@ -142,9 +142,22 @@ export function Sidebar() {
   const openDoc = useStore((s) => s.openDoc);
   const folderRef = React.useRef<HTMLInputElement>(null);
   const fileRef = React.useRef<HTMLInputElement>(null);
+  const [tagsExpanded, setTagsExpanded] = React.useState(false);
+  const [tagQuery, setTagQuery] = React.useState("");
 
   const visible = filteredDocuments(documents, tagFilter);
   const tags = collectTagCounts(documents);
+  const sortedTags = [...tags.entries()].sort(
+    (a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "zh")
+  );
+  const tagQ = tagQuery.trim().toLowerCase();
+  const filteredTags = tagQ
+    ? sortedTags.filter(([name]) => name.toLowerCase().includes(tagQ))
+    : sortedTags;
+  const TAG_COLLAPSE_AT = 8;
+  const tagsNeedCollapse = filteredTags.length > TAG_COLLAPSE_AT;
+  const shownTags =
+    tagsNeedCollapse && !tagsExpanded ? filteredTags.slice(0, TAG_COLLAPSE_AT) : filteredTags;
   const starred = documents.filter((d) => d.starred).sort((a, b) => b.updatedAt - a.updatedAt);
   const tree = buildTree(visible.map((d) => ({ id: d.id, path: d.path, type: d.type })));
   const bytes = useStore((s) => s.storageBytes)();
@@ -270,37 +283,70 @@ export function Sidebar() {
         </button>
       </div>
 
-      <div className="px-3 pb-2">
-        <div className="text-[11px] uppercase tracking-wider text-[var(--muted)] px-2 mb-1.5">标签</div>
-        <div className="flex flex-wrap gap-1.5">
+      <div className="px-3 pb-2 shrink-0">
+        <div className="text-[11px] uppercase tracking-wider text-[var(--muted)] px-2 mb-1.5 flex items-center justify-between gap-2">
+          <span>标签</span>
+          <span className="normal-case tracking-normal tabular-nums">{tags.size}</span>
+        </div>
+        {sortedTags.length > TAG_COLLAPSE_AT && (
+          <div className="px-1 mb-1.5">
+            <input
+              value={tagQuery}
+              onChange={(e) => {
+                setTagQuery(e.target.value);
+                setTagsExpanded(true);
+              }}
+              placeholder="筛选标签…"
+              aria-label="筛选标签"
+              className="h-8 w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-2.5 text-xs font-ui text-[var(--fg)] placeholder:text-[var(--muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/35"
+            />
+          </div>
+        )}
+        <div
+          className={cn(
+            "flex flex-wrap gap-1.5 content-start",
+            tagsExpanded && tagsNeedCollapse && "max-h-36 overflow-y-auto scroll-thin pr-0.5"
+          )}
+        >
           <button
             type="button"
             onClick={() => setTagFilter(null)}
             className={cn(
               "rounded-full px-2.5 py-1 text-xs border transition-colors",
-              !tagFilter ? "border-[var(--accent)] text-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_10%,transparent)]" : "border-[var(--border)] hover:bg-[var(--hover)]"
+              !tagFilter
+                ? "border-[var(--accent)] text-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_10%,transparent)]"
+                : "border-[var(--border)] hover:bg-[var(--hover)]"
             )}
           >
             全部 · {documents.length}
           </button>
-          {[...tags.entries()]
-            .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "zh"))
-            .map(([t, n]) => (
-              <button
-                key={t}
-                type="button"
-                onClick={() => setTagFilter(tagFilter === t ? null : t)}
-                className={cn(
-                  "rounded-full px-2.5 py-1 text-xs border transition-colors",
-                  tagFilter === t
-                    ? "border-[var(--accent)] text-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_10%,transparent)]"
-                    : "border-[var(--border)] hover:bg-[var(--hover)]"
-                )}
-              >
-                {t} · {n}
-              </button>
-            ))}
+          {shownTags.map(([name, n]) => (
+            <button
+              key={name}
+              type="button"
+              onClick={() => setTagFilter(tagFilter === name ? null : name)}
+              className={cn(
+                "rounded-full px-2.5 py-1 text-xs border transition-colors",
+                tagFilter === name
+                  ? "border-[var(--accent)] text-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_10%,transparent)]"
+                  : "border-[var(--border)] hover:bg-[var(--hover)]"
+              )}
+            >
+              {name} · {n}
+            </button>
+          ))}
         </div>
+        {tagsNeedCollapse && (
+          <button
+            type="button"
+            onClick={() => setTagsExpanded((v) => !v)}
+            className="mt-1.5 w-full rounded-lg px-2 py-1 text-left text-[11px] text-[var(--muted)] hover:bg-[var(--hover)] hover:text-[var(--fg)] transition-colors"
+          >
+            {tagsExpanded
+              ? "收起标签"
+              : `展开全部 ${filteredTags.length} 个标签`}
+          </button>
+        )}
       </div>
 
       {starred.length > 0 && (
