@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import {
+  ArrowLeftRight,
   Check,
   Copy,
   Download,
@@ -26,6 +27,8 @@ export function TopBar() {
   const active = useStore((s) => s.getActive());
   const viewMode = useStore((s) => s.viewMode);
   const setViewMode = useStore((s) => s.setViewMode);
+  const splitSourceFirst = useStore((s) => s.splitSourceFirst);
+  const toggleSplitSourceFirst = useStore((s) => s.toggleSplitSourceFirst);
   const saveDoc = useStore((s) => s.saveDoc);
   const isDirty = useStore((s) => s.isDirty);
   const toggleStar = useStore((s) => s.toggleStar);
@@ -120,6 +123,24 @@ export function TopBar() {
               </button>
             ))}
           </div>
+        )}
+
+        {active && viewMode === "split" && (
+          <button
+            type="button"
+            onClick={() => toggleSplitSourceFirst()}
+            title={splitSourceFirst ? "切换为预览在左" : "切换为源码在左"}
+            aria-label={splitSourceFirst ? "当前源码在左，点击改为预览在左" : "当前预览在左，点击改为源码在左"}
+            className={cn(
+              "hidden sm:inline-flex items-center gap-1.5 rounded-xl border border-[var(--border)]",
+              "bg-[var(--card)] px-2.5 py-1 text-xs font-ui transition-colors",
+              "hover:bg-[var(--hover)] hover:border-[var(--accent)]/40",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40"
+            )}
+          >
+            <ArrowLeftRight className="h-3.5 w-3.5 text-[var(--muted)]" />
+            <span>{splitSourceFirst ? "源码在左" : "预览在左"}</span>
+          </button>
         )}
 
         {active && (

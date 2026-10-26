@@ -200,7 +200,7 @@ export function HtmlReader({ doc }: { doc: Document }) {
           title={doc.path}
           srcDoc={srcDoc}
           sandbox="allow-scripts allow-popups allow-forms"
-          className="h-full w-full rounded-2xl border border-[var(--border)] bg-white"
+          className="h-full w-full rounded-2xl border border-[var(--border)] bg-[#faf9f7] dark:bg-[#1a1916]"
         />
       </div>
       {menu && (

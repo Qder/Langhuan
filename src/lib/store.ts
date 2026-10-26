@@ -32,6 +32,10 @@ type LanghuanState = {
   status: StatusFeedback;
   pendingReveal: PendingReveal | null;
   pendingPreviewLocate: PendingPreviewLocate | null;
+  /** Fraction of split space for the source pane (0.2–0.8). */
+  splitRatio: number;
+  /** When true, source is on the left (or top on small screens). */
+  splitSourceFirst: boolean;
   setHydrated: (v: boolean) => void;
   setTheme: (t: ThemeMode) => void;
   toggleTheme: () => void;
@@ -39,6 +43,9 @@ type LanghuanState = {
   setCommandOpen: (v: boolean) => void;
   setTagFilter: (t: string | null) => void;
   setViewMode: (m: ViewMode) => void;
+  setSplitRatio: (r: number) => void;
+  setSplitSourceFirst: (v: boolean) => void;
+  toggleSplitSourceFirst: () => void;
   setStatus: (message: string) => void;
   applyLocateResult: (result: LocateResult) => void;
   clearPendingReveal: () => void;
@@ -82,6 +89,8 @@ export const useStore = create<LanghuanState>()(
       status: null,
       pendingReveal: null,
       pendingPreviewLocate: null,
+      splitRatio: 0.5,
+      splitSourceFirst: true,
 
       setHydrated: (v) => set({ hydrated: v }),
       setTheme: (t) => {
@@ -99,6 +108,16 @@ export const useStore = create<LanghuanState>()(
       setCommandOpen: (v) => set({ commandOpen: v }),
       setTagFilter: (t) => set({ tagFilter: t }),
       setViewMode: (m) => set({ viewMode: m }),
+      setSplitRatio: (r) => {
+        const clamped = Math.min(0.8, Math.max(0.2, r));
+        set({ splitRatio: clamped });
+      },
+      setSplitSourceFirst: (v) => set({ splitSourceFirst: v }),
+      toggleSplitSourceFirst: () => {
+        const next = !get().splitSourceFirst;
+        set({ splitSourceFirst: next });
+        get().setStatus(next ? "分栏：源码在左" : "分栏：预览在左");
+      },
       setStatus: (message) => set({ status: { message, at: Date.now() } }),
 
       applyLocateResult: (result) => {
@@ -312,6 +331,8 @@ export const useStore = create<LanghuanState>()(
         theme: s.theme,
         viewMode: s.viewMode,
         activeId: s.activeId,
+        splitRatio: s.splitRatio,
+        splitSourceFirst: s.splitSourceFirst,
       }),
       onRehydrateStorage: () => (state) => {
         state?.setHydrated(true);
