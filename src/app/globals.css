@@ -295,6 +295,31 @@ body {
 }
 
 
+
+/* KaTeX — 纸·墨·朱砂 */
+.prose-langhuan .katex {
+  color: var(--fg);
+  font-size: 1.05em;
+}
+.prose-langhuan .katex-display {
+  margin: 1.1em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.15em 0;
+}
+.prose-langhuan .katex-display > .katex {
+  font-size: 1.12em;
+}
+.prose-langhuan table .katex {
+  font-size: 1em;
+}
+html.dark .prose-langhuan .katex {
+  color: var(--fg);
+}
+.prose-langhuan .katex-error {
+  color: var(--accent) !important;
+}
+
 /* Preview → Source reveal flash (朱砂) */
 @keyframes lh-cinnabar-flash {
   0% { opacity: 0; }

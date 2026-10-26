@@ -14,6 +14,7 @@ import {
   titleOf,
   cn,
 } from "@/lib/utils";
+import { ImportFolderDialog } from "./ImportFolderDialog";
 
 export function HomeView() {
   const documents = useStore((s) => s.documents);
@@ -23,7 +24,7 @@ export function HomeView() {
   const setTagFilter = useStore((s) => s.setTagFilter);
   const resetSeed = useStore((s) => s.resetSeed);
   const folderRef = React.useRef<HTMLInputElement>(null);
-  const importFiles = useStore((s) => s.importFiles);
+  const [pendingImport, setPendingImport] = React.useState<{ path: string; content: string }[] | null>(null);
 
   const tags = collectTagCounts(documents);
   const words = documents.reduce((n, d) => n + countWords(d.type === "html" ? stripHtml(d.content) : d.content), 0);
@@ -93,13 +94,14 @@ export function HomeView() {
           webkitdirectory=""
           onChange={async (e) => {
             if (!e.target.files) return;
-            const files = [];
+            const files: { path: string; content: string }[] = [];
             for (const f of Array.from(e.target.files)) {
               const path = (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name;
               if (!/\.(md|html|txt)$/i.test(path)) continue;
               files.push({ path, content: await f.text() });
             }
-            importFiles(files);
+            if (files.length) setPendingImport(files);
+            e.target.value = "";
           }}
         />
 
@@ -224,6 +226,11 @@ export function HomeView() {
           </section>
         )}
       </div>
+      <ImportFolderDialog
+        open={!!pendingImport?.length}
+        files={pendingImport}
+        onClose={() => setPendingImport(null)}
+      />
     </div>
   );
 }

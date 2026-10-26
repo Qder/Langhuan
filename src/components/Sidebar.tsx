@@ -19,6 +19,7 @@ import { useStore, filteredDocuments } from "@/lib/store";
 import { collectTagCounts } from "@/lib/tags";
 import { titleOf } from "@/lib/utils";
 import { cn } from "@/lib/utils";
+import { ImportFolderDialog } from "./ImportFolderDialog";
 
 function Brand() {
   const openHome = useStore((s) => s.openHome);
@@ -133,7 +134,6 @@ export function Sidebar() {
   const openHome = useStore((s) => s.openHome);
   const activeId = useStore((s) => s.activeId);
   const createDoc = useStore((s) => s.createDoc);
-  const importFiles = useStore((s) => s.importFiles);
   const setCommandOpen = useStore((s) => s.setCommandOpen);
   const theme = useStore((s) => s.theme);
   const toggleTheme = useStore((s) => s.toggleTheme);
@@ -144,6 +144,7 @@ export function Sidebar() {
   const fileRef = React.useRef<HTMLInputElement>(null);
   const [tagsExpanded, setTagsExpanded] = React.useState(false);
   const [tagQuery, setTagQuery] = React.useState("");
+  const [pendingImport, setPendingImport] = React.useState<{ path: string; content: string }[] | null>(null);
 
   const visible = filteredDocuments(documents, tagFilter);
   const tags = collectTagCounts(documents);
@@ -176,7 +177,7 @@ export function Sidebar() {
       if (!/\.(md|html|txt)$/i.test(path)) continue;
       files.push({ path, content: await readFileAsText(file) });
     }
-    importFiles(files);
+    if (files.length) setPendingImport(files);
   };
 
   const openLocalFolder = async () => {
@@ -202,7 +203,7 @@ export function Sidebar() {
         }
       };
       await walk(dir, "");
-      importFiles(collected);
+      if (collected.length) setPendingImport(collected);
     } catch {
       /* cancelled */
     }
@@ -258,7 +259,10 @@ export function Sidebar() {
           multiple
           // @ts-expect-error webkitdirectory
           webkitdirectory=""
-          onChange={(e) => e.target.files && handleImportList(e.target.files, true)}
+          onChange={(e) => {
+            if (e.target.files) void handleImportList(e.target.files, true);
+            e.target.value = "";
+          }}
         />
         <input
           ref={fileRef}
@@ -266,7 +270,10 @@ export function Sidebar() {
           className="hidden"
           multiple
           accept=".md,.html,.txt,text/markdown,text/html"
-          onChange={(e) => e.target.files && handleImportList(e.target.files, false)}
+          onChange={(e) => {
+            if (e.target.files) void handleImportList(e.target.files, false);
+            e.target.value = "";
+          }}
         />
       </div>
 
@@ -402,6 +409,11 @@ export function Sidebar() {
           <div className="relative z-10 h-full animate-enter">{panel}</div>
         </div>
       )}
+      <ImportFolderDialog
+        open={!!pendingImport?.length}
+        files={pendingImport}
+        onClose={() => setPendingImport(null)}
+      />
     </>
   );
 }

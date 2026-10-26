@@ -3,7 +3,9 @@
 import * as React from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
 import rehypeSlug from "rehype-slug";
+import rehypeKatex from "rehype-katex";
 import rehypeHighlight from "rehype-highlight";
 import rehypeRaw from "rehype-raw";
 import { Copy, Info, Lightbulb, TriangleAlert } from "lucide-react";
@@ -23,6 +25,7 @@ import { rehypeSrcPositions } from "@/lib/locate/rehypeSrcPositions";
 import { PreviewContextMenu, type ContextMenuItem } from "./locate/PreviewContextMenu";
 import { SelectionFloatBar } from "./locate/SelectionFloatBar";
 import "highlight.js/styles/github-dark.css";
+import "katex/dist/katex.min.css";
 
 function WikiText({ text, docs, onOpen }: { text: string; docs: Document[]; onOpen: (id: string) => void }) {
   const parts = text.split(/(\[\[[^\]]+\]\])/g);
@@ -428,8 +431,14 @@ export function MarkdownReader({ doc }: { doc: Document }) {
           </header>
 
           <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
-            rehypePlugins={[rehypeSlug, rehypeRaw, rehypeHighlight, rehypeSrcPositions(fmOffset)]}
+            remarkPlugins={[remarkGfm, remarkMath]}
+            rehypePlugins={[
+              rehypeKatex,
+              rehypeSlug,
+              rehypeRaw,
+              rehypeHighlight,
+              rehypeSrcPositions(fmOffset),
+            ]}
             components={{
               p: ({ node, children, ...props }) =>
                 withSrc("p", node as HastNode, props as Record<string, unknown>, walkChildren(children, documents, openDoc)),
