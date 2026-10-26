@@ -1,17 +1,20 @@
-export type DocKind = "md" | "html";
+export type DocType = "md" | "html";
 
-export interface TreeNode {
-  name: string;
+export type Document = {
+  id: string;
   path: string;
-  isDir: boolean;
-  children?: TreeNode[];
-}
+  type: DocType;
+  content: string;
+  starred: boolean;
+  createdAt: number;
+  updatedAt: number;
+};
 
-export interface DocMeta {
-  path: string;
-  name: string;
-  kind: DocKind | string;
-  title: string;
-  tags: string[];
-  body: string;
-}
+export type ViewMode = "preview" | "split" | "source";
+
+export type ThemeMode = "paper" | "ink";
+
+export type StatusFeedback = {
+  message: string;
+  at: number;
+} | null;
