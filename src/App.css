@@ -389,7 +389,13 @@ button, input, textarea {
 .main {
   min-height: 0;
   display: grid;
+  grid-template-columns: 260px 1fr;
+}
+.main.with-toc {
   grid-template-columns: 260px 200px 1fr;
+}
+.main.no-toc {
+  grid-template-columns: 260px 1fr;
 }
 
 .sidebar {
@@ -641,10 +647,14 @@ button, input, textarea {
 .modal-actions { display: flex; justify-content: flex-end; gap: 0.5rem; }
 
 @media (max-width: 1100px) {
-  .main { grid-template-columns: 240px 180px 1fr; }
+  .main,
+  .main.no-toc { grid-template-columns: 240px 1fr; }
+  .main.with-toc { grid-template-columns: 240px 180px 1fr; }
 }
 @media (max-width: 900px) {
-  .main { grid-template-columns: 1fr; }
+  .main,
+  .main.with-toc,
+  .main.no-toc { grid-template-columns: 1fr; }
   .sidebar { max-height: 32vh; border-right: none; border-bottom: 1px solid var(--line); }
   .toc-panel { max-height: 28vh; border-right: none; border-bottom: 1px solid var(--line); }
 }

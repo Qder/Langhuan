@@ -23,7 +23,7 @@ import {
   writeFile,
 } from "./lib/api";
 import { renderMarkdownWithOutline } from "./lib/markdown";
-import { enrichHeadings, type OutlineItem } from "./lib/outline";
+import { type OutlineItem } from "./lib/outline";
 import type { DocMeta, TreeNode } from "./lib/types";
 
 type Mode = "preview" | "source";
@@ -296,17 +296,18 @@ export default function App() {
     selectedPath?.toLowerCase().endsWith(".html") ||
     selectedPath?.toLowerCase().endsWith(".htm");
 
+  // HTML 自带页内目录时不再解析大纲；中间「目录」栏仅给 Markdown 用
+  const showToc = !isHtml;
+
   const previewBundle = useMemo(() => {
     if (!selectedPath) return { html: "", outline: [] as OutlineItem[] };
-    if (isHtml) return enrichHeadings(content);
+    if (isHtml) return { html: content, outline: [] as OutlineItem[] };
     return renderMarkdownWithOutline(content);
   }, [content, isHtml, selectedPath]);
 
   const outline = useMemo(() => {
-    if (!selectedPath) return [] as OutlineItem[];
+    if (!selectedPath || isHtml) return [] as OutlineItem[];
     if (mode === "source") {
-      // best-effort from draft while editing
-      if (isHtml) return enrichHeadings(draft).outline;
       return renderMarkdownWithOutline(draft).outline;
     }
     return previewBundle.outline;
@@ -510,7 +511,7 @@ export default function App() {
         </div>
       </header>
 
-      <div className="main">
+      <div className={`main${showToc ? " with-toc" : " no-toc"}`}>
         <aside className="sidebar">
           <div className="search-box">
             <input
@@ -543,34 +544,36 @@ export default function App() {
           </div>
         </aside>
 
-        <aside className="toc-panel" aria-label="文档目录">
-          <div className="toc-head">目录</div>
-          <div className="toc-list">
-            {!selectedPath && (
-              <p className="toc-empty">选择文档后显示标题大纲</p>
-            )}
-            {selectedPath && outline.length === 0 && (
-              <p className="toc-empty">
-                {mode === "source"
-                  ? "源码中暂无识别到标题（# 或 h1–h6）"
-                  : "本文暂无标题大纲"}
-              </p>
-            )}
-            {outline.map((item) => (
-              <button
-                key={`${item.id}-${item.level}-${item.text}`}
-                type="button"
-                className={`toc-item l${item.level}${
-                  activeHeading === item.id ? " active" : ""
-                }`}
-                title={item.text}
-                onClick={() => jumpToHeading(item.id)}
-              >
-                {item.text}
-              </button>
-            ))}
-          </div>
-        </aside>
+        {showToc && (
+          <aside className="toc-panel" aria-label="文档目录">
+            <div className="toc-head">目录</div>
+            <div className="toc-list">
+              {!selectedPath && (
+                <p className="toc-empty">选择文档后显示标题大纲</p>
+              )}
+              {selectedPath && outline.length === 0 && (
+                <p className="toc-empty">
+                  {mode === "source"
+                    ? "源码中暂无识别到标题（# 或 h1–h6）"
+                    : "本文暂无标题大纲"}
+                </p>
+              )}
+              {outline.map((item) => (
+                <button
+                  key={`${item.id}-${item.level}-${item.text}`}
+                  type="button"
+                  className={`toc-item l${item.level}${
+                    activeHeading === item.id ? " active" : ""
+                  }`}
+                  title={item.text}
+                  onClick={() => jumpToHeading(item.id)}
+                >
+                  {item.text}
+                </button>
+              ))}
+            </div>
+          </aside>
+        )}
 
         <section className="workspace">
           <div className="docbar">
