@@ -25,6 +25,7 @@ import {
 import { renderMarkdownWithOutline } from "./lib/markdown";
 import { type OutlineItem } from "./lib/outline";
 import type { DocMeta, TreeNode } from "./lib/types";
+import { SourceEditor } from "./components/SourceEditor";
 
 type Mode = "preview" | "source";
 
@@ -44,6 +45,7 @@ const THEMES = [
 ] as const;
 
 type ThemeId = (typeof THEMES)[number]["id"];
+const DARK_THEMES: ReadonlySet<ThemeId> = new Set(["ink", "indigo", "slate", "dusk"]);
 const THEME_STORAGE_KEY = "langhuan-theme";
 
 function loadTheme(): ThemeId {
@@ -616,18 +618,18 @@ export default function App() {
             </div>
           )}
 
-          <div className="pane" ref={paneRef}>
+          <div className={`pane${mode === "source" ? " source-mode" : ""}`} ref={paneRef}>
             {!selectedPath && (
               <p className="muted center">从左侧选择或新建一篇文档</p>
             )}
             {selectedPath && mode === "source" && (
-              <textarea
-                className="editor"
+              <SourceEditor
                 value={draft}
-                spellCheck={false}
-                onChange={(e) => {
-                  setDraft(e.target.value);
-                  setDirty(e.target.value !== content);
+                language={isHtml ? "html" : "markdown"}
+                dark={DARK_THEMES.has(theme)}
+                onChange={(next) => {
+                  setDraft(next);
+                  setDirty(next !== content);
                 }}
               />
             )}
