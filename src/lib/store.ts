@@ -36,6 +36,10 @@ type LanghuanState = {
   splitRatio: number;
   /** When true, source is on the left (or top on small screens). */
   splitSourceFirst: boolean;
+  /** Desktop sidebar width in px (220–420). */
+  sidebarWidth: number;
+  /** Markdown outline/backlinks panel width in px (160–360). */
+  outlineWidth: number;
   setHydrated: (v: boolean) => void;
   setTheme: (t: ThemeMode) => void;
   toggleTheme: () => void;
@@ -46,6 +50,8 @@ type LanghuanState = {
   setSplitRatio: (r: number) => void;
   setSplitSourceFirst: (v: boolean) => void;
   toggleSplitSourceFirst: () => void;
+  setSidebarWidth: (w: number) => void;
+  setOutlineWidth: (w: number) => void;
   setStatus: (message: string) => void;
   applyLocateResult: (result: LocateResult) => void;
   clearPendingReveal: () => void;
@@ -91,6 +97,8 @@ export const useStore = create<LanghuanState>()(
       pendingPreviewLocate: null,
       splitRatio: 0.5,
       splitSourceFirst: true,
+      sidebarWidth: 300,
+      outlineWidth: 240,
 
       setHydrated: (v) => set({ hydrated: v }),
       setTheme: (t) => {
@@ -117,6 +125,14 @@ export const useStore = create<LanghuanState>()(
         const next = !get().splitSourceFirst;
         set({ splitSourceFirst: next });
         get().setStatus(next ? "分栏：源码在左" : "分栏：预览在左");
+      },
+      setSidebarWidth: (w) => {
+        const clamped = Math.min(420, Math.max(220, Math.round(w)));
+        set({ sidebarWidth: clamped });
+      },
+      setOutlineWidth: (w) => {
+        const clamped = Math.min(360, Math.max(160, Math.round(w)));
+        set({ outlineWidth: clamped });
       },
       setStatus: (message) => set({ status: { message, at: Date.now() } }),
 
@@ -333,6 +349,8 @@ export const useStore = create<LanghuanState>()(
         activeId: s.activeId,
         splitRatio: s.splitRatio,
         splitSourceFirst: s.splitSourceFirst,
+        sidebarWidth: s.sidebarWidth,
+        outlineWidth: s.outlineWidth,
       }),
       onRehydrateStorage: () => (state) => {
         state?.setHydrated(true);

@@ -24,6 +24,7 @@ import {
 import { rehypeSrcPositions } from "@/lib/locate/rehypeSrcPositions";
 import { PreviewContextMenu, type ContextMenuItem } from "./locate/PreviewContextMenu";
 import { SelectionFloatBar } from "./locate/SelectionFloatBar";
+import { ResizeGutter } from "./ui/ResizeGutter";
 import "highlight.js/styles/github-dark.css";
 import "katex/dist/katex.min.css";
 
@@ -83,10 +84,10 @@ function CodeBlock({
       : {};
   return (
     <div
-      className="not-prose my-4 overflow-hidden rounded-[14px] border border-[rgba(236,228,210,0.08)] bg-[#1a1814] text-[#ece4d2]"
+      className="lh-codeblock not-prose my-5 overflow-hidden rounded-[14px] border border-[rgba(236,228,210,0.08)] bg-[#1a1814] text-[#ece4d2]"
       {...attrs}
     >
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-[rgba(236,228,210,0.08)] text-xs">
+      <div className="lh-codeblock-chrome flex items-center gap-2 px-3 py-2 border-b border-[rgba(236,228,210,0.08)] text-xs">
         <span className="h-2.5 w-2.5 rounded-full bg-[#ff5f56]" />
         <span className="h-2.5 w-2.5 rounded-full bg-[#ffbd2e]" />
         <span className="h-2.5 w-2.5 rounded-full bg-[#27c93f]" />
@@ -163,6 +164,8 @@ export function MarkdownReader({ doc }: { doc: Document }) {
   const pendingPreviewLocate = useStore((s) => s.pendingPreviewLocate);
   const clearPendingPreviewLocate = useStore((s) => s.clearPendingPreviewLocate);
   const setStatus = useStore((s) => s.setStatus);
+  const outlineWidth = useStore((s) => s.outlineWidth);
+  const setOutlineWidth = useStore((s) => s.setOutlineWidth);
   const content = getContent(doc.id);
   const fmOffset = frontmatterOffset(content);
   const { body } = parseFrontmatter(content);
@@ -498,7 +501,10 @@ export function MarkdownReader({ doc }: { doc: Document }) {
                 return <>{children}</>;
               },
               code: ({ node, className, children, ...props }) => {
-                const isBlock = typeof className === "string" && className.includes("language-");
+                const inline = (props as { inline?: boolean }).inline;
+                const isBlock =
+                  inline === false ||
+                  (typeof className === "string" && /(^|\s)language-/.test(className));
                 const attrs = srcAttrs(fmOffset, node as HastNode);
                 if (isBlock) {
                   return (
@@ -557,7 +563,19 @@ export function MarkdownReader({ doc }: { doc: Document }) {
         </article>
       </div>
 
-      <aside className="hidden xl:flex w-[240px] shrink-0 flex-col border-l border-[var(--border)] p-4 gap-6 overflow-y-auto scroll-thin">
+      <ResizeGutter
+        className="hidden xl:flex"
+        axis="horizontal"
+        label="调整大纲宽度"
+        value={outlineWidth}
+        min={160}
+        max={360}
+        onDelta={(d) => setOutlineWidth(outlineWidth - d)}
+      />
+      <aside
+        className="hidden xl:flex shrink-0 flex-col border-l border-[var(--border)] p-4 gap-6 overflow-y-auto scroll-thin"
+        style={{ width: outlineWidth }}
+      >
         <div>
           <div className="text-xs uppercase tracking-wider text-[var(--muted)] mb-2">大纲</div>
           <nav className="space-y-1 sticky top-0">

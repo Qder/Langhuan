@@ -20,6 +20,7 @@ import { collectTagCounts } from "@/lib/tags";
 import { titleOf } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import { ImportFolderDialog } from "./ImportFolderDialog";
+import { ResizeGutter } from "./ui/ResizeGutter";
 
 function Brand() {
   const openHome = useStore((s) => s.openHome);
@@ -139,6 +140,8 @@ export function Sidebar() {
   const toggleTheme = useStore((s) => s.toggleTheme);
   const sidebarOpen = useStore((s) => s.sidebarOpen);
   const setSidebarOpen = useStore((s) => s.setSidebarOpen);
+  const sidebarWidth = useStore((s) => s.sidebarWidth);
+  const setSidebarWidth = useStore((s) => s.setSidebarWidth);
   const openDoc = useStore((s) => s.openDoc);
   const folderRef = React.useRef<HTMLInputElement>(null);
   const fileRef = React.useRef<HTMLInputElement>(null);
@@ -210,7 +213,7 @@ export function Sidebar() {
   };
 
   const panel = (
-    <aside className="flex h-full w-[300px] flex-col border-r border-[var(--border)] bg-[color-mix(in_srgb,var(--bg-elevated)_88%,transparent)] backdrop-blur-md">
+    <aside className="flex h-full w-full flex-col border-r border-[var(--border)] bg-[color-mix(in_srgb,var(--bg-elevated)_88%,transparent)] backdrop-blur-md">
       <div className="p-4 pb-2 space-y-3">
         <Brand />
         <button
@@ -402,11 +405,22 @@ export function Sidebar() {
 
   return (
     <>
-      <div className="hidden md:flex h-full shrink-0">{panel}</div>
+      <div className="hidden md:flex h-full shrink-0" style={{ width: sidebarWidth }}>
+        {panel}
+      </div>
+      <ResizeGutter
+        className="hidden md:flex"
+        axis="horizontal"
+        label="调整侧栏宽度"
+        value={sidebarWidth}
+        min={220}
+        max={420}
+        onDelta={(d) => setSidebarWidth(sidebarWidth + d)}
+      />
       {sidebarOpen && (
         <div className="md:hidden fixed inset-0 z-50 flex">
           <div className="absolute inset-0 bg-black/40" onClick={() => setSidebarOpen(false)} />
-          <div className="relative z-10 h-full animate-enter">{panel}</div>
+          <div className="relative z-10 h-full w-[min(86vw,320px)] animate-enter">{panel}</div>
         </div>
       )}
       <ImportFolderDialog

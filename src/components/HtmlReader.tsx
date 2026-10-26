@@ -6,6 +6,7 @@ import { getTags } from "@/lib/tags";
 import { relativeTime } from "@/lib/utils";
 import type { Document } from "@/lib/types";
 import { injectLocateBridge, isTrivialSelection, locateInHtml } from "@/lib/locate";
+import { prepareHtmlPreview } from "@/lib/fixHtmlPreview";
 import type { HtmlLocatePayload } from "@/lib/locate";
 import { PreviewContextMenu, type ContextMenuItem } from "./locate/PreviewContextMenu";
 import { SelectionFloatBar } from "./locate/SelectionFloatBar";
@@ -32,7 +33,10 @@ export function HtmlReader({ doc }: { doc: Document }) {
     payload: HtmlLocatePayload;
   } | null>(null);
 
-  const srcDoc = React.useMemo(() => injectLocateBridge(content), [content]);
+  const srcDoc = React.useMemo(
+    () => injectLocateBridge(prepareHtmlPreview(content)),
+    [content]
+  );
 
   const runLocate = React.useCallback(
     (payload: Pick<HtmlLocatePayload, "text" | "before" | "after">) => {

@@ -337,3 +337,31 @@ html.dark .prose-langhuan .katex {
   border-radius: 4px;
   transition: background 1.2s ease-out, outline-color 1.2s ease-out;
 }
+
+
+/* Selection isolation: heading vs code block */
+.prose-langhuan h1,
+.prose-langhuan h2,
+.prose-langhuan h3,
+.prose-langhuan h4 {
+  -webkit-user-select: text;
+  user-select: text;
+}
+.prose-langhuan h2,
+.prose-langhuan h3 {
+  margin-bottom: 0.85em;
+}
+.lh-codeblock {
+  -webkit-user-select: contain;
+  user-select: contain;
+  isolation: isolate;
+}
+.lh-codeblock-chrome {
+  -webkit-user-select: none;
+  user-select: none;
+}
+.lh-codeblock pre,
+.lh-codeblock code {
+  -webkit-user-select: text;
+  user-select: text;
+}
