@@ -1,15 +1,18 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
+  browserLibraryHint,
   createFile,
   getDefaultLibraryPath,
   getDocuments,
   getTree,
   importFromFolder,
+  isBrowserMode,
   openLibrary,
   pickFolder,
   pickLibraryFolder,
   readFile,
   searchLibrary,
+  supportsBrowserFolderPicker,
   writeFile,
 } from "./lib/api";
 import { renderMarkdown } from "./lib/markdown";
@@ -34,6 +37,9 @@ export default function App() {
   const [pasteName, setPasteName] = useState("未命名.md");
   const [pasteBody, setPasteBody] = useState("");
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+
+  const browserMode = isBrowserMode();
+  const canPickFolder = !browserMode || supportsBrowserFolderPicker();
 
   const selectedMeta = useMemo(
     () => docs.find((d) => d.path === selectedPath) ?? null,
@@ -72,7 +78,11 @@ export default function App() {
       const root = await openLibrary(def);
       setLibraryPath(root);
       await refresh(root, null);
-      setStatus(`库：${root}`);
+      setStatus(
+        browserMode
+          ? `库：${browserLibraryHint(root)}`
+          : `库：${root}`,
+      );
     } catch (e) {
       setStatus(`打开失败：${String(e)}`);
     } finally {
@@ -217,7 +227,11 @@ export default function App() {
       const root = await openLibrary(picked);
       setLibraryPath(root);
       await refresh(root, null);
-      setStatus(`库：${root}`);
+      setStatus(
+        browserMode
+          ? `库：${browserLibraryHint(root)}`
+          : `库：${root}`,
+      );
     } catch (e) {
       setStatus(`切换失败：${String(e)}`);
     } finally {
@@ -301,6 +315,11 @@ export default function App() {
         <div className="brand">
           <span className="brand-mark">琅嬛</span>
           <span className="brand-sub">Langhuan</span>
+          {browserMode ? (
+            <span className="mode-badge" title="无需 Rust / Tauri，可直接在 Chrome 体验">
+              浏览器体验
+            </span>
+          ) : null}
         </div>
         <div className="actions">
           <button type="button" disabled={busy} onClick={() => onCreate("md")}>
@@ -312,12 +331,56 @@ export default function App() {
           <button type="button" disabled={busy} onClick={() => setShowPaste(true)}>
             粘贴源码
           </button>
-          <button type="button" disabled={busy} onClick={() => void onImport()}>
+          <button
+            type="button"
+            disabled={busy || !canPickFolder}
+            title={
+              !canPickFolder
+                ? "当前浏览器不支持选择文件夹，请用 Chrome / Edge"
+                : undefined
+            }
+            onClick={() => void onImport()}
+          >
             导入文件夹
           </button>
-          <button type="button" disabled={busy} onClick={() => void onChangeLibrary()}>
-            切换库目录
+          <button
+            type="button"
+            disabled={busy || (browserMode && !canPickFolder)}
+            title={
+              browserMode && !canPickFolder
+                ? "当前浏览器不支持打开本地文件夹，演示库仍可用"
+                : browserMode
+                  ? "用 Chrome 授权一个本地文件夹作为库"
+                  : undefined
+            }
+            onClick={() => void onChangeLibrary()}
+          >
+            {browserMode ? "打开本地文件夹" : "切换库目录"}
           </button>
+          {browserMode && libraryPath.startsWith("fs://") ? (
+            <button
+              type="button"
+              disabled={busy}
+              title="回到内置演示库"
+              onClick={() => {
+                void (async () => {
+                  try {
+                    setBusy(true);
+                    const root = await openLibrary(await getDefaultLibraryPath());
+                    setLibraryPath(root);
+                    await refresh(root, null);
+                    setStatus(`库：${browserLibraryHint(root)}`);
+                  } catch (e) {
+                    setStatus(`切换失败：${String(e)}`);
+                  } finally {
+                    setBusy(false);
+                  }
+                })();
+              }}
+            >
+              演示库
+            </button>
+          ) : null}
         </div>
       </header>
 
