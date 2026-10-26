@@ -1,0 +1,270 @@
+:root {
+  color-scheme: light;
+  --bg: #f4efe6;
+  --panel: #fffdf8;
+  --ink: #2a2418;
+  --muted: #7a6f5d;
+  --line: #e4d8c4;
+  --accent: #8b5e3c;
+  --accent-soft: #f0e2d0;
+  --active: #d9b991;
+  --shadow: 0 8px 28px rgba(60, 40, 20, 0.08);
+  font-family: "PingFang SC", "Noto Sans SC", "Segoe UI", system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+body { background: var(--bg); color: var(--ink); }
+
+button, input, textarea {
+  font: inherit;
+  color: inherit;
+}
+
+.app {
+  height: 100%;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.7rem 1rem;
+  background: linear-gradient(180deg, #fffaf2, #f6edd9);
+  border-bottom: 1px solid var(--line);
+}
+
+.brand { display: flex; align-items: baseline; gap: 0.55rem; }
+.brand-mark {
+  font-family: "Songti SC", "Noto Serif SC", serif;
+  font-size: 1.45rem;
+  letter-spacing: 0.12em;
+  color: var(--accent);
+}
+.brand-sub { color: var(--muted); font-size: 0.85rem; }
+
+.actions { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.actions button, .doc-actions button, .modal-actions button, .tag {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 999px;
+  padding: 0.35rem 0.8rem;
+  cursor: pointer;
+}
+.actions button:hover, .doc-actions button:hover, .tag:hover {
+  background: var(--accent-soft);
+}
+.actions button:disabled, .doc-actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.doc-actions button.on, .tag.on {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.main {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 280px 1fr;
+}
+
+.sidebar {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  border-right: 1px solid var(--line);
+  background: #faf6ee;
+}
+
+.search-box { padding: 0.75rem; }
+.search-box input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.55rem 0.7rem;
+  background: #fff;
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  padding: 0 0.75rem 0.75rem;
+}
+
+.tree {
+  overflow: auto;
+  padding: 0.25rem 0.4rem 1rem;
+}
+
+.tree-dir-btn, .tree-file {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: none;
+  background: transparent;
+  text-align: left;
+  padding: 0.35rem 0.5rem;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.tree-file:hover, .tree-dir-btn:hover { background: rgba(139, 94, 60, 0.08); }
+.tree-file.active { background: var(--active); }
+.file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chev { width: 1rem; color: var(--muted); }
+
+.workspace {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  background: var(--panel);
+}
+
+.docbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.7rem 1rem;
+  border-bottom: 1px solid var(--line);
+}
+.doc-title {
+  font-family: "Songti SC", "Noto Serif SC", serif;
+  font-size: 1.15rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dirty { color: #c45c26; }
+.doc-actions { display: flex; gap: 0.35rem; }
+
+.doc-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  padding: 0.5rem 1rem 0;
+}
+.pill {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 999px;
+  padding: 0.15rem 0.6rem;
+  font-size: 0.8rem;
+}
+
+.pane { min-height: 0; overflow: auto; padding: 1rem; }
+.editor {
+  width: 100%;
+  height: 100%;
+  min-height: 420px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 1rem;
+  resize: none;
+  background: #fff;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.92rem;
+  line-height: 1.55;
+}
+.html-frame {
+  width: 100%;
+  height: calc(100vh - 180px);
+  min-height: 420px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: var(--shadow);
+}
+.md-preview {
+  max-width: 820px;
+  margin: 0 auto;
+  padding: 1.2rem 1.5rem 2.5rem;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  line-height: 1.75;
+}
+.md-preview h1, .md-preview h2, .md-preview h3 {
+  font-family: "Songti SC", "Noto Serif SC", serif;
+  line-height: 1.3;
+}
+.md-preview pre {
+  background: #f6f1e7;
+  padding: 0.85rem 1rem;
+  border-radius: 10px;
+  overflow: auto;
+}
+.md-preview code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.9em;
+}
+.md-preview :not(pre) > code {
+  background: #f0e6d6;
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+}
+
+.status {
+  padding: 0.4rem 1rem;
+  border-top: 1px solid var(--line);
+  background: #f7f1e6;
+  color: var(--muted);
+  font-size: 0.82rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.muted { color: var(--muted); }
+.center { text-align: center; margin-top: 4rem; }
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(40, 30, 18, 0.35);
+  display: grid;
+  place-items: center;
+  z-index: 40;
+}
+.modal {
+  width: min(720px, calc(100vw - 2rem));
+  background: var(--panel);
+  border-radius: 16px;
+  padding: 1.2rem 1.3rem 1.1rem;
+  box-shadow: var(--shadow);
+  display: grid;
+  gap: 0.8rem;
+}
+.modal h2 {
+  margin: 0;
+  font-family: "Songti SC", "Noto Serif SC", serif;
+}
+.modal label {
+  display: grid;
+  gap: 0.35rem;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+.modal input, .modal textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.55rem 0.7rem;
+  background: #fff;
+  color: var(--ink);
+}
+.modal textarea { min-height: 260px; font-family: ui-monospace, Menlo, Consolas, monospace; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 0.5rem; }
+
+@media (max-width: 900px) {
+  .main { grid-template-columns: 1fr; }
+  .sidebar { max-height: 40vh; border-right: none; border-bottom: 1px solid var(--line); }
+}
