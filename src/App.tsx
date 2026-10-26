@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   browserLibraryHint,
   createFile,
@@ -15,10 +22,39 @@ import {
   supportsBrowserFolderPicker,
   writeFile,
 } from "./lib/api";
-import { renderMarkdown } from "./lib/markdown";
+import { renderMarkdownWithOutline } from "./lib/markdown";
+import { enrichHeadings, type OutlineItem } from "./lib/outline";
 import type { DocMeta, TreeNode } from "./lib/types";
 
 type Mode = "preview" | "source";
+
+const THEMES = [
+  { id: "paper", label: "宣纸" },
+  { id: "ink", label: "墨夜" },
+  { id: "light", label: "素白" },
+  { id: "forest", label: "竹林" },
+  { id: "ocean", label: "沧海" },
+  { id: "indigo", label: "黛青" },
+  { id: "rose", label: "胭脂" },
+  { id: "amber", label: "琥珀" },
+  { id: "celadon", label: "青瓷" },
+  { id: "slate", label: "玄铁" },
+  { id: "sakura", label: "樱雨" },
+  { id: "dusk", label: "暮紫" },
+] as const;
+
+type ThemeId = (typeof THEMES)[number]["id"];
+const THEME_STORAGE_KEY = "langhuan-theme";
+
+function loadTheme(): ThemeId {
+  try {
+    const raw = localStorage.getItem(THEME_STORAGE_KEY);
+    if (raw && THEMES.some((t) => t.id === raw)) return raw as ThemeId;
+  } catch {
+    /* ignore */
+  }
+  return "paper";
+}
 
 export default function App() {
   const [libraryPath, setLibraryPath] = useState("");
@@ -37,9 +73,23 @@ export default function App() {
   const [pasteName, setPasteName] = useState("未命名.md");
   const [pasteBody, setPasteBody] = useState("");
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [theme, setTheme] = useState<ThemeId>(loadTheme);
+  const [activeHeading, setActiveHeading] = useState<string | null>(null);
+
+  const paneRef = useRef<HTMLDivElement>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const browserMode = isBrowserMode();
   const canPickFolder = !browserMode || supportsBrowserFolderPicker();
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, theme);
+    } catch {
+      /* ignore */
+    }
+  }, [theme]);
 
   const selectedMeta = useMemo(
     () => docs.find((d) => d.path === selectedPath) ?? null,
@@ -88,7 +138,7 @@ export default function App() {
     } finally {
       setBusy(false);
     }
-  }, [refresh]);
+  }, [browserMode, refresh]);
 
   useEffect(() => {
     void bootstrap();
@@ -106,6 +156,7 @@ export default function App() {
         setDraft(text);
         setDirty(false);
         setMode("preview");
+        setActiveHeading(null);
       } catch (e) {
         if (!cancelled) setStatus(`读取失败：${String(e)}`);
       }
@@ -178,10 +229,11 @@ export default function App() {
 
   async function onPasteSubmit() {
     if (!libraryPath || !pasteName.trim()) return;
-    const kind = pasteName.toLowerCase().endsWith(".html") ||
+    const kind =
+      pasteName.toLowerCase().endsWith(".html") ||
       pasteName.toLowerCase().endsWith(".htm")
-      ? "html"
-      : "md";
+        ? "html"
+        : "md";
     try {
       setBusy(true);
       const path = await createFile(
@@ -244,11 +296,55 @@ export default function App() {
     selectedPath?.toLowerCase().endsWith(".html") ||
     selectedPath?.toLowerCase().endsWith(".htm");
 
-  const previewHtml = useMemo(() => {
-    if (!selectedPath) return "";
-    if (isHtml) return content;
-    return renderMarkdown(content);
+  const previewBundle = useMemo(() => {
+    if (!selectedPath) return { html: "", outline: [] as OutlineItem[] };
+    if (isHtml) return enrichHeadings(content);
+    return renderMarkdownWithOutline(content);
   }, [content, isHtml, selectedPath]);
+
+  const outline = useMemo(() => {
+    if (!selectedPath) return [] as OutlineItem[];
+    if (mode === "source") {
+      // best-effort from draft while editing
+      if (isHtml) return enrichHeadings(draft).outline;
+      return renderMarkdownWithOutline(draft).outline;
+    }
+    return previewBundle.outline;
+  }, [selectedPath, mode, isHtml, draft, previewBundle.outline]);
+
+  const previewHtml = previewBundle.html;
+
+  function jumpToHeading(id: string) {
+    setActiveHeading(id);
+    if (mode === "source") {
+      setMode("preview");
+      // defer scroll until preview mounts
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => scrollToHeading(id));
+      });
+      return;
+    }
+    scrollToHeading(id);
+  }
+
+  function scrollToHeading(id: string) {
+    if (isHtml) {
+      const frame = iframeRef.current;
+      try {
+        const doc = frame?.contentDocument;
+        const el = doc?.getElementById(id);
+        el?.scrollIntoView({ behavior: "smooth", block: "start" });
+      } catch {
+        /* sandbox / cross-origin */
+      }
+      return;
+    }
+    const pane = paneRef.current;
+    const el = pane?.querySelector(`#${CSS.escape(id)}`) as HTMLElement | null;
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }
 
   function toggleCollapse(path: string) {
     setCollapsed((c) => ({ ...c, [path]: !c[path] }));
@@ -316,71 +412,101 @@ export default function App() {
           <span className="brand-mark">琅嬛</span>
           <span className="brand-sub">Langhuan</span>
           {browserMode ? (
-            <span className="mode-badge" title="无需 Rust / Tauri，可直接在 Chrome 体验">
+            <span
+              className="mode-badge"
+              title="无需 Rust / Tauri，可直接在 Chrome 体验"
+            >
               浏览器体验
             </span>
           ) : null}
         </div>
-        <div className="actions">
-          <button type="button" disabled={busy} onClick={() => onCreate("md")}>
-            新建 MD
-          </button>
-          <button type="button" disabled={busy} onClick={() => onCreate("html")}>
-            新建 HTML
-          </button>
-          <button type="button" disabled={busy} onClick={() => setShowPaste(true)}>
-            粘贴源码
-          </button>
-          <button
-            type="button"
-            disabled={busy || !canPickFolder}
-            title={
-              !canPickFolder
-                ? "当前浏览器不支持选择文件夹，请用 Chrome / Edge"
-                : undefined
-            }
-            onClick={() => void onImport()}
-          >
-            导入文件夹
-          </button>
-          <button
-            type="button"
-            disabled={busy || (browserMode && !canPickFolder)}
-            title={
-              browserMode && !canPickFolder
-                ? "当前浏览器不支持打开本地文件夹，演示库仍可用"
-                : browserMode
-                  ? "用 Chrome 授权一个本地文件夹作为库"
-                  : undefined
-            }
-            onClick={() => void onChangeLibrary()}
-          >
-            {browserMode ? "打开本地文件夹" : "切换库目录"}
-          </button>
-          {browserMode && libraryPath.startsWith("fs://") ? (
+        <div className="topbar-right">
+          <div className="theme-picker">
+            <label htmlFor="theme-select">外观</label>
+            <select
+              id="theme-select"
+              value={theme}
+              onChange={(e) => setTheme(e.target.value as ThemeId)}
+              title="整体色调"
+            >
+              {THEMES.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="actions">
+            <button type="button" disabled={busy} onClick={() => onCreate("md")}>
+              新建 MD
+            </button>
             <button
               type="button"
               disabled={busy}
-              title="回到内置演示库"
-              onClick={() => {
-                void (async () => {
-                  try {
-                    setBusy(true);
-                    const root = await openLibrary(await getDefaultLibraryPath());
-                    setLibraryPath(root);
-                    await refresh(root, null);
-                    setStatus(`库：${browserLibraryHint(root)}`);
-                  } catch (e) {
-                    setStatus(`切换失败：${String(e)}`);
-                  } finally {
-                    setBusy(false);
-                  }
-                })();
-              }}
+              onClick={() => onCreate("html")}
             >
-              演示库
+              新建 HTML
             </button>
-          ) : null}
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => setShowPaste(true)}
+            >
+              粘贴源码
+            </button>
+            <button
+              type="button"
+              disabled={busy || !canPickFolder}
+              title={
+                !canPickFolder
+                  ? "当前浏览器不支持选择文件夹，请用 Chrome / Edge"
+                  : undefined
+              }
+              onClick={() => void onImport()}
+            >
+              导入文件夹
+            </button>
+            <button
+              type="button"
+              disabled={busy || (browserMode && !canPickFolder)}
+              title={
+                browserMode && !canPickFolder
+                  ? "当前浏览器不支持打开本地文件夹，演示库仍可用"
+                  : browserMode
+                    ? "用 Chrome 授权一个本地文件夹作为库"
+                    : undefined
+              }
+              onClick={() => void onChangeLibrary()}
+            >
+              {browserMode ? "打开本地文件夹" : "切换库目录"}
+            </button>
+            {browserMode && libraryPath.startsWith("fs://") ? (
+              <button
+                type="button"
+                disabled={busy}
+                title="回到内置演示库"
+                onClick={() => {
+                  void (async () => {
+                    try {
+                      setBusy(true);
+                      const root = await openLibrary(
+                        await getDefaultLibraryPath(),
+                      );
+                      setLibraryPath(root);
+                      await refresh(root, null);
+                      setStatus(`库：${browserLibraryHint(root)}`);
+                    } catch (e) {
+                      setStatus(`切换失败：${String(e)}`);
+                    } finally {
+                      setBusy(false);
+                    }
+                  })();
+                }}
+              >
+                演示库
+              </button>
+            ) : null}
+          </div>
         </div>
       </header>
 
@@ -414,6 +540,35 @@ export default function App() {
           </div>
           <div className="tree">
             {tree ? renderTree(tree) : <p className="muted">加载目录…</p>}
+          </div>
+        </aside>
+
+        <aside className="toc-panel" aria-label="文档目录">
+          <div className="toc-head">目录</div>
+          <div className="toc-list">
+            {!selectedPath && (
+              <p className="toc-empty">选择文档后显示标题大纲</p>
+            )}
+            {selectedPath && outline.length === 0 && (
+              <p className="toc-empty">
+                {mode === "source"
+                  ? "源码中暂无识别到标题（# 或 h1–h6）"
+                  : "本文暂无标题大纲"}
+              </p>
+            )}
+            {outline.map((item) => (
+              <button
+                key={`${item.id}-${item.level}-${item.text}`}
+                type="button"
+                className={`toc-item l${item.level}${
+                  activeHeading === item.id ? " active" : ""
+                }`}
+                title={item.text}
+                onClick={() => jumpToHeading(item.id)}
+              >
+                {item.text}
+              </button>
+            ))}
           </div>
         </aside>
 
@@ -458,8 +613,10 @@ export default function App() {
             </div>
           )}
 
-          <div className="pane">
-            {!selectedPath && <p className="muted center">从左侧选择或新建一篇文档</p>}
+          <div className="pane" ref={paneRef}>
+            {!selectedPath && (
+              <p className="muted center">从左侧选择或新建一篇文档</p>
+            )}
             {selectedPath && mode === "source" && (
               <textarea
                 className="editor"
@@ -473,6 +630,7 @@ export default function App() {
             )}
             {selectedPath && mode === "preview" && isHtml && (
               <iframe
+                ref={iframeRef}
                 className="html-frame"
                 title={selectedPath}
                 sandbox="allow-same-origin"
@@ -514,7 +672,11 @@ export default function App() {
               <button type="button" onClick={() => setShowPaste(false)}>
                 取消
               </button>
-              <button type="button" disabled={busy} onClick={() => void onPasteSubmit()}>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void onPasteSubmit()}
+              >
                 入库
               </button>
             </div>
