@@ -30,6 +30,7 @@ import {
   Columns2,
 } from "lucide-react";
 import { Button } from "./ui/button";
+import { Dialog } from "./ui/dialog";
 import { Dropdown, DropdownItem } from "./ui/dropdown";
 import { useStore, filteredDocuments } from "@/lib/store";
 import { collectTagCounts } from "@/lib/tags";
@@ -70,6 +71,7 @@ function FileTree({
   activeId,
   rowH,
   onFolderContextMenu,
+  onFileContextMenu,
 }: {
   node: TreeNode;
   depth?: number;
@@ -79,6 +81,7 @@ function FileTree({
   activeId: string | null;
   rowH: string;
   onFolderContextMenu: (folderPath: string, e: React.MouseEvent) => void;
+  onFileContextMenu: (docId: string, e: React.MouseEvent) => void;
 }) {
   const openDoc = useStore((s) => s.requestOpenDoc);
   const isDirty = useStore((s) => s.isDirty);
@@ -179,6 +182,7 @@ function FileTree({
                 activeId={activeId}
                 rowH={rowH}
                 onFolderContextMenu={onFolderContextMenu}
+                onFileContextMenu={onFileContextMenu}
               />
             )}
           </div>
@@ -233,7 +237,8 @@ function FileTree({
               }}
               onContextMenu={(e) => {
                 e.preventDefault();
-                openInSplit(f.id);
+                e.stopPropagation();
+                onFileContextMenu(f.id, e);
               }}
             >
               {f.type === "html" ? (
@@ -339,6 +344,17 @@ export function Sidebar() {
     y: number;
     folderPath: string;
   } | null>(null);
+  const [fileMenu, setFileMenu] = React.useState<{
+    x: number;
+    y: number;
+    docId: string;
+  } | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = React.useState<{
+    id: string;
+    title: string;
+  } | null>(null);
+  const deleteDoc = useStore((s) => s.deleteDoc);
+  const openInSplit = useStore((s) => s.openInSplit);
 
   const compact = useMediaQuery("(max-height: 699px)");
   const rowH = compact ? "h-7" : "h-8"; // 28 / 32
@@ -443,7 +459,16 @@ export function Sidebar() {
 
   const openFolderContextMenu = React.useCallback(
     (folderPath: string, e: React.MouseEvent | { clientX: number; clientY: number }) => {
+      setFileMenu(null);
       setFolderMenu({ x: e.clientX, y: e.clientY, folderPath });
+    },
+    []
+  );
+
+  const openFileContextMenu = React.useCallback(
+    (docId: string, e: React.MouseEvent) => {
+      setFolderMenu(null);
+      setFileMenu({ x: e.clientX, y: e.clientY, docId });
     },
     []
   );
@@ -519,6 +544,26 @@ export function Sidebar() {
       },
     ];
   }, [folderMenu, createInFolder, onCreateFolder, setTemplateDialogOpen]);
+
+  const fileMenuItems: ContextMenuItem[] = React.useMemo(() => {
+    if (!fileMenu) return [];
+    const docId = fileMenu.docId;
+    const doc = documents.find((d) => d.id === docId);
+    const title = doc ? titleOf(doc.path) : "文档";
+    return [
+      {
+        id: "open-split",
+        label: "分屏打开",
+        onSelect: () => openInSplit(docId),
+      },
+      {
+        id: "delete",
+        label: "删除",
+        danger: true,
+        onSelect: () => setDeleteConfirm({ id: docId, title }),
+      },
+    ];
+  }, [fileMenu, documents, openInSplit]);
 
   const onPasteSource = () => {
     const text = window.prompt("粘贴 Markdown 或 HTML 源码：");
@@ -958,6 +1003,7 @@ export function Sidebar() {
                   activeId={activeId}
                   rowH={rowH}
                   onFolderContextMenu={openFolderContextMenu}
+                  onFileContextMenu={openFileContextMenu}
                 />
               </div>
             </div>
@@ -1323,6 +1369,45 @@ export function Sidebar() {
           ariaLabel={folderMenu.folderPath ? `文件夹「${folderMenu.folderPath}」菜单` : "文档树菜单"}
         />
       )}
+      {fileMenu && (
+        <PreviewContextMenu
+          x={fileMenu.x}
+          y={fileMenu.y}
+          items={fileMenuItems}
+          onClose={() => setFileMenu(null)}
+          ariaLabel="文件菜单"
+        />
+      )}
+      <Dialog
+        open={!!deleteConfirm}
+        onClose={() => setDeleteConfirm(null)}
+        labelledBy="tree-delete-title"
+      >
+        <div className="p-5 space-y-3">
+          <h2 id="tree-delete-title" className="font-serif text-lg font-semibold">
+            移入回收站？
+          </h2>
+          <p className="text-sm text-[var(--muted)]">
+            将「{deleteConfirm?.title ?? ""}」移入回收站，可在 30 天内恢复。
+          </p>
+          <div className="flex justify-end gap-2 pt-1">
+            <Button variant="outline" onClick={() => setDeleteConfirm(null)}>
+              取消
+            </Button>
+            <Button
+              variant="accent"
+              onClick={() => {
+                if (deleteConfirm) {
+                  deleteDoc(deleteConfirm.id);
+                  setDeleteConfirm(null);
+                }
+              }}
+            >
+              删除
+            </Button>
+          </div>
+        </div>
+      </Dialog>
     </>
   );
 }
