@@ -30,10 +30,14 @@ export const metadata: Metadata = {
 const themeScript = `
 (function(){
   try {
-    var raw = localStorage.getItem('langhuan-store');
-    if (!raw) return;
-    var parsed = JSON.parse(raw);
-    var theme = parsed && parsed.state && parsed.state.theme;
+    var theme = localStorage.getItem('langhuan-theme');
+    if (!theme) {
+      var raw = localStorage.getItem('langhuan-store');
+      if (raw) {
+        var parsed = JSON.parse(raw);
+        theme = parsed && parsed.state && parsed.state.theme;
+      }
+    }
     if (theme === 'ink') document.documentElement.classList.add('dark');
   } catch (e) {}
 })();

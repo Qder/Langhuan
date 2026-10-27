@@ -150,7 +150,7 @@ type HastNode = {
 export function MarkdownReader({ doc }: { doc: Document }) {
   const documents = useStore((s) => s.documents);
   const getContent = useStore((s) => s.getContent);
-  const openDoc = useStore((s) => s.openDoc);
+  const openDoc = useStore((s) => s.requestOpenDoc);
   const setDocTags = useStore((s) => s.setDocTags);
   const applyLocateResult = useStore((s) => s.applyLocateResult);
   const pendingPreviewLocate = useStore((s) => s.pendingPreviewLocate);

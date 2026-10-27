@@ -22,7 +22,7 @@ export function HomeView() {
   const documents = useStore((s) => s.documents);
   const createDoc = useStore((s) => s.createDoc);
   const setStatus = useStore((s) => s.setStatus);
-  const openDoc = useStore((s) => s.openDoc);
+  const openDoc = useStore((s) => s.requestOpenDoc);
   const setCommandOpen = useStore((s) => s.setCommandOpen);
   const setTagFilters = useStore((s) => s.setTagFilters);
   const setSidebarPanel = useStore((s) => s.setSidebarPanel);

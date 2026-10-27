@@ -35,7 +35,7 @@ export function HtmlReader({ doc }: { doc: Document }) {
   const setHtmlImmersive = useStore((s) => s.setHtmlImmersive);
   const setHtmlScrollPercent = useStore((s) => s.setHtmlScrollPercent);
   const setViewMode = useStore((s) => s.setViewMode);
-  const openHome = useStore((s) => s.openHome);
+  const openHome = useStore((s) => s.requestOpenHome);
   const setCommandOpen = useStore((s) => s.setCommandOpen);
   const htmlReloadToken = useStore((s) => s.htmlReloadToken);
   const theme = useStore((s) => s.theme);

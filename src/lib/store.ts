@@ -2,10 +2,30 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type { Document, StatusFeedback, ThemeMode, ViewMode } from "./types";
+import type {
+  Document,
+  PendingNav,
+  StatusFeedback,
+  ThemeMode,
+  TrashItem,
+  ViewMode,
+} from "./types";
 import type { HtmlDocPreviewPrefs } from "./htmlPreviewPrefs";
 import { DEFAULT_HTML_PREVIEW_PREFS, normalizeHtmlPrefs } from "./htmlPreviewPrefs";
 import type { LocateResult } from "./locate/types";
+import { createSeedDocuments } from "./seed";
+import { isImportableLibraryPath, libraryDocTypeFromPath, normalizeImportedPath } from "./importable";
+import { getTags, setHtmlTags, setMdTags } from "./tags";
+import { basename, uniquePath, uid } from "./utils";
+import { idbJSONStorage, STORE_KEY } from "./storage/idbPersist";
+import { pushVersion, clearVersions } from "./storage/versions";
+import { TRASH_RETENTION_DAYS } from "./storage/constants";
+import {
+  computeStorageUsage,
+  measureLibraryBytes,
+  type StorageUsage,
+} from "./storage/usage";
+import type { BackupPayload } from "./storage/backup";
 
 export type PendingReveal = {
   start: number;
@@ -17,15 +37,12 @@ export type PendingPreviewLocate = {
   offset: number;
   nonce: number;
 };
-import { createSeedDocuments } from "./seed";
-import { isImportableLibraryPath, libraryDocTypeFromPath, normalizeImportedPath } from "./importable";
-import { getTags, setHtmlTags, setMdTags } from "./tags";
-import { basename, uniquePath, uid } from "./utils";
 
 type LanghuanState = {
   hydrated: boolean;
   documents: Document[];
   drafts: Record<string, string>;
+  trash: TrashItem[];
   activeId: string | null;
   viewMode: ViewMode;
   theme: ThemeMode;
@@ -35,6 +52,7 @@ type LanghuanState = {
   status: StatusFeedback;
   pendingReveal: PendingReveal | null;
   pendingPreviewLocate: PendingPreviewLocate | null;
+  pendingNav: PendingNav;
   /** Fraction of split space for the source pane (0.2–0.8). */
   splitRatio: number;
   /** When true, source is on the left (or top on small screens). */
@@ -45,8 +63,8 @@ type LanghuanState = {
   outlineWidth: number;
   /** Whether the MD outline/backlinks rail is preferred open (persisted). */
   outlineRailOpen: boolean;
-  /** Sidebar middle panel: docs tree | tags | starred. */
-  sidebarPanel: "docs" | "tags" | "stars";
+  /** Sidebar middle panel: docs tree | tags | starred | trash. */
+  sidebarPanel: "docs" | "tags" | "stars" | "trash";
   /** HTML preview immersive reading mode (session). */
   htmlImmersive: boolean;
   /** HTML: temporary full sidebar overlay over content (session). */
@@ -59,6 +77,17 @@ type LanghuanState = {
   htmlPreviewPrefs: Record<string, HtmlDocPreviewPrefs>;
   /** Bump to force HTML iframe remount/refresh. */
   htmlReloadToken: number;
+  /** Last successful full-library export timestamp. */
+  lastBackupAt: number | null;
+  /** Debounced autosave drafts → saved docs (default on). */
+  autosaveEnabled: boolean;
+  /** UI flag to open backup dialog. */
+  backupDialogOpen: boolean;
+  /** UI flag to open version history for active doc. */
+  versionDialogOpen: boolean;
+  /** Cached storage usage (refreshed async). */
+  storageUsage: StorageUsage | null;
+
   setHydrated: (v: boolean) => void;
   setTheme: (t: ThemeMode) => void;
   toggleTheme: () => void;
@@ -75,7 +104,7 @@ type LanghuanState = {
   setOutlineWidth: (w: number) => void;
   setOutlineRailOpen: (v: boolean) => void;
   toggleOutlineRail: () => void;
-  setSidebarPanel: (p: "docs" | "tags" | "stars") => void;
+  setSidebarPanel: (p: "docs" | "tags" | "stars" | "trash") => void;
   setHtmlImmersive: (v: boolean) => void;
   toggleHtmlImmersive: () => void;
   setHtmlSidebarPeek: (v: boolean) => void;
@@ -91,25 +120,59 @@ type LanghuanState = {
   clearPendingPreviewLocate: () => void;
   openHome: () => void;
   openDoc: (id: string) => void;
+  /** Like openDoc/openHome but blocks when current doc is dirty. */
+  requestOpenDoc: (id: string) => void;
+  requestOpenHome: () => void;
+  resolvePendingNav: (action: "save" | "discard" | "cancel") => void;
   getActive: () => Document | null;
   getContent: (id: string) => string;
   isDirty: (id: string) => boolean;
+  anyDirty: () => boolean;
   setDraft: (id: string, content: string) => void;
   saveDoc: (id?: string) => void;
   discardDraft: (id?: string) => void;
-  createDoc: (opts: { type: Document["type"]; path?: string; content?: string; open?: boolean }) => Document;
+  createDoc: (opts: {
+    type: Document["type"];
+    path?: string;
+    content?: string;
+    open?: boolean;
+  }) => Document;
   importFiles: (files: { path: string; content: string }[]) => number;
   renameDoc: (id: string, newPath: string) => void;
+  /** Soft-delete → recycle bin. */
   deleteDoc: (id: string) => void;
+  restoreFromTrash: (id: string) => void;
+  purgeTrashItem: (id: string) => void;
+  emptyTrash: () => void;
+  purgeExpiredTrash: () => number;
   toggleStar: (id: string) => void;
   setDocTags: (id: string, tags: string[]) => void;
   resetSeed: () => void;
   storageBytes: () => number;
+  refreshStorageUsage: () => Promise<void>;
+  setLastBackupAt: (t: number | null) => void;
+  setAutosaveEnabled: (v: boolean) => void;
+  setBackupDialogOpen: (v: boolean) => void;
+  setVersionDialogOpen: (v: boolean) => void;
+  /** Replace or merge library from backup payload. */
+  importLibrary: (payload: BackupPayload, mode: "merge" | "replace") => number;
+  exportPayload: () => BackupPayload;
 };
 
 function ensureUniquePath(path: string, docs: Document[], exceptId?: string): string {
   const set = new Set(docs.filter((d) => d.id !== exceptId).map((d) => d.path));
   return uniquePath(path, set);
+}
+
+function softNavigate(get: () => LanghuanState, set: (p: Partial<LanghuanState>) => void, next: NonNullable<PendingNav>) {
+  const cur = get().activeId;
+  if (cur && get().isDirty(cur)) {
+    if (next.kind === "doc" && next.id === cur) return;
+    set({ pendingNav: next });
+    return;
+  }
+  if (next.kind === "home") get().openHome();
+  else get().openDoc(next.id);
 }
 
 export const useStore = create<LanghuanState>()(
@@ -118,6 +181,7 @@ export const useStore = create<LanghuanState>()(
       hydrated: false,
       documents: createSeedDocuments(),
       drafts: {},
+      trash: [],
       activeId: null,
       viewMode: "preview",
       theme: "paper",
@@ -127,6 +191,7 @@ export const useStore = create<LanghuanState>()(
       status: null,
       pendingReveal: null,
       pendingPreviewLocate: null,
+      pendingNav: null,
       splitRatio: 0.5,
       splitSourceFirst: true,
       sidebarWidth: 280,
@@ -139,12 +204,24 @@ export const useStore = create<LanghuanState>()(
       editorCaret: null,
       htmlPreviewPrefs: {},
       htmlReloadToken: 0,
+      lastBackupAt: null,
+      autosaveEnabled: true,
+      backupDialogOpen: false,
+      versionDialogOpen: false,
+      storageUsage: null,
 
       setHydrated: (v) => set({ hydrated: v }),
       setTheme: (t) => {
         set({ theme: t });
         if (typeof document !== "undefined") {
           document.documentElement.classList.toggle("dark", t === "ink");
+        }
+        try {
+          if (typeof localStorage !== "undefined") {
+            localStorage.setItem("langhuan-theme", t);
+          }
+        } catch {
+          /* ignore */
         }
       },
       toggleTheme: () => {
@@ -269,6 +346,25 @@ export const useStore = create<LanghuanState>()(
         });
       },
 
+      requestOpenDoc: (id) => softNavigate(get, set, { kind: "doc", id }),
+      requestOpenHome: () => softNavigate(get, set, { kind: "home" }),
+      resolvePendingNav: (action) => {
+        const pending = get().pendingNav;
+        if (!pending) return;
+        if (action === "cancel") {
+          set({ pendingNav: null });
+          return;
+        }
+        const cur = get().activeId;
+        if (cur) {
+          if (action === "save") get().saveDoc(cur);
+          else get().discardDraft(cur);
+        }
+        set({ pendingNav: null });
+        if (pending.kind === "home") get().openHome();
+        else get().openDoc(pending.id);
+      },
+
       getActive: () => {
         const { activeId, documents } = get();
         return documents.find((d) => d.id === activeId) || null;
@@ -287,6 +383,11 @@ export const useStore = create<LanghuanState>()(
         return !!doc && drafts[id] !== doc.content;
       },
 
+      anyDirty: () => {
+        const { drafts, documents } = get();
+        return documents.some((d) => d.id in drafts && drafts[d.id] !== d.content);
+      },
+
       setDraft: (id, content) =>
         set((s) => ({ drafts: { ...s.drafts, [id]: content } })),
 
@@ -294,6 +395,15 @@ export const useStore = create<LanghuanState>()(
         const target = id || get().activeId;
         if (!target) return;
         const content = get().getContent(target);
+        const prev = get().documents.find((d) => d.id === target);
+        // Snapshot previous saved content before overwrite
+        if (prev) {
+          void pushVersion({
+            docId: prev.id,
+            content: prev.content,
+            path: prev.path,
+          });
+        }
         set((s) => ({
           documents: s.documents.map((d) =>
             d.id === target ? { ...d, content, updatedAt: Date.now() } : d
@@ -302,6 +412,7 @@ export const useStore = create<LanghuanState>()(
         }));
         const doc = get().documents.find((d) => d.id === target);
         get().setStatus(`已保存 ${doc ? basename(doc.path) : ""}`);
+        void get().refreshStorageUsage();
       },
 
       discardDraft: (id) => {
@@ -337,6 +448,7 @@ export const useStore = create<LanghuanState>()(
           viewMode: open ? "source" : s.viewMode,
         }));
         get().setStatus(`已新建 ${basename(doc.path)}`);
+        void get().refreshStorageUsage();
         return doc;
       },
 
@@ -362,6 +474,7 @@ export const useStore = create<LanghuanState>()(
         }
         set({ documents: docs });
         if (n) get().setStatus(`已导入 ${n} 个文件`);
+        void get().refreshStorageUsage();
         return n;
       },
 
@@ -389,12 +502,61 @@ export const useStore = create<LanghuanState>()(
 
       deleteDoc: (id) => {
         const doc = get().documents.find((d) => d.id === id);
+        if (!doc) return;
+        const item: TrashItem = { doc, deletedAt: Date.now() };
         set((s) => ({
           documents: s.documents.filter((d) => d.id !== id),
           drafts: Object.fromEntries(Object.entries(s.drafts).filter(([k]) => k !== id)),
+          trash: [item, ...s.trash.filter((t) => t.doc.id !== id)],
           activeId: s.activeId === id ? null : s.activeId,
         }));
-        get().setStatus(doc ? `已删除 ${basename(doc.path)}` : "已删除");
+        get().setStatus(`已移入回收站 ${basename(doc.path)}`);
+        void get().refreshStorageUsage();
+      },
+
+      restoreFromTrash: (id) => {
+        const item = get().trash.find((t) => t.doc.id === id);
+        if (!item) return;
+        let path = item.doc.path;
+        path = ensureUniquePath(path, get().documents);
+        const restored: Document = {
+          ...item.doc,
+          path,
+          updatedAt: Date.now(),
+        };
+        set((s) => ({
+          trash: s.trash.filter((t) => t.doc.id !== id),
+          documents: [...s.documents, restored],
+        }));
+        get().setStatus(`已恢复 ${basename(restored.path)}`);
+        void get().refreshStorageUsage();
+      },
+
+      purgeTrashItem: (id) => {
+        const item = get().trash.find((t) => t.doc.id === id);
+        set((s) => ({ trash: s.trash.filter((t) => t.doc.id !== id) }));
+        if (item) void clearVersions(item.doc.id);
+        get().setStatus(item ? `已彻底删除 ${basename(item.doc.path)}` : "已彻底删除");
+        void get().refreshStorageUsage();
+      },
+
+      emptyTrash: () => {
+        const ids = get().trash.map((t) => t.doc.id);
+        set({ trash: [] });
+        for (const id of ids) void clearVersions(id);
+        get().setStatus("回收站已清空");
+        void get().refreshStorageUsage();
+      },
+
+      purgeExpiredTrash: () => {
+        const cutoff = Date.now() - TRASH_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+        const expired = get().trash.filter((t) => t.deletedAt < cutoff);
+        if (!expired.length) return 0;
+        const keep = get().trash.filter((t) => t.deletedAt >= cutoff);
+        set({ trash: keep });
+        for (const t of expired) void clearVersions(t.doc.id);
+        void get().refreshStorageUsage();
+        return expired.length;
       },
 
       toggleStar: (id) => {
@@ -427,22 +589,95 @@ export const useStore = create<LanghuanState>()(
           activeId: null,
         });
         get().setStatus("已恢复示例文档");
+        void get().refreshStorageUsage();
       },
 
       storageBytes: () => {
-        if (typeof localStorage === "undefined") return 0;
+        const { documents, drafts, trash } = get();
+        return measureLibraryBytes(documents, drafts, trash);
+      },
+
+      refreshStorageUsage: async () => {
+        const { documents, drafts, trash } = get();
         try {
-          return new Blob([localStorage.getItem("langhuan-store") || ""]).size;
+          const usage = await computeStorageUsage(documents, drafts, trash);
+          set({ storageUsage: usage });
         } catch {
-          return 0;
+          /* ignore */
         }
+      },
+
+      setLastBackupAt: (t) => set({ lastBackupAt: t }),
+      setAutosaveEnabled: (v) => {
+        set({ autosaveEnabled: v });
+        get().setStatus(v ? "已开启自动保存" : "已关闭自动保存");
+      },
+      setBackupDialogOpen: (v) => set({ backupDialogOpen: v }),
+      setVersionDialogOpen: (v) => set({ versionDialogOpen: v }),
+
+      exportPayload: () => ({
+        documents: get().documents,
+        trash: get().trash,
+      }),
+
+      importLibrary: (payload, mode) => {
+        if (mode === "replace") {
+          const oldIds = get().documents.map((d) => d.id);
+          set({
+            documents: payload.documents,
+            trash: payload.trash || [],
+            drafts: {},
+            activeId: null,
+          });
+          for (const id of oldIds) void clearVersions(id);
+          get().setStatus(`已替换导入 ${payload.documents.length} 篇文档`);
+          void get().refreshStorageUsage();
+          return payload.documents.length;
+        }
+
+        // merge: by path — overwrite content/meta if path exists, else add
+        const byPath = new Map(get().documents.map((d) => [d.path, d]));
+        let n = 0;
+        const nextDocs = [...get().documents];
+        for (const incoming of payload.documents) {
+          const existing = byPath.get(incoming.path);
+          if (existing) {
+            const idx = nextDocs.findIndex((d) => d.id === existing.id);
+            if (idx >= 0) {
+              nextDocs[idx] = {
+                ...existing,
+                content: incoming.content,
+                starred: incoming.starred,
+                type: incoming.type,
+                updatedAt: Date.now(),
+              };
+              n += 1;
+            }
+          } else {
+            const doc: Document = {
+              ...incoming,
+              id: uid(),
+              path: ensureUniquePath(incoming.path, nextDocs),
+              updatedAt: Date.now(),
+            };
+            nextDocs.push(doc);
+            byPath.set(doc.path, doc);
+            n += 1;
+          }
+        }
+        set({ documents: nextDocs });
+        get().setStatus(`已合并导入 ${n} 篇文档`);
+        void get().refreshStorageUsage();
+        return n;
       },
     }),
     {
-      name: "langhuan-store",
+      name: STORE_KEY,
+      storage: idbJSONStorage,
       partialize: (s) => ({
         documents: s.documents,
         drafts: s.drafts,
+        trash: s.trash,
         theme: s.theme,
         viewMode: s.viewMode,
         activeId: s.activeId,
@@ -453,28 +688,36 @@ export const useStore = create<LanghuanState>()(
         outlineRailOpen: s.outlineRailOpen,
         tagFilters: s.tagFilters,
         htmlPreviewPrefs: s.htmlPreviewPrefs,
+        lastBackupAt: s.lastBackupAt,
+        autosaveEnabled: s.autosaveEnabled,
       }),
-      version: 1,
+      version: 2,
       migrate: (persisted, fromVersion) => {
         const p = (persisted || {}) as Record<string, unknown>;
-        // Migrate legacy single tagFilter (string | null) → tagFilters[].
         if (Array.isArray(p.tagFilters)) {
           p.tagFilters = [...new Set((p.tagFilters as unknown[]).map(String).filter(Boolean))];
         } else if (typeof p.tagFilter === "string" && p.tagFilter) {
           p.tagFilters = [p.tagFilter];
-        } else {
+        } else if (!Array.isArray(p.tagFilters)) {
           p.tagFilters = [];
         }
         delete p.tagFilter;
+        if (!Array.isArray(p.trash)) p.trash = [];
+        if (typeof p.autosaveEnabled !== "boolean") p.autosaveEnabled = true;
+        if (p.lastBackupAt != null && typeof p.lastBackupAt !== "number") p.lastBackupAt = null;
         void fromVersion;
         return p as typeof persisted;
       },
       onRehydrateStorage: () => (state) => {
         state?.setHydrated(true);
-        if (state?.theme === "ink" && typeof document !== "undefined") {
-          document.documentElement.classList.add("dark");
+        if (state?.theme && typeof document !== "undefined") {
+          document.documentElement.classList.toggle("dark", state.theme === "ink");
+          try {
+            localStorage.setItem("langhuan-theme", state.theme);
+          } catch {
+            /* ignore */
+          }
         }
-        // Clamp legacy widths into the new layout ranges.
         if (state) {
           if (typeof state.sidebarWidth === "number") {
             state.setSidebarWidth(state.sidebarWidth);
@@ -482,6 +725,11 @@ export const useStore = create<LanghuanState>()(
           if (typeof state.outlineRailOpen !== "boolean") {
             state.setOutlineRailOpen(true);
           }
+          const purged = state.purgeExpiredTrash();
+          if (purged > 0) {
+            state.setStatus(`已自动清理 ${purged} 篇过期回收站文档`);
+          }
+          void state.refreshStorageUsage();
         }
       },
     }

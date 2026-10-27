@@ -10,6 +10,24 @@ export type Document = {
   updatedAt: number;
 };
 
+export type DocVersion = {
+  id: string;
+  docId: string;
+  content: string;
+  path: string;
+  savedAt: number;
+};
+
+export type TrashItem = {
+  doc: Document;
+  deletedAt: number;
+};
+
+export type PendingNav =
+  | { kind: "doc"; id: string }
+  | { kind: "home" }
+  | null;
+
 export type ViewMode = "preview" | "split" | "source";
 
 export type ThemeMode = "paper" | "ink";

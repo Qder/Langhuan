@@ -9,6 +9,11 @@ import { HomeView } from "./HomeView";
 import { DocWorkspace } from "./DocWorkspace";
 import { CommandPalette } from "./CommandPalette";
 import { ReadingProgress } from "./ReadingProgress";
+import { BackupDialog } from "./BackupDialog";
+import { VersionHistoryDialog } from "./VersionHistoryDialog";
+import { DirtyNavDialog } from "./DirtyNavDialog";
+import { BackupReminder } from "./BackupReminder";
+import { AUTOSAVE_DEBOUNCE_MS } from "@/lib/storage/constants";
 
 export function AppShell() {
   const hydrated = useStore((s) => s.hydrated);
@@ -23,9 +28,37 @@ export function AppShell() {
   const setHtmlImmersive = useStore((s) => s.setHtmlImmersive);
   const setStatus = useStore((s) => s.setStatus);
   const viewMode = useStore((s) => s.viewMode);
+  const anyDirty = useStore((s) => s.anyDirty);
+  const isDirty = useStore((s) => s.isDirty);
+  const drafts = useStore((s) => s.drafts);
+  const autosaveEnabled = useStore((s) => s.autosaveEnabled);
+  const activeIdForSave = useStore((s) => s.activeId);
 
   React.useEffect(() => {
-    if (!hydrated) {
+    // Warn on tab close when there are unsaved drafts
+  React.useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (!anyDirty()) return;
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [anyDirty, drafts]);
+
+  // Debounced autosave for the active dirty document
+  React.useEffect(() => {
+    if (!autosaveEnabled || !activeIdForSave) return;
+    if (!isDirty(activeIdForSave)) return;
+    const t = window.setTimeout(() => {
+      if (useStore.getState().isDirty(activeIdForSave)) {
+        useStore.getState().saveDoc(activeIdForSave);
+      }
+    }, AUTOSAVE_DEBOUNCE_MS);
+    return () => window.clearTimeout(t);
+  }, [autosaveEnabled, activeIdForSave, drafts, isDirty]);
+
+  if (!hydrated) {
       const t = window.setTimeout(() => setHydrated(true), 50);
       return () => window.clearTimeout(t);
     }
@@ -129,6 +162,10 @@ export function AppShell() {
         {!immersiveHtml && <StatusBar />}
       </div>
       <CommandPalette />
+      <BackupDialog />
+      <VersionHistoryDialog />
+      <DirtyNavDialog />
+      <BackupReminder />
     </div>
   );
 }

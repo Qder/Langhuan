@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import {
+  Archive,
   ChevronDown,
   FileText,
   FolderOpen,
@@ -10,9 +11,11 @@ import {
   Moon,
   PanelLeft,
   Plus,
+  RotateCcw,
   Search,
   Star,
   Sun,
+  Trash2,
   Upload,
   X,
 } from "lucide-react";
@@ -20,7 +23,8 @@ import { Button } from "./ui/button";
 import { Dropdown, DropdownItem } from "./ui/dropdown";
 import { useStore, filteredDocuments } from "@/lib/store";
 import { collectTagCounts } from "@/lib/tags";
-import { dirname, titleOf, cn } from "@/lib/utils";
+import { dirname, titleOf, cn, relativeTime, basename } from "@/lib/utils";
+import { formatBytes } from "@/lib/storage/usage";
 import { ImportFolderDialog } from "./ImportFolderDialog";
 import { importClipboardAs } from "@/lib/clipboardImport";
 import { IMPORTABLE_ACCEPT, isImportableLibraryPath } from "@/lib/importable";
@@ -92,7 +96,7 @@ function FileTree({
   activeId: string | null;
   rowH: string;
 }) {
-  const openDoc = useStore((s) => s.openDoc);
+  const openDoc = useStore((s) => s.requestOpenDoc);
   const isDirty = useStore((s) => s.isDirty);
   const folders = [...node.children.values()].sort((a, b) =>
     a.name.localeCompare(b.name, "zh")
@@ -203,7 +207,7 @@ export function Sidebar() {
   const tagFilters = useStore((s) => s.tagFilters);
   const toggleTagFilter = useStore((s) => s.toggleTagFilter);
   const clearTagFilters = useStore((s) => s.clearTagFilters);
-  const openHome = useStore((s) => s.openHome);
+  const openHome = useStore((s) => s.requestOpenHome);
   const activeId = useStore((s) => s.activeId);
   const createDoc = useStore((s) => s.createDoc);
   const setStatus = useStore((s) => s.setStatus);
@@ -214,9 +218,16 @@ export function Sidebar() {
   const setSidebarOpen = useStore((s) => s.setSidebarOpen);
   const sidebarWidth = useStore((s) => s.sidebarWidth);
   const setSidebarWidth = useStore((s) => s.setSidebarWidth);
-  const openDoc = useStore((s) => s.openDoc);
+  const openDoc = useStore((s) => s.requestOpenDoc);
   const sidebarPanel = useStore((s) => s.sidebarPanel);
   const setSidebarPanel = useStore((s) => s.setSidebarPanel);
+  const trash = useStore((s) => s.trash);
+  const restoreFromTrash = useStore((s) => s.restoreFromTrash);
+  const purgeTrashItem = useStore((s) => s.purgeTrashItem);
+  const emptyTrash = useStore((s) => s.emptyTrash);
+  const storageUsage = useStore((s) => s.storageUsage);
+  const refreshStorageUsage = useStore((s) => s.refreshStorageUsage);
+  const setBackupDialogOpen = useStore((s) => s.setBackupDialogOpen);
   const htmlImmersive = useStore((s) => s.htmlImmersive);
   const htmlSidebarPeek = useStore((s) => s.htmlSidebarPeek);
   const setHtmlSidebarPeek = useStore((s) => s.setHtmlSidebarPeek);
@@ -252,13 +263,17 @@ export function Sidebar() {
       starred: d.starred,
     }))
   );
-  const bytes = useStore((s) => s.storageBytes)();
+  const bytes = storageUsage?.usedBytes ?? useStore.getState().storageBytes();
   const activeDoc = documents.find((d) => d.id === activeId) || null;
   const pathHint = activeDoc
     ? dirname(activeDoc.path) || "根目录"
     : tagFilters.length
       ? `筛选 · ${tagFilters.map((t) => `#${t}`).join(" ")}`
       : "全部文档";
+
+  React.useEffect(() => {
+    void refreshStorageUsage();
+  }, [documents, trash, refreshStorageUsage]);
 
   // Auto-expand ancestors of active doc
   React.useEffect(() => {
@@ -404,10 +419,11 @@ export function Sidebar() {
     toggleTagFilter(name);
   };
 
-  const segments: { id: "docs" | "tags" | "stars"; label: string; count: number }[] = [
+  const segments: { id: "docs" | "tags" | "stars" | "trash"; label: string; count: number }[] = [
     { id: "docs", label: "文档", count: visible.length },
     { id: "tags", label: "标签", count: tags.size },
     { id: "stars", label: "收藏", count: starred.length },
+    { id: "trash", label: "回收站", count: trash.length },
   ];
 
   const panel = (
@@ -464,7 +480,7 @@ export function Sidebar() {
           </Button>
           {compact && (
             <span className="shrink-0 text-[10px] text-[var(--muted)] tabular-nums pr-1">
-              {(bytes / 1024).toFixed(0)}K
+              {formatBytes(bytes)}
             </span>
           )}
         </div>
@@ -715,16 +731,105 @@ export function Sidebar() {
               })}
             </div>
           )}
+
+          {sidebarPanel === "trash" && (
+            <div className="space-y-2 pb-2">
+              <div className="flex items-center justify-between gap-2 px-1">
+                <span className="text-[11px] text-[var(--muted)]">保留 30 天</span>
+                <button
+                  type="button"
+                  disabled={!trash.length}
+                  onClick={() => {
+                    if (trash.length && confirm(`彻底删除回收站中的 ${trash.length} 篇？`)) {
+                      emptyTrash();
+                    }
+                  }}
+                  className="text-[11px] text-[var(--accent)] disabled:opacity-40 hover:underline"
+                >
+                  清空
+                </button>
+              </div>
+              {trash.length === 0 ? (
+                <div className="text-xs text-[var(--muted)] px-2 py-6 text-center">回收站是空的</div>
+              ) : (
+                trash.map((t) => (
+                  <div
+                    key={t.doc.id}
+                    className="rounded-xl border border-[var(--border)] px-2 py-1.5 space-y-1"
+                  >
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <Trash2 className="h-3.5 w-3.5 shrink-0 text-[var(--muted)]" />
+                      <span className="truncate text-sm min-w-0 flex-1">{titleOf(t.doc.path)}</span>
+                    </div>
+                    <div className="text-[10px] text-[var(--muted)] truncate pl-5">
+                      {basename(t.doc.path)} · {relativeTime(t.deletedAt)}
+                    </div>
+                    <div className="flex gap-1 pl-5">
+                      <button
+                        type="button"
+                        onClick={() => restoreFromTrash(t.doc.id)}
+                        className="inline-flex items-center gap-1 rounded-lg px-1.5 py-0.5 text-[11px] hover:bg-[var(--hover)]"
+                      >
+                        <RotateCcw className="h-3 w-3" /> 恢复
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (confirm(`彻底删除「${titleOf(t.doc.path)}」？`)) {
+                            purgeTrashItem(t.doc.id);
+                          }
+                        }}
+                        className="inline-flex items-center gap-1 rounded-lg px-1.5 py-0.5 text-[11px] text-[var(--accent)] hover:bg-[var(--hover)]"
+                      >
+                        彻底删除
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
         </div>
       </div>
 
       {/* —— Bottom fixed 40px —— */}
       {!compact && (
-        <div className="h-10 shrink-0 border-t border-[var(--border)] px-3 flex items-center justify-between gap-2">
-          <div className="text-[11px] text-[var(--muted)] leading-tight">
-            <div>本地存储</div>
-            <div className="tabular-nums">{(bytes / 1024).toFixed(1)} KB</div>
-          </div>
+        <div className="h-10 shrink-0 border-t border-[var(--border)] px-2 flex items-center justify-between gap-1">
+          <button
+            type="button"
+            onClick={() => setBackupDialogOpen(true)}
+            className="min-w-0 flex-1 rounded-lg px-1.5 py-1 text-left hover:bg-[var(--hover)]"
+            title="备份与恢复"
+          >
+            <div className="text-[10px] text-[var(--muted)] leading-tight truncate">
+              {storageUsage?.level === "crit"
+                ? "存储告急"
+                : storageUsage?.level === "warn"
+                  ? "存储偏高"
+                  : "IndexedDB"}
+            </div>
+            <div
+              className={cn(
+                "tabular-nums text-[11px] leading-tight",
+                storageUsage?.level === "crit" && "text-[var(--accent)]",
+                storageUsage?.level === "warn" && "text-[var(--gold)]"
+              )}
+            >
+              {formatBytes(bytes)}
+              {storageUsage?.quotaBytes
+                ? ` / ${formatBytes(storageUsage.quotaBytes)}`
+                : ""}
+            </div>
+          </button>
+          <button
+            type="button"
+            onClick={() => setBackupDialogOpen(true)}
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl hover:bg-[var(--hover)]"
+            aria-label="备份与恢复"
+            title="备份与恢复"
+          >
+            <Archive className="h-3.5 w-3.5" />
+          </button>
         </div>
       )}
     </aside>

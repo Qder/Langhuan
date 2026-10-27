@@ -27,7 +27,7 @@ export function DocAside({
   variant = "rail",
   className,
 }: DocAsideProps) {
-  const openDoc = useStore((s) => s.openDoc);
+  const openDoc = useStore((s) => s.requestOpenDoc);
   const [backlinksOpen, setBacklinksOpen] = React.useState(false);
 
   if (outline.length === 0 && backlinks.length === 0) return null;

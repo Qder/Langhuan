@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ClipboardPaste, FilePlus2, FileText, Globe, Home, Moon, Search, Sun } from "lucide-react";
+import { Archive, ClipboardPaste, FilePlus2, FileText, Globe, History, Home, Moon, Search, Sun, Trash2 } from "lucide-react";
 import { Dialog } from "./ui/dialog";
 import { useStore } from "@/lib/store";
 import { searchDocuments } from "@/lib/search";
@@ -12,12 +12,18 @@ export function CommandPalette() {
   const open = useStore((s) => s.commandOpen);
   const setOpen = useStore((s) => s.setCommandOpen);
   const documents = useStore((s) => s.documents);
-  const openDoc = useStore((s) => s.openDoc);
-  const openHome = useStore((s) => s.openHome);
+  const openDoc = useStore((s) => s.requestOpenDoc);
+  const openHome = useStore((s) => s.requestOpenHome);
   const createDoc = useStore((s) => s.createDoc);
   const setStatus = useStore((s) => s.setStatus);
   const toggleTheme = useStore((s) => s.toggleTheme);
   const theme = useStore((s) => s.theme);
+  const setBackupDialogOpen = useStore((s) => s.setBackupDialogOpen);
+  const setVersionDialogOpen = useStore((s) => s.setVersionDialogOpen);
+  const setSidebarPanel = useStore((s) => s.setSidebarPanel);
+  const autosaveEnabled = useStore((s) => s.autosaveEnabled);
+  const setAutosaveEnabled = useStore((s) => s.setAutosaveEnabled);
+  const activeId = useStore((s) => s.activeId);
   const [q, setQ] = React.useState("");
   const [idx, setIdx] = React.useState(0);
   const inputRef = React.useRef<HTMLInputElement>(null);
@@ -112,6 +118,36 @@ export function CommandPalette() {
         label: "回到首页",
         icon: <Home className="h-4 w-4" />,
         run: () => openHome(),
+      },
+      {
+        key: "cmd-backup",
+        label: "备份与恢复",
+        hint: "导出 / 导入全库 zip",
+        icon: <Archive className="h-4 w-4 text-[var(--accent)]" />,
+        run: () => setBackupDialogOpen(true),
+      },
+      {
+        key: "cmd-trash",
+        label: "打开回收站",
+        icon: <Trash2 className="h-4 w-4" />,
+        run: () => setSidebarPanel("trash"),
+      },
+      {
+        key: "cmd-versions",
+        label: "版本历史",
+        hint: activeId ? "当前文档" : "请先打开文档",
+        icon: <History className="h-4 w-4" />,
+        run: () => {
+          if (activeId) setVersionDialogOpen(true);
+          else setStatus("请先打开一篇文档");
+        },
+      },
+      {
+        key: "cmd-autosave",
+        label: autosaveEnabled ? "关闭自动保存" : "开启自动保存",
+        hint: "2 秒防抖写入",
+        icon: <FilePlus2 className="h-4 w-4" />,
+        run: () => setAutosaveEnabled(!autosaveEnabled),
       }
     );
   } else {

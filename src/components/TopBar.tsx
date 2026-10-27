@@ -10,6 +10,7 @@ import {
   ListTree,
   Maximize2,
   Menu,
+  History,
   MoreHorizontal,
   PanelRight,
   PanelRightClose,
@@ -94,6 +95,7 @@ export function TopBar() {
   const htmlPreviewPrefs = useStore((s) => s.htmlPreviewPrefs);
   const bumpHtmlReload = useStore((s) => s.bumpHtmlReload);
   const setDocTags = useStore((s) => s.setDocTags);
+  const setVersionDialogOpen = useStore((s) => s.setVersionDialogOpen);
   const [renameOpen, setRenameOpen] = React.useState(false);
   const [renameVal, setRenameVal] = React.useState("");
   const [deleteOpen, setDeleteOpen] = React.useState(false);
@@ -554,6 +556,9 @@ export function TopBar() {
                       : "打开目录"}
                   </DropdownItem>
                 )}
+                <DropdownItem onClick={() => setVersionDialogOpen(true)}>
+                  <History className="h-3.5 w-3.5" /> 版本历史
+                </DropdownItem>
                 <DropdownItem onClick={() => discardDraft(active.id)} disabled={!dirty}>
                   <X className="h-3.5 w-3.5" /> 放弃修改
                 </DropdownItem>
@@ -626,10 +631,10 @@ export function TopBar() {
       <Dialog open={deleteOpen} onClose={() => setDeleteOpen(false)} labelledBy="delete-title">
         <div className="p-5 space-y-3">
           <h2 id="delete-title" className="font-serif text-lg font-semibold">
-            确认删除？
+            移入回收站？
           </h2>
           <p className="text-sm text-[var(--muted)]">
-            将永久删除「{active ? titleOf(active.path) : ""}」，此操作不可撤销。
+            将「{active ? titleOf(active.path) : ""}」移入回收站，可在 30 天内恢复。
           </p>
           <div className="flex justify-end gap-2 pt-1">
             <Button variant="outline" onClick={() => setDeleteOpen(false)}>
