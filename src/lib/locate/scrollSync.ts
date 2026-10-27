@@ -246,3 +246,32 @@ export function parseDataLh(value: string | null | undefined): {
   if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return null;
   return { start, end };
 }
+
+/**
+ * Whether the reported anchors are dense enough around viewportTop to
+ * interpolate a source offset. Dynamic HTML pages often only annotate the
+ * shell in <head>/early body; their max previewTop stays near 0 while the
+ * user scrolls deep into script-generated content — then we must fall back
+ * to percent sync instead of locking the editor on CSS/:root.
+ */
+export function anchorsCoverViewport(
+  viewportTop: number,
+  anchors: Array<{ previewTop: number }>,
+  slack = 120
+): boolean {
+  if (!anchors.length) return false;
+  let min = Infinity;
+  let max = -Infinity;
+  for (const a of anchors) {
+    const t = a.previewTop;
+    if (!Number.isFinite(t)) continue;
+    if (t < min) min = t;
+    if (t > max) max = t;
+  }
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return false;
+  // All anchors well above the viewport → no coverage of current view.
+  if (max < viewportTop - slack) return false;
+  // All anchors well below the viewport.
+  if (min > viewportTop + slack) return false;
+  return true;
+}

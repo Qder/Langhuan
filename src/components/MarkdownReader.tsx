@@ -335,7 +335,9 @@ export function MarkdownReader({ doc }: { doc: Document }) {
     machineDrive.current = "editor";
     ignoreScrollUntil.current = Date.now() + 100;
     const anchors = measureMdAnchors();
-    const top = sourceOffsetToPreviewTop(scrollSyncEvent.sourceOffset, anchors);
+    const so = scrollSyncEvent.sourceOffset;
+    if (so == null || !Number.isFinite(so)) return;
+    const top = sourceOffsetToPreviewTop(so, anchors);
     if (top != null && shouldUpdateScrollTop(root.scrollTop, top)) {
       root.scrollTop = top;
     }

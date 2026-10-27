@@ -76,6 +76,13 @@ export type HtmlScrollAnchorsPayload = {
   type: "lh-scroll-anchors";
   viewportTop: number;
   anchors: Array<{ range: { start: number; end: number }; top: number }>;
+  /** 0–100 scroll progress of the active scroller (always sent). */
+  percent?: number;
+  scrollHeight?: number;
+  clientHeight?: number;
+  /** Min/max previewTop across ALL data-lh nodes (for coverage checks). */
+  spanTop?: number;
+  spanBottom?: number;
 };
 
 export type HtmlKeydownPayload = {

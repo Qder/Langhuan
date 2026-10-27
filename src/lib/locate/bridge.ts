@@ -176,47 +176,105 @@ export const HTML_LOCATE_BRIDGE = `
     parent.postMessage({ type: "lh-bg", color: color }, "*");
   }
 
-  function reportScrollPercent() {
-    var se = document.scrollingElement || document.documentElement;
-    var max = (se.scrollHeight || 0) - (se.clientHeight || 0);
-    var pct = max > 0 ? (se.scrollTop / max) * 100 : 0;
+  function resolveScrollRoot(hint) {
+    try {
+      if (hint && hint.nodeType === 1) {
+        var el = hint;
+        if (el === document || el === document.documentElement || el === document.body) {
+          return document.scrollingElement || document.documentElement;
+        }
+        if ((el.scrollHeight || 0) > (el.clientHeight || 0) + 1) return el;
+      }
+    } catch (e0) {}
+    return document.scrollingElement || document.documentElement;
+  }
+
+  function contentYFor(el, se) {
+    try {
+      var er = el.getBoundingClientRect();
+      var sr = se.getBoundingClientRect ? se.getBoundingClientRect() : { top: 0 };
+      return er.top - (sr.top || 0) + (se.scrollTop || 0);
+    } catch (e1) {
+      return 0;
+    }
+  }
+
+  function reportScrollPercent(se) {
+    var root = se || resolveScrollRoot(null);
+    var max = (root.scrollHeight || 0) - (root.clientHeight || 0);
+    var pct = max > 0 ? ((root.scrollTop || 0) / max) * 100 : 0;
     parent.postMessage({ type: "lh-scroll", percent: pct }, "*");
+    return pct;
   }
 
   var scrollRaf = 0;
-  function reportScrollAnchors() {
-    var se = document.scrollingElement || document.documentElement;
+  var lastScrollRoot = null;
+  /**
+   * Send bracket anchors around viewportTop (sorted by Y), plus percent.
+   * Parent falls back to percent when spanTop/spanBottom do not cover the view
+   * (typical for script-generated pages whose data-lh only mark the shell).
+   */
+  function reportScrollAnchors(hint) {
+    var se = resolveScrollRoot(hint || lastScrollRoot);
+    lastScrollRoot = se;
     var viewportTop = se.scrollTop || 0;
+    var scrollHeight = se.scrollHeight || 0;
+    var clientHeight = se.clientHeight || 0;
+    var max = scrollHeight - clientHeight;
+    var pct = max > 0 ? (viewportTop / max) * 100 : 0;
+
     var nodes = document.querySelectorAll("[data-lh]");
-    var scored = [];
+    var all = [];
     for (var i = 0; i < nodes.length; i++) {
       var el = nodes[i];
       var lh = parseLh(el);
       if (!lh) continue;
-      var top = 0;
-      try {
-        var r = el.getBoundingClientRect();
-        top = r.top + viewportTop;
-      } catch (e) { continue; }
-      scored.push({ range: lh, top: top, dist: Math.abs(top - viewportTop) });
+      all.push({ range: lh, top: contentYFor(el, se) });
     }
-    scored.sort(function (a, b) { return a.dist - b.dist; });
-    var anchors = scored.slice(0, 3).map(function (s) {
-      return { range: s.range, top: s.top };
-    });
+    all.sort(function (a, b) { return a.top - b.top; });
+
+    var spanTop = all.length ? all[0].top : 0;
+    var spanBottom = all.length ? all[all.length - 1].top : 0;
+
+    // Binary search: largest index with top <= viewportTop
+    var lo = 0, hi = all.length - 1, idx = -1;
+    while (lo <= hi) {
+      var mid = (lo + hi) >> 1;
+      if (all[mid].top <= viewportTop) { idx = mid; lo = mid + 1; }
+      else hi = mid - 1;
+    }
+    var from = 0, to = 0;
+    if (!all.length) {
+      from = 0; to = 0;
+    } else if (idx < 0) {
+      from = 0; to = Math.min(4, all.length);
+    } else if (idx >= all.length - 1) {
+      from = Math.max(0, all.length - 4); to = all.length;
+    } else {
+      from = Math.max(0, idx - 1);
+      to = Math.min(all.length, idx + 3);
+    }
+    var anchors = all.slice(from, to);
+
     parent.postMessage({
       type: "lh-scroll-anchors",
       viewportTop: viewportTop,
+      percent: pct,
+      scrollHeight: scrollHeight,
+      clientHeight: clientHeight,
+      spanTop: spanTop,
+      spanBottom: spanBottom,
       anchors: anchors
     }, "*");
-    reportScrollPercent();
+    parent.postMessage({ type: "lh-scroll", percent: pct }, "*");
   }
 
-  function onScroll() {
+  function onScroll(e) {
     if (scrollRaf) return;
+    var hint = e && e.target ? e.target : null;
     scrollRaf = requestAnimationFrame(function () {
       scrollRaf = 0;
-      reportScrollAnchors();
+      reportScrollAnchors(hint);
     });
   }
 
@@ -283,14 +341,16 @@ export const HTML_LOCATE_BRIDGE = `
     onReady();
   }
   window.addEventListener("load", function () { reportBg(); reportScrollAnchors(); });
+  // Capture phase so nested overflow:auto scrollers also drive sync.
+  document.addEventListener("scroll", onScroll, { passive: true, capture: true });
   window.addEventListener("scroll", onScroll, { passive: true });
   document.addEventListener("toggle", function () {
-    setTimeout(reportScrollAnchors, 30);
+    setTimeout(function () { reportScrollAnchors(null); }, 30);
   }, true);
   window.addEventListener("load", function () {
     var imgs = document.images;
     for (var i = 0; i < imgs.length; i++) {
-      imgs[i].addEventListener("load", function () { reportScrollAnchors(); }, { once: true });
+      imgs[i].addEventListener("load", function () { reportScrollAnchors(null); }, { once: true });
     }
   });
 

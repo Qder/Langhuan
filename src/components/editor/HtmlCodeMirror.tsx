@@ -27,7 +27,7 @@ import type { Document } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import {
   SOURCE_SCROLL_UNFOLLOW_MS,
-  previewTopToSourceOffset,
+  scrollTopFromPercent,
   shouldUpdateScrollTop,
 } from "@/lib/locate/scrollSync";
 import {
@@ -247,7 +247,7 @@ export function HtmlCodeMirror({
     clearPendingReveal();
   }, [pendingReveal, clearPendingReveal]);
 
-  // Anchor-based scroll sync from preview
+  // Preview → source: prefer anchor offset when coverage is good; else percent.
   React.useEffect(() => {
     if (!scrollSyncEvent) return;
     if (scrollSyncEvent.docId !== doc.id) return;
@@ -257,25 +257,61 @@ export function HtmlCodeMirror({
     const view = viewRef.current;
     if (!view) return;
     if (Date.now() < unfollowUntil.current) return;
+    if (machineDrive.current === "editor") return;
+
     machineDrive.current = "preview";
     ignoreScrollUntil.current = Date.now() + 100;
-    scrollEditorToOffset(view, scrollSyncEvent.sourceOffset);
     if (resetTimer.current) window.clearTimeout(resetTimer.current);
     resetTimer.current = window.setTimeout(() => {
       machineDrive.current = null;
     }, 150);
-  }, [scrollSyncEvent, doc.id, getSyncScrollEnabled, viewMode]);
 
-  // Legacy percent fallback when no anchor event (still listen lightly)
+    const offset = scrollSyncEvent.sourceOffset;
+    if (typeof offset === "number" && Number.isFinite(offset)) {
+      scrollEditorToOffset(view, offset);
+      return;
+    }
+
+    const pct =
+      typeof scrollSyncEvent.percent === "number"
+        ? scrollSyncEvent.percent
+        : htmlScrollPercent;
+    if (typeof pct !== "number" || !Number.isFinite(pct)) return;
+    const scroll = view.scrollDOM;
+    const next = scrollTopFromPercent(pct, scroll.scrollHeight, scroll.clientHeight);
+    if (shouldUpdateScrollTop(scroll.scrollTop, next)) {
+      scroll.scrollTop = next;
+    }
+  }, [scrollSyncEvent, doc.id, getSyncScrollEnabled, viewMode, htmlScrollPercent]);
+
+  // Safety net: lh-scroll percent alone (when anchors message gated/missing).
   React.useEffect(() => {
     if (viewMode !== "split") return;
     if (!getSyncScrollEnabled(doc.id)) return;
     if (Date.now() < unfollowUntil.current) return;
-    // Only use percent if we haven't received anchor sync recently
-    void htmlScrollPercent;
+    if (machineDrive.current === "editor") return;
+    // Prefer scrollSyncEvent path; only apply raw percent if no recent preview drive.
+    const ev = useStore.getState().scrollSyncEvent;
+    if (ev && ev.docId === doc.id && ev.from === "preview" && ev.nonce > Date.now() - 80) {
+      return;
+    }
+    const view = viewRef.current;
+    if (!view) return;
+    const scroll = view.scrollDOM;
+    const next = scrollTopFromPercent(
+      htmlScrollPercent,
+      scroll.scrollHeight,
+      scroll.clientHeight
+    );
+    if (!shouldUpdateScrollTop(scroll.scrollTop, next)) return;
+    machineDrive.current = "preview";
+    ignoreScrollUntil.current = Date.now() + 100;
+    scroll.scrollTop = next;
+    if (resetTimer.current) window.clearTimeout(resetTimer.current);
+    resetTimer.current = window.setTimeout(() => {
+      machineDrive.current = null;
+    }, 150);
   }, [htmlScrollPercent, viewMode, doc.id, getSyncScrollEnabled]);
-
-  void previewTopToSourceOffset;
 
   return (
     <div className={cn("relative h-full min-h-0 bg-[var(--bg-elevated)]", className)}>

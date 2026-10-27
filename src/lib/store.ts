@@ -74,7 +74,12 @@ export type ScrollSyncEvent = {
   docId: string;
   from: "preview" | "editor";
   /** Target source offset (preview→editor) or cursor/viewport offset (editor→preview). */
-  sourceOffset: number;
+  sourceOffset?: number;
+  /**
+   * 0–100 preview scroll progress. Used as HTML fallback when data-lh anchors
+   * do not cover the viewport (e.g. script-generated pages).
+   */
+  percent?: number;
   nonce: number;
 };
 

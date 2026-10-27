@@ -86,6 +86,9 @@ const DATA = {
     expect(HTML_LOCATE_BRIDGE).toContain('type: "lh-locate"');
     expect(HTML_LOCATE_BRIDGE).toContain('tag === "button"');
     expect(HTML_LOCATE_BRIDGE).toContain("lh-scroll-anchors");
+    expect(HTML_LOCATE_BRIDGE).toContain("spanBottom");
+    expect(HTML_LOCATE_BRIDGE).toContain("capture: true");
+    expect(HTML_LOCATE_BRIDGE).toContain("resolveScrollRoot");
     expect(HTML_LOCATE_BRIDGE).toContain("scrollToRange");
     expect(HTML_LOCATE_BRIDGE).toContain("highlightRange");
   });

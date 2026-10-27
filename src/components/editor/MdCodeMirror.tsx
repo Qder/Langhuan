@@ -553,6 +553,7 @@ export function MdCodeMirror({
     if (Date.now() < unfollowUntil.current) return;
     machineDrive.current = "preview";
     ignoreScrollUntil.current = Date.now() + 100;
+    if (scrollSyncEvent.sourceOffset == null || !Number.isFinite(scrollSyncEvent.sourceOffset)) return;
     const o = Math.max(0, Math.min(scrollSyncEvent.sourceOffset, view.state.doc.length));
     const coords = view.coordsAtPos(o);
     const scroll = view.scrollDOM;

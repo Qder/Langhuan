@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   afterProgrammaticScroll,
+  anchorsCoverViewport,
   beginDrive,
   clampScrollPercent,
   createSyncScrollMachine,
@@ -142,5 +143,24 @@ describe("parseDataLh", () => {
     expect(parseDataLh("12-45")).toEqual({ start: 12, end: 45 });
     expect(parseDataLh("bad")).toBeNull();
     expect(parseDataLh(null)).toBeNull();
+  });
+});
+
+describe("anchorsCoverViewport", () => {
+  it("returns false for empty / head-only shell when viewport is deep", () => {
+    expect(anchorsCoverViewport(3000, [])).toBe(false);
+    // Script-generated page: data-lh only on early shell
+    expect(
+      anchorsCoverViewport(2800, [{ previewTop: 0 }, { previewTop: 120 }, { previewTop: 240 }])
+    ).toBe(false);
+  });
+
+  it("returns true when anchors bracket the viewport", () => {
+    expect(
+      anchorsCoverViewport(500, [{ previewTop: 400 }, { previewTop: 600 }])
+    ).toBe(true);
+    expect(
+      anchorsCoverViewport(10, [{ previewTop: 0 }, { previewTop: 100 }])
+    ).toBe(true);
   });
 });

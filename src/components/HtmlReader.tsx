@@ -9,6 +9,7 @@ import {
 import { useStore } from "@/lib/store";
 import type { Document } from "@/lib/types";
 import {
+  anchorsCoverViewport,
   buildInstrumentedSrcDoc,
   isDarkCssColor,
   isTrivialSelection,
@@ -207,6 +208,13 @@ export function HtmlReader({ doc }: { doc: Document }) {
         resetTimer.current = window.setTimeout(() => {
           machineDrive.current = null;
         }, 150);
+
+        const percent =
+          typeof data.percent === "number" && Number.isFinite(data.percent)
+            ? data.percent
+            : undefined;
+        if (percent != null) setHtmlScrollPercent(percent);
+
         const anchors = (data.anchors || []).map((a, i) => ({
           id: `a${i}`,
           start: a.range.start,
@@ -216,14 +224,27 @@ export function HtmlReader({ doc }: { doc: Document }) {
           previewTop: a.top,
           previewHeight: 0,
         }));
-        const offset =
-          previewTopToSourceOffset(data.viewportTop, anchors) ??
-          anchors[0]?.start ??
-          0;
+
+        // Coverage uses span across ALL annotated nodes when provided; otherwise
+        // the small bracket sample. Script-generated pages often only annotate
+        // <head>/shell → spanBottom stays near 0 while viewportTop is large.
+        const coverageAnchors =
+          typeof data.spanTop === "number" && typeof data.spanBottom === "number"
+            ? [
+                { previewTop: data.spanTop },
+                { previewTop: data.spanBottom },
+              ]
+            : anchors;
+        const covered = anchorsCoverViewport(data.viewportTop, coverageAnchors);
+        const offset = covered
+          ? previewTopToSourceOffset(data.viewportTop, anchors)
+          : null;
+
         publishScrollSync({
           docId: doc.id,
           from: "preview",
-          sourceOffset: offset,
+          ...(offset != null ? { sourceOffset: offset } : {}),
+          ...(percent != null ? { percent } : {}),
         });
         return;
       }
@@ -306,6 +327,7 @@ export function HtmlReader({ doc }: { doc: Document }) {
     machineDrive.current = "editor";
     ignoreScrollUntil.current = Date.now() + 100;
     const o = scrollSyncEvent.sourceOffset;
+    if (o == null || !Number.isFinite(o)) return;
     win.postMessage(
       { type: "scrollToRange", range: { start: o, end: o + 1 } },
       "*"
