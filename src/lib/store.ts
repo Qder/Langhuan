@@ -58,6 +58,7 @@ import {
   sanitizeFolderSegment,
 } from "./folders";
 import { BUILTIN_TEMPLATES, applyTemplate, dailyNoteSpec } from "./templates";
+import { nextActiveAfterClose, tabsToClose, type TabCloseMode } from "./tabClose";
 
 export type PendingReveal = {
   start: number;
@@ -316,6 +317,8 @@ type LanghuanState = {
 
   openTab: (id: string) => void;
   closeTab: (id: string) => void;
+  /** Close tabs relative to target; left/right/others/all skip pinned. */
+  closeTabsInMode: (targetId: string, mode: Exclude<TabCloseMode, "self">) => void;
   togglePinTab: (id: string) => void;
   reorderTabs: (from: number, to: number) => void;
   setSecondaryId: (id: string | null) => void;
@@ -1311,6 +1314,21 @@ export const useStore = create<LanghuanState>()(
           openTabs: next,
           activeId: newActive,
           secondaryId: secondaryId === id ? null : secondaryId,
+        });
+      },
+
+      closeTabsInMode: (targetId, mode) => {
+        const { openTabs, pinnedTabs, activeId, secondaryId } = get();
+        if (!openTabs.includes(targetId)) return;
+        const ids = tabsToClose(openTabs, pinnedTabs, targetId, mode);
+        if (!ids.length) return;
+        const closed = new Set(ids);
+        const next = openTabs.filter((t) => !closed.has(t));
+        const newActive = nextActiveAfterClose(openTabs, activeId, closed);
+        set({
+          openTabs: next,
+          activeId: newActive,
+          secondaryId: secondaryId && closed.has(secondaryId) ? null : secondaryId,
         });
       },
 

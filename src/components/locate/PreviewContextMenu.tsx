@@ -9,6 +9,7 @@ export type ContextMenuItem = {
   shortcut?: string;
   onSelect: () => void;
   danger?: boolean;
+  disabled?: boolean;
 };
 
 export function PreviewContextMenu({
@@ -25,9 +26,28 @@ export function PreviewContextMenu({
   ariaLabel?: string;
 }) {
   const ref = React.useRef<HTMLDivElement>(null);
-  const [focusIdx, setFocusIdx] = React.useState(0);
+  const enabledIdxs = React.useMemo(
+    () => items.map((it, i) => (it.disabled ? -1 : i)).filter((i) => i >= 0),
+    [items]
+  );
+  const [focusIdx, setFocusIdx] = React.useState(() => enabledIdxs[0] ?? 0);
 
   React.useEffect(() => {
+    setFocusIdx(enabledIdxs[0] ?? 0);
+  }, [enabledIdxs]);
+
+  React.useEffect(() => {
+    const moveFocus = (dir: 1 | -1) => {
+      if (!enabledIdxs.length) return;
+      const pos = enabledIdxs.indexOf(focusIdx);
+      const nextPos =
+        pos < 0
+          ? dir === 1
+            ? 0
+            : enabledIdxs.length - 1
+          : (pos + dir + enabledIdxs.length) % enabledIdxs.length;
+      setFocusIdx(enabledIdxs[nextPos]!);
+    };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
@@ -36,13 +56,15 @@ export function PreviewContextMenu({
       }
       if (e.key === "ArrowDown") {
         e.preventDefault();
-        setFocusIdx((i) => Math.min(items.length - 1, i + 1));
+        moveFocus(1);
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
-        setFocusIdx((i) => Math.max(0, i - 1));
+        moveFocus(-1);
       } else if (e.key === "Enter") {
         e.preventDefault();
-        items[focusIdx]?.onSelect();
+        const item = items[focusIdx];
+        if (!item || item.disabled) return;
+        item.onSelect();
         onClose();
       }
     };
@@ -55,7 +77,7 @@ export function PreviewContextMenu({
       document.removeEventListener("keydown", onKey);
       document.removeEventListener("mousedown", onDown);
     };
-  }, [items, focusIdx, onClose]);
+  }, [items, focusIdx, onClose, enabledIdxs]);
 
   React.useEffect(() => {
     ref.current?.querySelectorAll('[role="menuitem"]')[focusIdx]?.scrollIntoView({ block: "nearest" });
@@ -82,13 +104,22 @@ export function PreviewContextMenu({
           key={item.id}
           type="button"
           role="menuitem"
+          aria-disabled={item.disabled || undefined}
+          disabled={item.disabled}
           className={cn(
             "flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2 text-left text-sm transition-colors",
-            item.danger ? "text-[var(--accent)]" : "",
-            i === focusIdx ? "bg-[var(--hover)]" : "hover:bg-[var(--hover)]"
+            item.danger && !item.disabled ? "text-[var(--accent)]" : "",
+            item.disabled
+              ? "cursor-not-allowed opacity-40 text-[var(--muted)]"
+              : i === focusIdx
+                ? "bg-[var(--hover)]"
+                : "hover:bg-[var(--hover)]"
           )}
-          onMouseEnter={() => setFocusIdx(i)}
+          onMouseEnter={() => {
+            if (!item.disabled) setFocusIdx(i);
+          }}
           onClick={() => {
+            if (item.disabled) return;
             item.onSelect();
             onClose();
           }}
