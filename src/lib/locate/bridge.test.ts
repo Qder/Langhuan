@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { HTML_LOCATE_BRIDGE, injectLocateBridge } from "./bridge";
+import {
+  HTML_LOCATE_BRIDGE,
+  injectLocateBridge,
+  isDarkCssColor,
+  parseBridgeMessage,
+} from "./bridge";
+import { BRIDGE_MAX_MESSAGE_CHARS } from "./types";
 
 describe("injectLocateBridge", () => {
   it("injects before the last </body>, not one inside a <script> string", () => {
@@ -20,7 +26,6 @@ const DATA = {
 
     const out = injectLocateBridge(html);
 
-    // Bridge should appear only once, and after the script data region.
     const bridgeIdx = out.indexOf('data-lh-bridge="1"');
     expect(bridgeIdx).toBeGreaterThan(-1);
     expect(out.indexOf('data-lh-bridge="1"', bridgeIdx + 1)).toBe(-1);
@@ -30,13 +35,11 @@ const DATA = {
     expect(scriptOpen).toBeGreaterThan(-1);
     expect(scriptClose).toBeGreaterThan(scriptOpen);
 
-    // The page's own script must stay intact: no bridge </script> closing it early.
     const dataRegion = out.slice(scriptOpen, scriptClose + "</script>".length);
-    expect(dataRegion).toContain('</body></html>');
+    expect(dataRegion).toContain("</body></html>");
     expect(dataRegion).toContain('"more": "still in script"');
     expect(dataRegion).not.toContain("data-lh-bridge");
 
-    // Bridge sits just before the final body close (preserve original casing via slice).
     const lastBody = out.toLowerCase().lastIndexOf("</body>");
     expect(lastBody).toBeGreaterThan(bridgeIdx);
     const beforeLastBody = out.slice(Math.max(0, lastBody - HTML_LOCATE_BRIDGE.length - 20), lastBody);
@@ -60,6 +63,52 @@ const DATA = {
     const html = "<html><body>x</BODY></html>";
     const out = injectLocateBridge(html);
     expect(out).toMatch(/data-lh-bridge="1"[\s\S]*<\/BODY>/);
-    expect(out).not.toMatch(/<\/body>/); // lower-case original was </BODY>
+    expect(out).not.toMatch(/<\/body>/);
+  });
+
+  it("includes preview-only scrollbar chrome and scroll/bg reporters", () => {
+    expect(HTML_LOCATE_BRIDGE).toContain("data-lh-preview-chrome");
+    expect(HTML_LOCATE_BRIDGE).toContain("lh-bg");
+    expect(HTML_LOCATE_BRIDGE).toContain("lh-scroll");
+    expect(HTML_LOCATE_BRIDGE).toContain("lh-keydown");
+    expect(HTML_LOCATE_BRIDGE).toContain("scrollbar-width");
+  });
+});
+
+describe("parseBridgeMessage", () => {
+  it("accepts whitelisted types", () => {
+    expect(parseBridgeMessage({ type: "lh-bg", color: "rgb(0,0,0)" })).toEqual({
+      type: "lh-bg",
+      color: "rgb(0,0,0)",
+    });
+    expect(parseBridgeMessage({ type: "lh-scroll", percent: 12 })).toEqual({
+      type: "lh-scroll",
+      percent: 12,
+    });
+    expect(
+      parseBridgeMessage({
+        type: "lh-keydown",
+        key: "f",
+        metaKey: false,
+        ctrlKey: false,
+        altKey: false,
+        shiftKey: false,
+      })?.type
+    ).toBe("lh-keydown");
+  });
+
+  it("rejects unknown types and oversized payloads", () => {
+    expect(parseBridgeMessage({ type: "evil" })).toBeNull();
+    expect(parseBridgeMessage(null)).toBeNull();
+    const huge = { type: "lh-selection", text: "x".repeat(BRIDGE_MAX_MESSAGE_CHARS) };
+    expect(parseBridgeMessage(huge)).toBeNull();
+  });
+});
+
+describe("isDarkCssColor", () => {
+  it("detects dark rgb backgrounds", () => {
+    expect(isDarkCssColor("rgb(18, 17, 14)")).toBe(true);
+    expect(isDarkCssColor("rgb(245, 239, 226)")).toBe(false);
+    expect(isDarkCssColor("rgba(0,0,0,1)")).toBe(true);
   });
 });

@@ -6,15 +6,19 @@ import {
   Check,
   Copy,
   Download,
+  ExternalLink,
   ListTree,
+  Maximize2,
   Menu,
   MoreHorizontal,
   PanelRight,
   PanelRightClose,
   Pencil,
+  RefreshCw,
   Save,
   Search,
   Star,
+  Tag,
   Trash2,
   X,
 } from "lucide-react";
@@ -27,8 +31,15 @@ import { useStore } from "@/lib/store";
 import { extractOutline } from "@/lib/outline";
 import { findBacklinks } from "@/lib/search";
 import { useMediaQuery } from "@/lib/useMediaQuery";
-import { basename, titleOf, cn } from "@/lib/utils";
+import { basename, titleOf, cn, relativeTime } from "@/lib/utils";
 import type { ViewMode } from "@/lib/types";
+import { getTags } from "@/lib/tags";
+import {
+  HTML_WIDTH_PX,
+  HTML_ZOOM_OPTIONS,
+  type HtmlWidthMode,
+} from "@/lib/htmlPreviewPrefs";
+import { openHtmlInNewTab } from "./HtmlReader";
 
 /** Ellipsis middle path segments; keep last two. */
 function BreadcrumbPath({ path }: { path: string }) {
@@ -76,6 +87,12 @@ export function TopBar() {
   const outlineRailOpen = useStore((s) => s.outlineRailOpen);
   const toggleOutlineRail = useStore((s) => s.toggleOutlineRail);
   const setOutlineRailOpen = useStore((s) => s.setOutlineRailOpen);
+  const htmlImmersive = useStore((s) => s.htmlImmersive);
+  const setHtmlImmersive = useStore((s) => s.setHtmlImmersive);
+  const getHtmlPreviewPrefs = useStore((s) => s.getHtmlPreviewPrefs);
+  const setHtmlPreviewPrefs = useStore((s) => s.setHtmlPreviewPrefs);
+  const bumpHtmlReload = useStore((s) => s.bumpHtmlReload);
+  const setDocTags = useStore((s) => s.setDocTags);
   const [renameOpen, setRenameOpen] = React.useState(false);
   const [renameVal, setRenameVal] = React.useState("");
   const [deleteOpen, setDeleteOpen] = React.useState(false);
@@ -83,9 +100,17 @@ export function TopBar() {
   const [activeHeading, setActiveHeading] = React.useState("");
   const tocBtnRef = React.useRef<HTMLButtonElement>(null);
   const tocPanelRef = React.useRef<HTMLDivElement>(null);
+  const [tagsOpen, setTagsOpen] = React.useState(false);
+  const [tagInput, setTagInput] = React.useState("");
+  const tagsBtnRef = React.useRef<HTMLButtonElement>(null);
+  const tagsPanelRef = React.useRef<HTMLDivElement>(null);
 
   const wide = useMediaQuery("(min-width: 1280px)");
   const dirty = active ? isDirty(active.id) : false;
+  const isHtml = active?.type === "html";
+  const htmlPrefs = active && isHtml ? getHtmlPreviewPrefs(active.id) : null;
+  const docTags =
+    active ? getTags({ ...active, content: getContent(active.id) }) : [];
 
   const outline =
     active && active.type === "md" ? extractOutline(getContent(active.id)) : [];
@@ -129,6 +154,25 @@ export function TopBar() {
     };
   }, [tocOpen]);
 
+  React.useEffect(() => {
+    if (!tagsOpen) return;
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (tagsPanelRef.current?.contains(t)) return;
+      if (tagsBtnRef.current?.contains(t)) return;
+      setTagsOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setTagsOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [tagsOpen]);
+
   const modes: { id: ViewMode; label: string }[] = [
     { id: "preview", label: "预览" },
     { id: "split", label: "分栏" },
@@ -157,9 +201,13 @@ export function TopBar() {
   const showTocButton = asideAvailable && (!wide || !outlineRailOpen);
   const showRailToggle = asideAvailable && wide;
 
+  if (htmlImmersive && isHtml) {
+    return null;
+  }
+
   return (
     <>
-      <header className="h-14 shrink-0 glass flex items-center gap-2 px-3 md:px-4">
+      <header className="h-14 shrink-0 glass flex items-center gap-2 px-3 md:px-4 border-b border-[var(--border)]">
         <Button
           variant="ghost"
           size="icon"
@@ -174,6 +222,11 @@ export function TopBar() {
           {active ? (
             <>
               <BreadcrumbPath path={active.path} />
+              {isHtml && (
+                <span className="hidden sm:inline shrink-0 text-[11px] text-[var(--muted)] font-ui truncate">
+                  HTML · 更新于 {relativeTime(active.updatedAt)}
+                </span>
+              )}
               {dirty && (
                 <span className="shrink-0 rounded-full bg-[var(--accent)]/10 text-[var(--accent)] text-[11px] px-2 py-0.5 border border-[var(--accent)]/20">
                   未保存
@@ -247,6 +300,173 @@ export function TopBar() {
                 {dirty ? "保存" : "已保存"}
               </Button>
             </div>
+
+            {/* Group: HTML preview tools */}
+            {isHtml && viewMode !== "source" && htmlPrefs && (
+              <div className="flex items-center gap-1">
+                <div
+                  className="hidden md:inline-flex rounded-xl border border-[var(--border)] p-0.5 bg-[var(--card)]"
+                  role="group"
+                  aria-label="宽度模拟"
+                >
+                  {(
+                    [
+                      ["fluid", "自适应"],
+                      ["desktop", "桌面"],
+                      ["tablet", "平板"],
+                      ["phone", "手机"],
+                    ] as [HtmlWidthMode, string][]
+                  ).map(([id, label]) => (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() =>
+                        setHtmlPreviewPrefs(active.id, { widthMode: id })
+                      }
+                      className={cn(
+                        "px-2 py-1 text-[11px] rounded-[10px] font-ui transition-colors",
+                        htmlPrefs.widthMode === id
+                          ? "bg-[var(--accent)] text-white"
+                          : "hover:bg-[var(--hover)] text-[var(--muted)]"
+                      )}
+                      title={
+                        id === "fluid"
+                          ? "自适应宽度"
+                          : `${HTML_WIDTH_PX[id as Exclude<HtmlWidthMode, "fluid">]}px`
+                      }
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <div
+                  className="hidden lg:inline-flex rounded-xl border border-[var(--border)] p-0.5 bg-[var(--card)]"
+                  role="group"
+                  aria-label="缩放"
+                >
+                  {HTML_ZOOM_OPTIONS.map((z) => (
+                    <button
+                      key={z}
+                      type="button"
+                      onClick={() => setHtmlPreviewPrefs(active.id, { zoom: z })}
+                      className={cn(
+                        "px-2 py-1 text-[11px] rounded-[10px] font-ui tabular-nums",
+                        htmlPrefs.zoom === z
+                          ? "bg-[var(--accent)] text-white"
+                          : "hover:bg-[var(--hover)] text-[var(--muted)]"
+                      )}
+                    >
+                      {Math.round(z * 100)}%
+                    </button>
+                  ))}
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="在新标签页打开"
+                  title="在新标签页打开"
+                  onClick={() => {
+                    openHtmlInNewTab(getContent(active.id));
+                    setStatus("已在新标签页打开");
+                  }}
+                >
+                  <ExternalLink className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="刷新预览"
+                  title="刷新预览"
+                  onClick={() => {
+                    bumpHtmlReload();
+                    setStatus("已刷新预览");
+                  }}
+                >
+                  <RefreshCw className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-label="沉浸模式"
+                  title="沉浸模式 (F)"
+                  onClick={() => setHtmlImmersive(true)}
+                >
+                  <Maximize2 className="h-3.5 w-3.5" />
+                  沉浸
+                </Button>
+              </div>
+            )}
+
+            {/* HTML tags popover (all view modes) */}
+            {isHtml && (
+              <div className="relative">
+                <Button
+                  ref={tagsBtnRef}
+                  variant={tagsOpen ? "secondary" : "ghost"}
+                  size="sm"
+                  aria-label="标签"
+                  aria-expanded={tagsOpen}
+                  onClick={() => setTagsOpen((v) => !v)}
+                >
+                  <Tag className="h-3.5 w-3.5" />
+                  标签 ({docTags.length})
+                </Button>
+                {tagsOpen && (
+                  <div
+                    ref={tagsPanelRef}
+                    className="absolute right-0 top-full z-40 mt-2 w-64 rounded-2xl border border-[var(--border)] bg-[var(--card)] p-3 shadow-xl animate-enter"
+                  >
+                    <div className="mb-2 text-xs text-[var(--muted)] font-ui">文档标签</div>
+                    <div className="flex flex-wrap gap-1.5 mb-2">
+                      {docTags.length === 0 && (
+                        <span className="text-xs text-[var(--muted)]">暂无标签</span>
+                      )}
+                      {docTags.map((t) => (
+                        <span
+                          key={t}
+                          className="inline-flex items-center gap-1 rounded-full border border-[var(--border)] px-2 py-0.5 text-xs"
+                        >
+                          {t}
+                          <button
+                            type="button"
+                            aria-label={`删除标签 ${t}`}
+                            className="hover:text-[var(--accent)]"
+                            onClick={() =>
+                              setDocTags(
+                                active.id,
+                                docTags.filter((x) => x !== t)
+                              )
+                            }
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        const next = tagInput.trim();
+                        if (!next || docTags.includes(next)) return;
+                        setDocTags(active.id, [...docTags, next]);
+                        setTagInput("");
+                      }}
+                      className="flex gap-1.5"
+                    >
+                      <Input
+                        value={tagInput}
+                        onChange={(e) => setTagInput(e.target.value)}
+                        placeholder="+ 标签"
+                        className="h-8 text-xs"
+                      />
+                      <Button type="submit" size="sm" variant="outline">
+                        添加
+                      </Button>
+                    </form>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Group: other */}
             <div className="relative flex items-center gap-1">

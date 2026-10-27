@@ -1,9 +1,34 @@
 /** Injected into HTML srcDoc for preview only — never saved/exported. */
+
+import {
+  BRIDGE_INBOUND_TYPES,
+  BRIDGE_MAX_MESSAGE_CHARS,
+  type BridgeInboundMessage,
+  type BridgeInboundType,
+} from "./types";
+
+const BRIDGE_TYPE_SET = new Set<string>(BRIDGE_INBOUND_TYPES);
+
+/** Thin scrollbar only — preview chrome, never written to source/export. */
+const PREVIEW_SCROLLBAR_CSS = `
+html{scrollbar-width:thin;scrollbar-color:rgba(127,127,127,.45) transparent;}
+::-webkit-scrollbar{width:6px;height:6px;}
+::-webkit-scrollbar-thumb{background:rgba(127,127,127,.4);border-radius:3px;}
+::-webkit-scrollbar-track{background:transparent;}
+`.replace(/\s+/g, " ").trim();
+
 export const HTML_LOCATE_BRIDGE = `
 <script data-lh-bridge="1">
 (function () {
   if (window.__lhBridge) return;
   window.__lhBridge = true;
+
+  try {
+    var style = document.createElement("style");
+    style.setAttribute("data-lh-preview-chrome", "1");
+    style.textContent = ${JSON.stringify(PREVIEW_SCROLLBAR_CSS)};
+    (document.head || document.documentElement).appendChild(style);
+  } catch (e) {}
 
   function tagPath(node) {
     var parts = [];
@@ -14,12 +39,6 @@ export const HTML_LOCATE_BRIDGE = `
       var idx = 0;
       if (parent) {
         var sibs = parent.children;
-        for (var i = 0; i < sibs.length; i++) {
-          if (sibs[i].tagName === el.tagName) {
-            if (sibs[i] === el) { idx = i; break; }
-          }
-        }
-        // count same-tag index
         var same = 0;
         for (var j = 0; j < sibs.length; j++) {
           if (sibs[j].tagName === el.tagName) {
@@ -63,6 +82,43 @@ export const HTML_LOCATE_BRIDGE = `
     };
   }
 
+  function isTypingTarget(t) {
+    if (!t || !t.tagName) return false;
+    var tag = t.tagName.toLowerCase();
+    if (tag === "input" || tag === "textarea" || tag === "select") return true;
+    if (t.isContentEditable) return true;
+    return false;
+  }
+
+  function reportBg() {
+    var color = "";
+    try {
+      if (document.body) color = getComputedStyle(document.body).backgroundColor || "";
+    } catch (e) {}
+    parent.postMessage({ type: "lh-bg", color: color }, "*");
+  }
+
+  function reportScroll() {
+    var se = document.scrollingElement || document.documentElement;
+    var max = (se.scrollHeight || 0) - (se.clientHeight || 0);
+    var pct = max > 0 ? (se.scrollTop / max) * 100 : 0;
+    parent.postMessage({ type: "lh-scroll", percent: pct }, "*");
+  }
+
+  function onReady() {
+    reportBg();
+    reportScroll();
+    parent.postMessage({ type: "lh-ready" }, "*");
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", onReady);
+  } else {
+    onReady();
+  }
+  window.addEventListener("load", function () { reportBg(); reportScroll(); });
+  window.addEventListener("scroll", reportScroll, { passive: true });
+
   document.addEventListener("keydown", function (e) {
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter" && !e.shiftKey) {
       var p = selPayload();
@@ -72,7 +128,25 @@ export const HTML_LOCATE_BRIDGE = `
       }
       e.preventDefault();
       parent.postMessage({ type: "lh-locate", text: p.text, before: p.before, after: p.after, tagPath: p.tagPath }, "*");
+      return;
     }
+
+    var key = e.key;
+    var meta = e.metaKey || e.ctrlKey;
+    var forward = false;
+    if (meta && (key === "k" || key === "K" || key === "e" || key === "E")) forward = true;
+    if (!meta && (key === "f" || key === "F") && !isTypingTarget(e.target)) forward = true;
+    if (key === "Escape") forward = true;
+    if (!forward) return;
+    e.preventDefault();
+    parent.postMessage({
+      type: "lh-keydown",
+      key: key,
+      metaKey: !!e.metaKey,
+      ctrlKey: !!e.ctrlKey,
+      altKey: !!e.altKey,
+      shiftKey: !!e.shiftKey
+    }, "*");
   }, true);
 
   document.addEventListener("contextmenu", function (e) {
@@ -161,4 +235,38 @@ export function injectLocateBridge(srcDoc: string): string {
     return html.slice(0, idx) + `${HTML_LOCATE_BRIDGE}\n` + html.slice(idx);
   }
   return html + "\n" + HTML_LOCATE_BRIDGE;
+}
+
+/**
+ * Validate an inbound postMessage from the preview iframe.
+ * Caller must still check `event.source === iframe.contentWindow`.
+ */
+export function parseBridgeMessage(data: unknown): BridgeInboundMessage | null {
+  if (data == null || typeof data !== "object") return null;
+  let size = 0;
+  try {
+    size = JSON.stringify(data).length;
+  } catch {
+    return null;
+  }
+  if (size > BRIDGE_MAX_MESSAGE_CHARS) return null;
+  const type = (data as { type?: unknown }).type;
+  if (typeof type !== "string" || !BRIDGE_TYPE_SET.has(type)) return null;
+  return data as BridgeInboundMessage;
+}
+
+export function isBridgeInboundType(type: string): type is BridgeInboundType {
+  return BRIDGE_TYPE_SET.has(type);
+}
+
+/** Rough luminance check for dark page backgrounds (rgb/rgba). */
+export function isDarkCssColor(color: string): boolean {
+  const m = color.match(/rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/i);
+  if (!m) return false;
+  const r = Number(m[1]);
+  const g = Number(m[2]);
+  const b = Number(m[3]);
+  // relative luminance approx
+  const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+  return lum < 0.45;
 }

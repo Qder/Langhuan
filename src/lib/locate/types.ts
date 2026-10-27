@@ -24,3 +24,48 @@ export type HtmlLocatePayload = {
   y?: number;
   rect?: { top: number; left: number; bottom: number; right: number };
 };
+
+export type HtmlBgPayload = {
+  type: "lh-bg";
+  color: string;
+};
+
+export type HtmlScrollPayload = {
+  type: "lh-scroll";
+  percent: number;
+};
+
+export type HtmlKeydownPayload = {
+  type: "lh-keydown";
+  key: string;
+  metaKey: boolean;
+  ctrlKey: boolean;
+  altKey: boolean;
+  shiftKey: boolean;
+};
+
+export type HtmlReadyPayload = {
+  type: "lh-ready";
+};
+
+export type BridgeInboundMessage =
+  | HtmlLocatePayload
+  | HtmlBgPayload
+  | HtmlScrollPayload
+  | HtmlKeydownPayload
+  | HtmlReadyPayload;
+
+export const BRIDGE_INBOUND_TYPES = [
+  "lh-locate",
+  "lh-contextmenu",
+  "lh-selection",
+  "lh-bg",
+  "lh-scroll",
+  "lh-keydown",
+  "lh-ready",
+] as const;
+
+export type BridgeInboundType = (typeof BRIDGE_INBOUND_TYPES)[number];
+
+/** Soft cap on serialized message size accepted from the iframe. */
+export const BRIDGE_MAX_MESSAGE_CHARS = 65536;

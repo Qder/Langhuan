@@ -6,7 +6,10 @@ import {
   FileText,
   FolderOpen,
   Globe,
+  Home,
   Moon,
+  PanelLeft,
+  Plus,
   Search,
   Star,
   Sun,
@@ -214,6 +217,9 @@ export function Sidebar() {
   const openDoc = useStore((s) => s.openDoc);
   const sidebarPanel = useStore((s) => s.sidebarPanel);
   const setSidebarPanel = useStore((s) => s.setSidebarPanel);
+  const htmlImmersive = useStore((s) => s.htmlImmersive);
+  const htmlSidebarPeek = useStore((s) => s.htmlSidebarPeek);
+  const setHtmlSidebarPeek = useStore((s) => s.setHtmlSidebarPeek);
   const folderRef = React.useRef<HTMLInputElement>(null);
   const fileRef = React.useRef<HTMLInputElement>(null);
   const scrollRef = React.useRef<HTMLDivElement>(null);
@@ -724,27 +730,115 @@ export function Sidebar() {
     </aside>
   );
 
+  const htmlRail =
+    !!activeDoc && activeDoc.type === "html" && !htmlImmersive;
+
+  // Close peek when leaving HTML
+  React.useEffect(() => {
+    if (!htmlRail) setHtmlSidebarPeek(false);
+  }, [htmlRail, setHtmlSidebarPeek]);
+
+  const rail = (
+    <div
+      className="hidden md:flex h-full w-14 shrink-0 flex-col items-center gap-1 border-r border-[var(--border)] bg-[color-mix(in_srgb,var(--bg-elevated)_92%,transparent)] py-2"
+    >
+      <button
+        type="button"
+        onClick={openHome}
+        className="inline-flex h-9 w-9 items-center justify-center rounded-xl hover:bg-[var(--hover)]"
+        aria-label="首页"
+        title="首页"
+      >
+        <Home className="h-4 w-4" />
+      </button>
+      <button
+        type="button"
+        onClick={() => setCommandOpen(true)}
+        className="inline-flex h-9 w-9 items-center justify-center rounded-xl hover:bg-[var(--hover)]"
+        aria-label="搜索"
+        title="搜索 ⌘K"
+      >
+        <Search className="h-4 w-4" />
+      </button>
+      <Dropdown
+        trigger={
+          <button
+            type="button"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--accent)] text-white hover:opacity-90"
+            aria-label="新建"
+            title="新建"
+          >
+            <Plus className="h-4 w-4" />
+          </button>
+        }
+      >
+        <DropdownItem onClick={() => createDoc({ type: "md" })}>Markdown 笔记</DropdownItem>
+        <DropdownItem onClick={() => createDoc({ type: "html" })}>HTML 页面</DropdownItem>
+        <DropdownItem onClick={onPasteSource}>粘贴源码</DropdownItem>
+      </Dropdown>
+      <button
+        type="button"
+        onClick={() => setHtmlSidebarPeek(true)}
+        className="mt-auto inline-flex h-9 w-9 items-center justify-center rounded-xl hover:bg-[var(--hover)]"
+        aria-label="展开侧栏"
+        title="展开侧栏"
+      >
+        <PanelLeft className="h-4 w-4" />
+      </button>
+    </div>
+  );
+
   return (
     <>
-      <div
-        className="hidden md:flex h-full shrink-0 overflow-hidden"
-        style={{ width: sidebarWidth, minWidth: sidebarWidth, maxWidth: sidebarWidth }}
-      >
-        {panel}
-      </div>
-      <ResizeGutter
-        className="hidden md:flex"
-        axis="horizontal"
-        label="调整侧栏宽度"
-        value={sidebarWidth}
-        min={240}
-        max={360}
-        onDelta={(d) => {
-          setSidebarWidth(useStore.getState().sidebarWidth + d);
-        }}
-        onReset={() => setSidebarWidth(280)}
-      />
-      {sidebarOpen && (
+      {/* HTML: 56px icon rail (does not squeeze when overlay opens) */}
+      {htmlRail ? (
+        <>
+          {rail}
+          {/* Left-edge hover strip to peek */}
+          <div
+            className="pointer-events-auto fixed left-0 top-0 z-40 hidden h-dvh w-1.5 md:block"
+            onMouseEnter={() => setHtmlSidebarPeek(true)}
+          />
+          {htmlSidebarPeek && (
+            <div className="fixed inset-0 z-50 hidden md:flex">
+              <div
+                className="h-full shadow-2xl animate-enter"
+                style={{ width: sidebarWidth }}
+                onMouseLeave={() => setHtmlSidebarPeek(false)}
+              >
+                {panel}
+              </div>
+              <div
+                className="h-full flex-1 bg-black/20"
+                onClick={() => setHtmlSidebarPeek(false)}
+              />
+            </div>
+          )}
+        </>
+      ) : htmlImmersive ? null : (
+        <>
+          <div
+            className="hidden md:flex h-full shrink-0 overflow-hidden"
+            style={{ width: sidebarWidth, minWidth: sidebarWidth, maxWidth: sidebarWidth }}
+          >
+            {panel}
+          </div>
+          <ResizeGutter
+            className="hidden md:flex"
+            axis="horizontal"
+            label="调整侧栏宽度"
+            value={sidebarWidth}
+            min={240}
+            max={360}
+            onDelta={(d) => {
+              setSidebarWidth(useStore.getState().sidebarWidth + d);
+            }}
+            onReset={() => setSidebarWidth(280)}
+          />
+        </>
+      )}
+
+      {sidebarOpen && !htmlImmersive && (
         <div className="md:hidden fixed inset-0 z-50 flex">
           <div className="absolute inset-0 bg-black/40" onClick={() => setSidebarOpen(false)} />
           <div className="relative z-10 h-full w-[min(86vw,320px)] animate-enter">{panel}</div>

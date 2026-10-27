@@ -1,28 +1,50 @@
 "use client";
 
 import * as React from "react";
+import {
+  ArrowLeft,
+  Code2,
+  Minimize2,
+} from "lucide-react";
 import { useStore } from "@/lib/store";
-import { getTags } from "@/lib/tags";
-import { relativeTime } from "@/lib/utils";
 import type { Document } from "@/lib/types";
-import { injectLocateBridge, isTrivialSelection, locateInHtml } from "@/lib/locate";
-import { prepareHtmlPreview } from "@/lib/fixHtmlPreview";
+import {
+  injectLocateBridge,
+  isDarkCssColor,
+  isTrivialSelection,
+  locateInHtml,
+  parseBridgeMessage,
+} from "@/lib/locate";
 import type { HtmlLocatePayload } from "@/lib/locate";
+import { prepareHtmlPreview } from "@/lib/fixHtmlPreview";
+import {
+  HTML_WIDTH_PX,
+  type HtmlWidthMode,
+} from "@/lib/htmlPreviewPrefs";
 import { PreviewContextMenu, type ContextMenuItem } from "./locate/PreviewContextMenu";
 import { SelectionFloatBar } from "./locate/SelectionFloatBar";
+import { cn } from "@/lib/utils";
 
 export function HtmlReader({ doc }: { doc: Document }) {
   const getContent = useStore((s) => s.getContent);
-  const setDocTags = useStore((s) => s.setDocTags);
   const applyLocateResult = useStore((s) => s.applyLocateResult);
   const setStatus = useStore((s) => s.setStatus);
   const pendingPreviewLocate = useStore((s) => s.pendingPreviewLocate);
   const clearPendingPreviewLocate = useStore((s) => s.clearPendingPreviewLocate);
+  const htmlImmersive = useStore((s) => s.htmlImmersive);
+  const setHtmlImmersive = useStore((s) => s.setHtmlImmersive);
+  const setHtmlScrollPercent = useStore((s) => s.setHtmlScrollPercent);
+  const getHtmlPreviewPrefs = useStore((s) => s.getHtmlPreviewPrefs);
+  const setViewMode = useStore((s) => s.setViewMode);
+  const openHome = useStore((s) => s.openHome);
+  const setCommandOpen = useStore((s) => s.setCommandOpen);
+  const htmlReloadToken = useStore((s) => s.htmlReloadToken);
+  const theme = useStore((s) => s.theme);
+  const prefs = getHtmlPreviewPrefs(doc.id);
+
   const content = getContent(doc.id);
-  const tags = getTags({ ...doc, content });
-  const [tagInput, setTagInput] = React.useState("");
   const iframeRef = React.useRef<HTMLIFrameElement>(null);
-  const wrapRef = React.useRef<HTMLDivElement>(null);
+  const stageRef = React.useRef<HTMLDivElement>(null);
   const [menu, setMenu] = React.useState<{
     x: number;
     y: number;
@@ -32,11 +54,34 @@ export function HtmlReader({ doc }: { doc: Document }) {
     rect: { top: number; left: number; bottom: number; right: number };
     payload: HtmlLocatePayload;
   } | null>(null);
+  const [pageBg, setPageBg] = React.useState<string>("transparent");
+  const [loaded, setLoaded] = React.useState(false);
+  const [stageSize, setStageSize] = React.useState({ w: 0, h: 0 });
 
   const srcDoc = React.useMemo(
     () => injectLocateBridge(prepareHtmlPreview(content)),
     [content]
   );
+
+  // Measure stage for device scaling
+  React.useEffect(() => {
+    const el = stageRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      const r = entries[0]?.contentRect;
+      if (!r) return;
+      setStageSize({ w: r.width, h: r.height });
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // Reset load state when content/reload changes
+  React.useEffect(() => {
+    setLoaded(false);
+    setPageBg("transparent");
+    setHtmlScrollPercent(0);
+  }, [content, htmlReloadToken, doc.id, setHtmlScrollPercent]);
 
   const runLocate = React.useCallback(
     (payload: Pick<HtmlLocatePayload, "text" | "before" | "after">) => {
@@ -57,15 +102,64 @@ export function HtmlReader({ doc }: { doc: Document }) {
     [content, applyLocateResult, setStatus]
   );
 
+  const handleBridgeKey = React.useCallback(
+    (msg: {
+      key: string;
+      metaKey: boolean;
+      ctrlKey: boolean;
+    }) => {
+      const meta = msg.metaKey || msg.ctrlKey;
+      const k = msg.key;
+      if (meta && (k === "k" || k === "K")) {
+        setCommandOpen(true);
+        return;
+      }
+      if (meta && (k === "e" || k === "E")) {
+        setViewMode("source");
+        setHtmlImmersive(false);
+        setStatus("已切换到源码");
+        return;
+      }
+      if (k === "Escape") {
+        if (htmlImmersive) {
+          setHtmlImmersive(false);
+          setStatus("已退出沉浸模式");
+        }
+        return;
+      }
+      if ((k === "f" || k === "F") && !meta) {
+        const next = !htmlImmersive;
+        setHtmlImmersive(next);
+        setStatus(next ? "已进入沉浸模式" : "已退出沉浸模式");
+      }
+    },
+    [htmlImmersive, setCommandOpen, setViewMode, setHtmlImmersive, setStatus]
+  );
+
   React.useEffect(() => {
     const onMessage = (event: MessageEvent) => {
       const iframe = iframeRef.current;
       if (!iframe || event.source !== iframe.contentWindow) return;
-      const data = event.data as HtmlLocatePayload | null;
-      if (!data || typeof data !== "object" || typeof data.type !== "string") return;
-      if (!data.type.startsWith("lh-")) return;
+      const data = parseBridgeMessage(event.data);
+      if (!data) return;
 
       const iframeRect = iframe.getBoundingClientRect();
+
+      if (data.type === "lh-bg") {
+        if (typeof data.color === "string" && data.color) setPageBg(data.color);
+        return;
+      }
+      if (data.type === "lh-scroll") {
+        setHtmlScrollPercent(data.percent ?? 0);
+        return;
+      }
+      if (data.type === "lh-ready") {
+        return;
+      }
+      if (data.type === "lh-keydown") {
+        handleBridgeKey(data);
+        return;
+      }
 
       if (data.type === "lh-locate") {
         runLocate(data);
@@ -100,14 +194,13 @@ export function HtmlReader({ doc }: { doc: Document }) {
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [runLocate]);
+  }, [runLocate, handleBridgeKey, setHtmlScrollPercent]);
 
-  // Source → Preview: ask bridge to highlight nearby visible text
+  // Source → Preview highlight
   React.useEffect(() => {
     if (!pendingPreviewLocate) return;
     const offset = pendingPreviewLocate.offset;
     const win = iframeRef.current?.contentWindow;
-    // Extract a short plaintext snippet around caret from source (strip tags roughly)
     const slice = content.slice(Math.max(0, offset - 1), Math.min(content.length, offset + 40));
     const text = slice
       .replace(/<script[\s\S]*?<\/script>/gi, "")
@@ -164,49 +257,145 @@ export function HtmlReader({ doc }: { doc: Document }) {
     ];
   }, [menu, runLocate, setStatus]);
 
+  const widthMode: HtmlWidthMode = prefs.widthMode;
+  const zoom = prefs.zoom;
+  const fixedWidth =
+    widthMode === "fluid" ? null : HTML_WIDTH_PX[widthMode];
+
+  let fitScale = 1;
+  if (fixedWidth && stageSize.w > 0) {
+    fitScale = Math.min(1, stageSize.w / (fixedWidth * zoom));
+  }
+  const totalScale = fitScale * zoom;
+
+  const pageDark = isDarkCssColor(pageBg);
+  const showGradient = pageDark && theme === "paper" && !htmlImmersive;
+
+  const onIframeLoad = () => {
+    window.setTimeout(() => setLoaded(true), 200);
+  };
+
   return (
-    <div className="h-full flex flex-col min-h-0" ref={wrapRef}>
-      <div className="shrink-0 px-4 py-2 border-b border-[var(--border)] flex flex-wrap items-center gap-2 text-xs text-[var(--muted)] font-ui">
-        <span className="rounded-full border border-[var(--teal)]/40 text-[var(--teal)] px-2 py-0.5">HTML</span>
-        <span>更新于 {relativeTime(doc.updatedAt)}</span>
-        {tags.map((t) => (
-          <span key={t} className="inline-flex items-center gap-1 rounded-full border border-[var(--border)] px-2 py-0.5">
-            {t}
-            <button
-              type="button"
-              aria-label={`删除标签 ${t}`}
-              onClick={() => setDocTags(doc.id, tags.filter((x) => x !== t))}
-            >
-              ×
-            </button>
-          </span>
-        ))}
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            const t = tagInput.trim();
-            if (!t || tags.includes(t)) return;
-            setDocTags(doc.id, [...tags, t]);
-            setTagInput("");
-          }}
-        >
-          <input
-            value={tagInput}
-            onChange={(e) => setTagInput(e.target.value)}
-            placeholder="+ 标签"
-            className="h-7 w-24 rounded-full border border-dashed border-[var(--border)] bg-transparent px-2 text-xs focus:outline-none focus:border-[var(--accent)]"
+    <div className="relative h-full min-h-0 flex flex-col bg-[var(--bg)]">
+      {/* Stage: full-bleed, no padding/radius */}
+      <div
+        ref={stageRef}
+        className="relative flex-1 min-h-0 overflow-hidden"
+        style={{ background: pageBg === "transparent" ? "var(--bg)" : pageBg }}
+      >
+        {/* Skeleton */}
+        {!loaded && (
+          <div className="absolute inset-0 z-10 p-6 space-y-4 pointer-events-none">
+            <div className="skeleton h-8 w-1/3" />
+            <div className="skeleton h-40 w-full" />
+            <div className="skeleton h-24 w-2/3" />
+          </div>
+        )}
+
+        {/* Dark-page soft junction under topbar */}
+        {showGradient && (
+          <div
+            className="pointer-events-none absolute inset-x-0 top-0 z-20 h-6"
+            style={{
+              background: `linear-gradient(to bottom, var(--bg-elevated), transparent)`,
+            }}
           />
-        </form>
+        )}
+
+        {/* Width gutters + frame */}
+        <div
+          className={cn(
+            "absolute inset-0 flex justify-center",
+            fixedWidth ? "items-start" : "items-stretch"
+          )}
+          style={
+            fixedWidth
+              ? {
+                  background:
+                    "color-mix(in srgb, var(--fg) 4%, var(--bg))",
+                }
+              : undefined
+          }
+        >
+          <div
+            className="relative h-full"
+            style={
+              fixedWidth
+                ? {
+                    width: fixedWidth,
+                    maxWidth: "100%",
+                    transform: `scale(${totalScale})`,
+                    transformOrigin: "top center",
+                    height:
+                      totalScale > 0
+                        ? `${100 / totalScale}%`
+                        : "100%",
+                  }
+                : { width: "100%", height: "100%" }
+            }
+          >
+            {fixedWidth && (
+              <div className="pointer-events-none absolute -top-0 left-1/2 z-20 -translate-x-1/2 rounded-b-md bg-black/45 px-2 py-0.5 text-[10px] font-mono text-white/90">
+                {fixedWidth}px · {Math.round(zoom * 100)}%
+              </div>
+            )}
+            <iframe
+              key={`${doc.id}-${htmlReloadToken}`}
+              ref={iframeRef}
+              title={doc.path}
+              srcDoc={srcDoc}
+              sandbox="allow-scripts allow-popups allow-forms"
+              onLoad={onIframeLoad}
+              className={cn(
+                "h-full w-full border-0 block",
+                "transition-opacity duration-200",
+                loaded ? "opacity-100" : "opacity-0"
+              )}
+              style={{ background: pageBg === "transparent" ? undefined : pageBg }}
+            />
+          </div>
+        </div>
       </div>
-      <div className="flex-1 min-h-0 p-3 md:p-4">
-        <iframe
-          ref={iframeRef}
-          title={doc.path}
-          srcDoc={srcDoc}
-          sandbox="allow-scripts allow-popups allow-forms"
-          className="h-full w-full rounded-2xl border border-[var(--border)] bg-[#faf9f7] dark:bg-[#1a1916]"
-        />
-      </div>
+
+      {/* Immersive floating strip */}
+      {htmlImmersive && (
+        <div className="pointer-events-auto fixed left-3 top-3 z-[60] flex items-center gap-1 rounded-full border border-white/15 bg-black/45 px-1.5 py-1 text-white shadow-lg backdrop-blur-md">
+          <button
+            type="button"
+            className="inline-flex h-7 items-center gap-1 rounded-full px-2.5 text-xs hover:bg-white/10"
+            onClick={() => {
+              setHtmlImmersive(false);
+              openHome();
+            }}
+            aria-label="返回"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" />
+            返回
+          </button>
+          <button
+            type="button"
+            className="inline-flex h-7 items-center gap-1 rounded-full px-2.5 text-xs hover:bg-white/10"
+            onClick={() => {
+              setHtmlImmersive(false);
+              setViewMode("source");
+            }}
+            aria-label="源码"
+          >
+            <Code2 className="h-3.5 w-3.5" />
+            源码
+          </button>
+          <button
+            type="button"
+            className="inline-flex h-7 items-center gap-1 rounded-full px-2.5 text-xs hover:bg-white/10"
+            onClick={() => setHtmlImmersive(false)}
+            aria-label="退出沉浸"
+          >
+            <Minimize2 className="h-3.5 w-3.5" />
+            退出
+          </button>
+        </div>
+      )}
+
       {menu && (
         <PreviewContextMenu
           x={menu.x}
@@ -220,4 +409,15 @@ export function HtmlReader({ doc }: { doc: Document }) {
       )}
     </div>
   );
+}
+
+/** Open prepared HTML (no locate bridge) in a new tab via Blob URL. */
+export function openHtmlInNewTab(rawHtml: string) {
+  const html = prepareHtmlPreview(rawHtml);
+  const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const w = window.open(url, "_blank", "noopener,noreferrer");
+  if (w) w.opener = null;
+  // Revoke after the new tab has a chance to load
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }

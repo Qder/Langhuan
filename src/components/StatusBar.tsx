@@ -9,11 +9,32 @@ export function StatusBar() {
   const active = useStore((s) => s.getActive());
   const getContent = useStore((s) => s.getContent);
   const isDirty = useStore((s) => s.isDirty);
+  const viewMode = useStore((s) => s.viewMode);
+  const htmlImmersive = useStore((s) => s.htmlImmersive);
 
   const content = active ? getContent(active.id) : "";
   const words = active ? countWords(content) : 0;
   const mins = readingMinutes(words);
   const dirty = active ? isDirty(active.id) : false;
+
+  const htmlPreview =
+    active?.type === "html" && viewMode !== "source" && !htmlImmersive;
+
+  if (htmlImmersive && active?.type === "html") {
+    return null;
+  }
+
+  if (htmlPreview) {
+    return (
+      <footer className="h-5 shrink-0 border-t border-[var(--border)] bg-[color-mix(in_srgb,var(--bg-elevated)_90%,transparent)] px-3 flex items-center justify-between text-[10px] text-[var(--muted)] font-ui">
+        <div className="truncate">{status?.message || "就绪"}</div>
+        <div className="flex items-center gap-3 shrink-0 tabular-nums">
+          <span>{words} 字</span>
+          <span>沙箱渲染</span>
+        </div>
+      </footer>
+    );
+  }
 
   return (
     <footer className="h-7 shrink-0 border-t border-[var(--border)] bg-[color-mix(in_srgb,var(--bg-elevated)_90%,transparent)] px-3 flex items-center justify-between text-[11px] text-[var(--muted)] font-ui">

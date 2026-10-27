@@ -3,6 +3,8 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { Document, StatusFeedback, ThemeMode, ViewMode } from "./types";
+import type { HtmlDocPreviewPrefs } from "./htmlPreviewPrefs";
+import { DEFAULT_HTML_PREVIEW_PREFS, normalizeHtmlPrefs } from "./htmlPreviewPrefs";
 import type { LocateResult } from "./locate/types";
 
 export type PendingReveal = {
@@ -45,6 +47,16 @@ type LanghuanState = {
   outlineRailOpen: boolean;
   /** Sidebar middle panel: docs tree | tags | starred. */
   sidebarPanel: "docs" | "tags" | "stars";
+  /** HTML preview immersive reading mode (session). */
+  htmlImmersive: boolean;
+  /** HTML: temporary full sidebar overlay over content (session). */
+  htmlSidebarPeek: boolean;
+  /** Scroll percent reported by HTML preview bridge (0–100). */
+  htmlScrollPercent: number;
+  /** Per-document HTML preview chrome prefs (width sim / zoom). */
+  htmlPreviewPrefs: Record<string, HtmlDocPreviewPrefs>;
+  /** Bump to force HTML iframe remount/refresh. */
+  htmlReloadToken: number;
   setHydrated: (v: boolean) => void;
   setTheme: (t: ThemeMode) => void;
   toggleTheme: () => void;
@@ -62,6 +74,13 @@ type LanghuanState = {
   setOutlineRailOpen: (v: boolean) => void;
   toggleOutlineRail: () => void;
   setSidebarPanel: (p: "docs" | "tags" | "stars") => void;
+  setHtmlImmersive: (v: boolean) => void;
+  toggleHtmlImmersive: () => void;
+  setHtmlSidebarPeek: (v: boolean) => void;
+  setHtmlScrollPercent: (n: number) => void;
+  getHtmlPreviewPrefs: (id: string) => HtmlDocPreviewPrefs;
+  setHtmlPreviewPrefs: (id: string, patch: Partial<HtmlDocPreviewPrefs>) => void;
+  bumpHtmlReload: () => void;
   setStatus: (message: string) => void;
   applyLocateResult: (result: LocateResult) => void;
   clearPendingReveal: () => void;
@@ -111,6 +130,11 @@ export const useStore = create<LanghuanState>()(
       outlineWidth: 240,
       outlineRailOpen: true,
       sidebarPanel: "docs",
+      htmlImmersive: false,
+      htmlSidebarPeek: false,
+      htmlScrollPercent: 0,
+      htmlPreviewPrefs: {},
+      htmlReloadToken: 0,
 
       setHydrated: (v) => set({ hydrated: v }),
       setTheme: (t) => {
@@ -165,6 +189,31 @@ export const useStore = create<LanghuanState>()(
         get().setStatus(next ? "已显示大纲栏" : "已隐藏大纲栏");
       },
       setSidebarPanel: (p) => set({ sidebarPanel: p }),
+      setHtmlImmersive: (v) =>
+        set({
+          htmlImmersive: v,
+          htmlSidebarPeek: v ? false : get().htmlSidebarPeek,
+        }),
+      toggleHtmlImmersive: () => {
+        const next = !get().htmlImmersive;
+        get().setHtmlImmersive(next);
+        get().setStatus(next ? "已进入沉浸模式" : "已退出沉浸模式");
+      },
+      setHtmlSidebarPeek: (v) => set({ htmlSidebarPeek: v }),
+      setHtmlScrollPercent: (n) => {
+        const clamped = Math.max(0, Math.min(100, Number.isFinite(n) ? n : 0));
+        set({ htmlScrollPercent: clamped });
+      },
+      getHtmlPreviewPrefs: (id) =>
+        normalizeHtmlPrefs(get().htmlPreviewPrefs[id] || DEFAULT_HTML_PREVIEW_PREFS),
+      setHtmlPreviewPrefs: (id, patch) => {
+        const cur = normalizeHtmlPrefs(get().htmlPreviewPrefs[id]);
+        const next = normalizeHtmlPrefs({ ...cur, ...patch });
+        set((s) => ({
+          htmlPreviewPrefs: { ...s.htmlPreviewPrefs, [id]: next },
+        }));
+      },
+      bumpHtmlReload: () => set((s) => ({ htmlReloadToken: s.htmlReloadToken + 1 })),
       setStatus: (message) => set({ status: { message, at: Date.now() } }),
 
       applyLocateResult: (result) => {
@@ -196,8 +245,22 @@ export const useStore = create<LanghuanState>()(
 
       clearPendingPreviewLocate: () => set({ pendingPreviewLocate: null }),
 
-      openHome: () => set({ activeId: null }),
-      openDoc: (id) => set({ activeId: id, sidebarOpen: false }),
+      openHome: () =>
+        set({
+          activeId: null,
+          htmlImmersive: false,
+          htmlSidebarPeek: false,
+          htmlScrollPercent: 0,
+        }),
+      openDoc: (id) => {
+        set({
+          activeId: id,
+          sidebarOpen: false,
+          htmlImmersive: false,
+          htmlSidebarPeek: false,
+          htmlScrollPercent: 0,
+        });
+      },
 
       getActive: () => {
         const { activeId, documents } = get();
@@ -382,6 +445,7 @@ export const useStore = create<LanghuanState>()(
         outlineWidth: s.outlineWidth,
         outlineRailOpen: s.outlineRailOpen,
         tagFilters: s.tagFilters,
+        htmlPreviewPrefs: s.htmlPreviewPrefs,
       }),
       version: 1,
       migrate: (persisted, fromVersion) => {
