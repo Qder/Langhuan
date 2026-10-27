@@ -150,8 +150,15 @@ export const HTML_LOCATE_BRIDGE = `
 export function injectLocateBridge(srcDoc: string): string {
   // strip any previous bridge
   let html = srcDoc.replace(/<script[^>]*data-lh-bridge=["']1["'][^>]*>[\s\S]*?<\/script>/gi, "");
-  if (/<\/body>/i.test(html)) {
-    return html.replace(/<\/body>/i, `${HTML_LOCATE_BRIDGE}\n</body>`);
+
+  // Prefer the last </body>: pages may embed "</body>" inside <script> JSON/examples
+  // (e.g. html-elements-reference). Replacing the first one injects our </script>
+  // mid-script and dumps the rest of the data as visible text.
+  const lower = html.toLowerCase();
+  const marker = "</body>";
+  const idx = lower.lastIndexOf(marker);
+  if (idx >= 0) {
+    return html.slice(0, idx) + `${HTML_LOCATE_BRIDGE}\n` + html.slice(idx);
   }
   return html + "\n" + HTML_LOCATE_BRIDGE;
 }
