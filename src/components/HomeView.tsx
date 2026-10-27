@@ -24,7 +24,8 @@ export function HomeView() {
   const setStatus = useStore((s) => s.setStatus);
   const openDoc = useStore((s) => s.openDoc);
   const setCommandOpen = useStore((s) => s.setCommandOpen);
-  const setTagFilter = useStore((s) => s.setTagFilter);
+  const setTagFilters = useStore((s) => s.setTagFilters);
+  const setSidebarPanel = useStore((s) => s.setSidebarPanel);
   const resetSeed = useStore((s) => s.resetSeed);
   const folderRef = React.useRef<HTMLInputElement>(null);
   const [pendingImport, setPendingImport] = React.useState<{ path: string; content: string }[] | null>(null);
@@ -230,7 +231,8 @@ export function HomeView() {
                     key={t}
                     type="button"
                     onClick={() => {
-                      setTagFilter(t);
+                      setTagFilters([t]);
+                      setSidebarPanel("docs");
                     }}
                     className={cn(
                       "rounded-full border border-[var(--border)] px-3 py-1.5 hover:border-[var(--accent)] hover:text-[var(--accent)] transition-colors",

@@ -27,7 +27,7 @@ type LanghuanState = {
   activeId: string | null;
   viewMode: ViewMode;
   theme: ThemeMode;
-  tagFilter: string | null;
+  tagFilters: string[];
   sidebarOpen: boolean;
   commandOpen: boolean;
   status: StatusFeedback;
@@ -50,7 +50,9 @@ type LanghuanState = {
   toggleTheme: () => void;
   setSidebarOpen: (v: boolean) => void;
   setCommandOpen: (v: boolean) => void;
-  setTagFilter: (t: string | null) => void;
+  setTagFilters: (tags: string[]) => void;
+  toggleTagFilter: (tag: string) => void;
+  clearTagFilters: () => void;
   setViewMode: (m: ViewMode) => void;
   setSplitRatio: (r: number) => void;
   setSplitSourceFirst: (v: boolean) => void;
@@ -97,7 +99,7 @@ export const useStore = create<LanghuanState>()(
       activeId: null,
       viewMode: "preview",
       theme: "paper",
-      tagFilter: null,
+      tagFilters: [],
       sidebarOpen: false,
       commandOpen: false,
       status: null,
@@ -124,7 +126,19 @@ export const useStore = create<LanghuanState>()(
       },
       setSidebarOpen: (v) => set({ sidebarOpen: v }),
       setCommandOpen: (v) => set({ commandOpen: v }),
-      setTagFilter: (t) => set({ tagFilter: t }),
+      setTagFilters: (tags) => {
+        const uniq = [...new Set(tags.map((t) => t.trim()).filter(Boolean))];
+        set({ tagFilters: uniq });
+      },
+      toggleTagFilter: (tag) => {
+        const t = tag.trim();
+        if (!t) return;
+        const cur = get().tagFilters;
+        set({
+          tagFilters: cur.includes(t) ? cur.filter((x) => x !== t) : [...cur, t],
+        });
+      },
+      clearTagFilters: () => set({ tagFilters: [] }),
       setViewMode: (m) => set({ viewMode: m }),
       setSplitRatio: (r) => {
         const clamped = Math.min(0.8, Math.max(0.2, r));
@@ -367,7 +381,23 @@ export const useStore = create<LanghuanState>()(
         sidebarWidth: s.sidebarWidth,
         outlineWidth: s.outlineWidth,
         outlineRailOpen: s.outlineRailOpen,
+        tagFilters: s.tagFilters,
       }),
+      version: 1,
+      migrate: (persisted, fromVersion) => {
+        const p = (persisted || {}) as Record<string, unknown>;
+        // Migrate legacy single tagFilter (string | null) → tagFilters[].
+        if (Array.isArray(p.tagFilters)) {
+          p.tagFilters = [...new Set((p.tagFilters as unknown[]).map(String).filter(Boolean))];
+        } else if (typeof p.tagFilter === "string" && p.tagFilter) {
+          p.tagFilters = [p.tagFilter];
+        } else {
+          p.tagFilters = [];
+        }
+        delete p.tagFilter;
+        void fromVersion;
+        return p as typeof persisted;
+      },
       onRehydrateStorage: () => (state) => {
         state?.setHydrated(true);
         if (state?.theme === "ink" && typeof document !== "undefined") {
@@ -389,8 +419,12 @@ export const useStore = create<LanghuanState>()(
 
 export function filteredDocuments(
   docs: Document[],
-  tagFilter: string | null
+  tagFilters: string[] | null | undefined
 ): Document[] {
-  if (!tagFilter) return docs;
-  return docs.filter((d) => getTags(d).includes(tagFilter));
+  const filters = (tagFilters || []).map((t) => t.trim()).filter(Boolean);
+  if (!filters.length) return docs;
+  return docs.filter((d) => {
+    const tags = getTags(d);
+    return filters.every((t) => tags.includes(t));
+  });
 }

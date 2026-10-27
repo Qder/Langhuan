@@ -197,8 +197,9 @@ async function readFileAsText(file: File): Promise<string> {
 
 export function Sidebar() {
   const documents = useStore((s) => s.documents);
-  const tagFilter = useStore((s) => s.tagFilter);
-  const setTagFilter = useStore((s) => s.setTagFilter);
+  const tagFilters = useStore((s) => s.tagFilters);
+  const toggleTagFilter = useStore((s) => s.toggleTagFilter);
+  const clearTagFilters = useStore((s) => s.clearTagFilters);
   const openHome = useStore((s) => s.openHome);
   const activeId = useStore((s) => s.activeId);
   const createDoc = useStore((s) => s.createDoc);
@@ -225,7 +226,7 @@ export function Sidebar() {
   const compact = useMediaQuery("(max-height: 699px)");
   const rowH = compact ? "h-7" : "h-8"; // 28 / 32
 
-  const visible = filteredDocuments(documents, tagFilter);
+  const visible = filteredDocuments(documents, tagFilters);
   const tags = collectTagCounts(documents);
   const sortedTags = [...tags.entries()].sort(
     (a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "zh")
@@ -249,8 +250,8 @@ export function Sidebar() {
   const activeDoc = documents.find((d) => d.id === activeId) || null;
   const pathHint = activeDoc
     ? dirname(activeDoc.path) || "根目录"
-    : tagFilter
-      ? `筛选 · #${tagFilter}`
+    : tagFilters.length
+      ? `筛选 · ${tagFilters.map((t) => `#${t}`).join(" ")}`
       : "全部文档";
 
   // Auto-expand ancestors of active doc
@@ -392,9 +393,9 @@ export function Sidebar() {
     }
   };
 
-  const selectTag = (name: string | null) => {
-    setTagFilter(name);
-    setSidebarPanel("docs");
+  const toggleTag = (name: string) => {
+    // Stay on tags panel so multi-select is easy; docs panel still shows chips.
+    toggleTagFilter(name);
   };
 
   const segments: { id: "docs" | "tags" | "stars"; label: string; count: number }[] = [
@@ -575,14 +576,28 @@ export function Sidebar() {
         <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto scroll-thin">
           {sidebarPanel === "docs" && (
             <div>
-              {tagFilter && (
+              {tagFilters.length > 0 && (
                 <div className="sticky top-0 z-10 mb-1.5 flex items-center gap-1 rounded-lg border border-[var(--accent)]/30 bg-[color-mix(in_srgb,var(--accent)_8%,var(--bg-elevated))] px-2 py-1 text-xs text-[var(--accent)]">
-                  <span className="truncate flex-1">#{tagFilter}</span>
+                  <div className="flex min-w-0 flex-1 flex-wrap gap-1 overflow-x-auto scroll-thin">
+                    {tagFilters.map((t) => (
+                      <button
+                        key={t}
+                        type="button"
+                        aria-label={`移除标签 ${t}`}
+                        className="inline-flex shrink-0 items-center gap-0.5 rounded-full border border-[var(--accent)]/35 bg-[color-mix(in_srgb,var(--accent)_12%,transparent)] px-1.5 py-0.5 text-[11px] hover:bg-[var(--hover)]"
+                        onClick={() => toggleTagFilter(t)}
+                      >
+                        #{t}
+                        <X className="h-2.5 w-2.5 opacity-80" />
+                      </button>
+                    ))}
+                  </div>
                   <button
                     type="button"
-                    aria-label="清除标签筛选"
+                    aria-label="清除全部标签筛选"
                     className="shrink-0 rounded p-0.5 hover:bg-[var(--hover)]"
-                    onClick={() => setTagFilter(null)}
+                    onClick={() => clearTagFilters()}
+                    title="清除全部"
                   >
                     <X className="h-3 w-3" />
                   </button>
@@ -617,34 +632,43 @@ export function Sidebar() {
               <div className="flex gap-1.5 overflow-x-auto scroll-thin pb-1">
                 <button
                   type="button"
-                  onClick={() => selectTag(null)}
+                  onClick={() => clearTagFilters()}
                   className={cn(
                     "shrink-0 rounded-full px-2.5 py-1 text-xs border transition-colors whitespace-nowrap",
-                    !tagFilter
+                    tagFilters.length === 0
                       ? "border-[var(--accent)] text-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_10%,transparent)]"
                       : "border-[var(--border)] hover:bg-[var(--hover)]"
                   )}
                 >
                   全部 · {documents.length}
                 </button>
+                {tagFilters.length > 0 && (
+                  <span className="shrink-0 self-center text-[10px] text-[var(--muted)] tabular-nums">
+                    已选 {tagFilters.length} · 文档 {visible.length}
+                  </span>
+                )}
               </div>
               <div className="grid grid-cols-2 gap-1.5">
-                {filteredTags.map(([name, n]) => (
-                  <button
-                    key={name}
-                    type="button"
-                    onClick={() => selectTag(tagFilter === name ? null : name)}
-                    className={cn(
-                      "rounded-full px-2.5 py-1 text-xs border transition-colors truncate text-left",
-                      tagFilter === name
-                        ? "border-[var(--accent)] text-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_10%,transparent)]"
-                        : "border-[var(--border)] hover:bg-[var(--hover)]"
-                    )}
-                    title={`${name} · ${n}`}
-                  >
-                    {name} · {n}
-                  </button>
-                ))}
+                {filteredTags.map(([name, n]) => {
+                  const selected = tagFilters.includes(name);
+                  return (
+                    <button
+                      key={name}
+                      type="button"
+                      aria-pressed={selected}
+                      onClick={() => toggleTag(name)}
+                      className={cn(
+                        "rounded-full px-2.5 py-1 text-xs border transition-colors truncate text-left",
+                        selected
+                          ? "border-[var(--accent)] text-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_10%,transparent)]"
+                          : "border-[var(--border)] hover:bg-[var(--hover)]"
+                      )}
+                      title={`${name} · ${n}${selected ? "（已选）" : ""}`}
+                    >
+                      {name} · {n}
+                    </button>
+                  );
+                })}
               </div>
               {filteredTags.length === 0 && (
                 <div className="text-xs text-[var(--muted)] px-1 py-4 text-center">无匹配标签</div>
