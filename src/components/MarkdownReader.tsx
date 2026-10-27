@@ -9,6 +9,8 @@ import rehypeKatex from "rehype-katex";
 import rehypeHighlight from "rehype-highlight";
 import rehypeRaw from "rehype-raw";
 import { Copy, Info, Lightbulb, TriangleAlert } from "lucide-react";
+import { flattenCodeText, isMermaidLanguage } from "@/lib/codeText";
+import { MermaidBlock } from "./MermaidBlock";
 import { useStore } from "@/lib/store";
 import { findBacklinks, resolveWikiTarget } from "@/lib/search";
 import { getTags, parseFrontmatter } from "@/lib/tags";
@@ -76,7 +78,7 @@ function CodeBlock({
   srcEnd?: number;
 }) {
   const lang = /language-(\w+)/.exec(className || "")?.[1] || "";
-  const text = String(children).replace(/\n$/, "");
+  const text = flattenCodeText(children).replace(/\n$/, "");
   const [copied, setCopied] = React.useState(false);
   const attrs =
     typeof srcStart === "number" && typeof srcEnd === "number"
@@ -439,7 +441,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
               rehypeKatex,
               rehypeSlug,
               rehypeRaw,
-              rehypeHighlight,
+              [rehypeHighlight, { plainText: ["mermaid"] }],
               rehypeSrcPositions(fmOffset),
             ]}
             components={{
@@ -507,6 +509,17 @@ export function MarkdownReader({ doc }: { doc: Document }) {
                   (typeof className === "string" && /(^|\s)language-/.test(className));
                 const attrs = srcAttrs(fmOffset, node as HastNode);
                 if (isBlock) {
+                  if (isMermaidLanguage(className)) {
+                    return (
+                      <MermaidBlock
+                        className={className}
+                        srcStart={attrs["data-src-start"]}
+                        srcEnd={attrs["data-src-end"]}
+                      >
+                        {children}
+                      </MermaidBlock>
+                    );
+                  }
                   return (
                     <CodeBlock
                       className={className}

@@ -126,6 +126,19 @@ function save(doc: Document) {
 }
 \`\`\`
 
+## Mermaid 流程图
+
+预览里 \`\`\`mermaid 围栏会直接渲染成图（可切换看源码 / 复制）。
+
+\`\`\`mermaid
+flowchart LR
+  A[打开笔记] --> B{含 mermaid?}
+  B -->|是| C[渲染 SVG 图]
+  B -->|否| D[普通代码高亮]
+  C --> E[可复制源码]
+  D --> E
+\`\`\`
+
 ## 任务
 
 - [x] 写欢迎页
