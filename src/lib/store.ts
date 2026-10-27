@@ -104,6 +104,12 @@ export type PendingPreviewLocate = {
   announce?: boolean;
 };
 
+/** One-shot: expand ancestors + scroll sidebar tree to doc (tab / row dblclick). */
+export type TreeRevealRequest = {
+  docId: string;
+  nonce: number;
+};
+
 type LanghuanState = {
   hydrated: boolean;
   documents: Document[];
@@ -120,6 +126,8 @@ type LanghuanState = {
   status: StatusFeedback;
   pendingReveal: PendingReveal | null;
   pendingPreviewLocate: PendingPreviewLocate | null;
+  /** Sidebar tree: expand + scrollIntoView once (not on activeId change). */
+  treeRevealRequest: TreeRevealRequest | null;
   pendingNav: PendingNav;
   /** Fraction of split space for the source pane (0.2–0.8). */
   splitRatio: number;
@@ -223,6 +231,8 @@ type LanghuanState = {
   clearPendingReveal: () => void;
   requestPreviewLocate: (offset: number, opts?: PreviewLocateOpts) => void;
   clearPendingPreviewLocate: () => void;
+  /** Expand ancestors and scroll the sidebar tree to this doc once. */
+  requestTreeReveal: (docId: string) => void;
   openHome: () => void;
   openDoc: (id: string) => void;
   /** Like openDoc/openHome but blocks when current doc is dirty. */
@@ -384,6 +394,7 @@ export const useStore = create<LanghuanState>()(
       status: null,
       pendingReveal: null,
       pendingPreviewLocate: null,
+      treeRevealRequest: null,
       pendingNav: null,
       splitRatio: 0.5,
       splitSourceFirst: true,
@@ -612,6 +623,14 @@ export const useStore = create<LanghuanState>()(
       },
 
       clearPendingPreviewLocate: () => set({ pendingPreviewLocate: null }),
+      requestTreeReveal: (docId) => {
+        if (!docId) return;
+        set({
+          treeRevealRequest: { docId, nonce: Date.now() },
+          sidebarPanel: "docs",
+          sidebarOpen: true,
+        });
+      },
 
       openHome: () =>
         set({

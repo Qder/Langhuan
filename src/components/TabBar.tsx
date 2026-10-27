@@ -19,6 +19,7 @@ export function TabBar() {
   const closeTab = useStore((s) => s.closeTab);
   const closeTabsInMode = useStore((s) => s.closeTabsInMode);
   const togglePinTab = useStore((s) => s.togglePinTab);
+  const requestTreeReveal = useStore((s) => s.requestTreeReveal);
   const openInSplit = useStore((s) => s.openInSplit);
   const isDirty = useStore((s) => s.isDirty);
   const reorderTabs = useStore((s) => s.reorderTabs);
@@ -90,7 +91,7 @@ export function TabBar() {
               onClick={() => openDoc(doc.id)}
               onDoubleClick={(e) => {
                 e.preventDefault();
-                togglePinTab(doc.id);
+                requestTreeReveal(doc.id);
               }}
               onContextMenu={(e) => {
                 e.preventDefault();

@@ -84,6 +84,7 @@ function FileTree({
   onFileContextMenu: (docId: string, e: React.MouseEvent) => void;
 }) {
   const openDoc = useStore((s) => s.requestOpenDoc);
+  const requestTreeReveal = useStore((s) => s.requestTreeReveal);
   const isDirty = useStore((s) => s.isDirty);
   const batchMode = useStore((s) => s.batchMode);
   const treeSelection = useStore((s) => s.treeSelection);
@@ -235,6 +236,10 @@ function FileTree({
                 }
                 openDoc(f.id);
               }}
+              onDoubleClick={(e) => {
+                e.preventDefault();
+                requestTreeReveal(f.id);
+              }}
               onContextMenu={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -310,6 +315,7 @@ export function Sidebar() {
   const openDoc = useStore((s) => s.requestOpenDoc);
   const sidebarPanel = useStore((s) => s.sidebarPanel);
   const setSidebarPanel = useStore((s) => s.setSidebarPanel);
+  const treeRevealRequest = useStore((s) => s.treeRevealRequest);
   const trash = useStore((s) => s.trash);
   const restoreFromTrash = useStore((s) => s.restoreFromTrash);
   const purgeTrashItem = useStore((s) => s.purgeTrashItem);
@@ -435,18 +441,34 @@ export function Sidebar() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [documents.length]);
 
-  // Scroll active row into view (center of middle pane)
+  // Reveal in tree only on explicit request (tab/row dblclick) — never on activeId/expanded.
   React.useEffect(() => {
-    if (!activeId || sidebarPanel !== "docs") return;
-    const root = scrollRef.current;
-    if (!root) return;
-    const el = root.querySelector(`[data-tree-id="${activeId}"]`) as HTMLElement | null;
-    if (!el) return;
+    if (!treeRevealRequest || sidebarPanel !== "docs") return;
+    const doc = documents.find((d) => d.id === treeRevealRequest.docId);
+    if (!doc) return;
+    const anc = ancestorsOf(doc.path);
+    if (anc.length) {
+      setExpanded((prev) => {
+        const next = new Set(prev);
+        let changed = false;
+        for (const p of anc) {
+          if (!next.has(p)) {
+            next.add(p);
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
+      });
+    }
+    const docId = treeRevealRequest.docId;
     const t = window.setTimeout(() => {
-      el.scrollIntoView({ block: "center", behavior: "smooth" });
+      const root = scrollRef.current;
+      if (!root) return;
+      const el = root.querySelector(`[data-tree-id="${docId}"]`) as HTMLElement | null;
+      el?.scrollIntoView({ block: "center", behavior: "smooth" });
     }, 50);
     return () => clearTimeout(t);
-  }, [activeId, sidebarPanel, expanded]);
+  }, [treeRevealRequest, sidebarPanel, documents]);
 
   const onToggleFolder = (path: string) => {
     setExpanded((prev) => {
