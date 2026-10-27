@@ -96,11 +96,14 @@ export function HtmlReader({ doc }: { doc: Document }) {
         before: payload.before,
         after: payload.after,
       });
+      if (result.precision !== "none") {
+        setHtmlImmersive(false);
+      }
       applyLocateResult(result);
       setMenu(null);
       setFloat(null);
     },
-    [content, applyLocateResult, setStatus]
+    [content, applyLocateResult, setStatus, setHtmlImmersive]
   );
 
   const handleBridgeKey = React.useCallback(

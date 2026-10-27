@@ -73,6 +73,14 @@ const DATA = {
     expect(HTML_LOCATE_BRIDGE).toContain("lh-keydown");
     expect(HTML_LOCATE_BRIDGE).toContain("scrollbar-width");
   });
+
+  it("includes click-to-locate and skips interactive targets", () => {
+    expect(HTML_LOCATE_BRIDGE).toContain("isInteractive");
+    expect(HTML_LOCATE_BRIDGE).toContain("elementLocatePayload");
+    expect(HTML_LOCATE_BRIDGE).toContain('addEventListener("click"');
+    expect(HTML_LOCATE_BRIDGE).toContain('type: "lh-locate"');
+    expect(HTML_LOCATE_BRIDGE).toContain('tag === "button"');
+  });
 });
 
 describe("parseBridgeMessage", () => {

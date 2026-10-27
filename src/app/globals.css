@@ -501,3 +501,68 @@ html[data-lh-resizing="row"] * {
   cursor: row-resize !important;
   user-select: none !important;
 }
+
+
+/* IDE-like HTML source editor (scoped; does not touch 纸墨 tokens) */
+.lh-ide-editor {
+  background: #1a1916;
+  color: #d8d4cc;
+}
+.lh-ide-gutter {
+  background: #141310;
+  color: #6e6a62;
+}
+.lh-ide-gutter-active {
+  color: #e8e0d4;
+  background: color-mix(in srgb, #b3382a 18%, transparent);
+}
+.lh-ide-active-line {
+  background: color-mix(in srgb, #ffffff 4.5%, transparent);
+  z-index: 0;
+}
+.lh-ide-highlight {
+  z-index: 1;
+  color: #d8d4cc;
+  tab-size: 2;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+}
+.lh-ide-highlight .hljs-tag,
+.lh-ide-highlight .hljs-name {
+  color: #7eb6ff;
+}
+.lh-ide-highlight .hljs-attr {
+  color: #c9a86a;
+}
+.lh-ide-highlight .hljs-string {
+  color: #9bbb6e;
+}
+.lh-ide-highlight .hljs-comment {
+  color: #6e6a62;
+  font-style: italic;
+}
+.lh-ide-highlight .hljs-keyword,
+.lh-ide-highlight .hljs-meta {
+  color: #c792ea;
+}
+.lh-ide-highlight .hljs-number {
+  color: #f0a06a;
+}
+.lh-ide-textarea {
+  z-index: 2;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  caret-color: #e8e6e1;
+  tab-size: 2;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+.lh-ide-textarea::selection {
+  background: color-mix(in srgb, #b3382a 45%, transparent);
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+}
+.dark .lh-ide-editor {
+  background: #12110f;
+}

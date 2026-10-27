@@ -6,3 +6,4 @@ export * from "./htmlLocate";
 export * from "./bridge";
 export * from "./dom";
 export * from "./rehypeSrcPositions";
+export * from "./scrollSync";

@@ -181,6 +181,116 @@ export const HTML_LOCATE_BRIDGE = `
     }, "*");
   });
 
+  function isInteractive(node) {
+    var el = node && node.nodeType === 3 ? node.parentElement : node;
+    while (el && el !== document.body && el !== document.documentElement) {
+      if (!el.tagName) break;
+      var tag = el.tagName.toLowerCase();
+      if (tag === "a" || tag === "button" || tag === "input" || tag === "textarea" ||
+          tag === "select" || tag === "label" || tag === "summary" || tag === "option" ||
+          tag === "video" || tag === "audio") return true;
+      if (el.isContentEditable) return true;
+      if (el.getAttribute) {
+        if (el.getAttribute("onclick") != null) return true;
+        var role = el.getAttribute("role");
+        if (role === "button" || role === "link" || role === "textbox" || role === "checkbox" ||
+            role === "radio" || role === "switch" || role === "tab" || role === "menuitem") return true;
+      }
+      el = el.parentElement;
+    }
+    return false;
+  }
+
+  function climbLocateEl(node) {
+    var el = node && node.nodeType === 3 ? node.parentElement : node;
+    if (!el) return null;
+    var cur = el;
+    for (var i = 0; i < 8 && cur && cur !== document.body; i++) {
+      var tag = cur.tagName ? cur.tagName.toLowerCase() : "";
+      if (/^(h[1-6]|p|li|td|th|pre|blockquote|figcaption|dt|dd|article|section|header|footer|main|aside)$/.test(tag)) {
+        return cur;
+      }
+      cur = cur.parentElement;
+    }
+    return el;
+  }
+
+  function flashEl(el) {
+    if (!el || !el.style) return;
+    try {
+      var prev = el.getAttribute("data-lh-outline") || "";
+      el.setAttribute("data-lh-outline", "1");
+      el.style.outline = "2px solid rgba(179,56,42,0.75)";
+      el.style.outlineOffset = "2px";
+      setTimeout(function () {
+        el.style.outline = "";
+        el.style.outlineOffset = "";
+        if (prev) el.setAttribute("data-lh-outline", prev);
+        else el.removeAttribute("data-lh-outline");
+      }, 700);
+    } catch (err) {}
+  }
+
+  function elementLocatePayload(el) {
+    if (!el) return null;
+    var range = document.createRange();
+    try {
+      range.selectNodeContents(el);
+    } catch (err) {
+      return null;
+    }
+    var text = String(range).replace(/\u00a0/g, " ");
+    if (!text || !text.trim()) return null;
+    var needle = text.trim().replace(/\\s+/g, " ");
+    if (needle.length > 160) needle = needle.slice(0, 160);
+    var before = "";
+    var after = "";
+    try {
+      var pre = range.cloneRange();
+      pre.selectNodeContents(document.body);
+      pre.setEnd(range.startContainer, range.startOffset);
+      before = String(pre).slice(-30);
+      var post = range.cloneRange();
+      post.selectNodeContents(document.body);
+      post.setStart(range.endContainer, range.endOffset);
+      after = String(post).slice(0, 30);
+    } catch (e2) {}
+    return {
+      text: needle,
+      before: before,
+      after: after,
+      tagPath: tagPath(el)
+    };
+  }
+
+  var downX = 0, downY = 0, downBtn = 0;
+  document.addEventListener("mousedown", function (e) {
+    downX = e.clientX;
+    downY = e.clientY;
+    downBtn = e.button;
+  }, true);
+
+  document.addEventListener("click", function (e) {
+    if (downBtn !== 0 || e.button !== 0) return;
+    if (Math.abs(e.clientX - downX) > 5 || Math.abs(e.clientY - downY) > 5) return;
+    if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+    var target = e.target;
+    if (isInteractive(target)) return;
+    var sel = window.getSelection();
+    if (sel && !sel.isCollapsed && String(sel).trim()) return;
+    var el = climbLocateEl(target);
+    var p = elementLocatePayload(el);
+    if (!p || !p.text || !p.text.trim()) return;
+    flashEl(el);
+    parent.postMessage({
+      type: "lh-locate",
+      text: p.text,
+      before: p.before,
+      after: p.after,
+      tagPath: p.tagPath
+    }, "*");
+  }, true);
+
   window.addEventListener("message", function (e) {
     var d = e.data;
     if (!d || d.type !== "lh-highlight" || typeof d.text !== "string") return;

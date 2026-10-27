@@ -53,6 +53,8 @@ type LanghuanState = {
   htmlSidebarPeek: boolean;
   /** Scroll percent reported by HTML preview bridge (0–100). */
   htmlScrollPercent: number;
+  /** Source editor caret (1-based), for status bar Ln/Col. */
+  editorCaret: { line: number; col: number } | null;
   /** Per-document HTML preview chrome prefs (width sim / zoom). */
   htmlPreviewPrefs: Record<string, HtmlDocPreviewPrefs>;
   /** Bump to force HTML iframe remount/refresh. */
@@ -78,6 +80,7 @@ type LanghuanState = {
   toggleHtmlImmersive: () => void;
   setHtmlSidebarPeek: (v: boolean) => void;
   setHtmlScrollPercent: (n: number) => void;
+  setEditorCaret: (c: { line: number; col: number } | null) => void;
   getHtmlPreviewPrefs: (id: string) => HtmlDocPreviewPrefs;
   setHtmlPreviewPrefs: (id: string, patch: Partial<HtmlDocPreviewPrefs>) => void;
   bumpHtmlReload: () => void;
@@ -133,6 +136,7 @@ export const useStore = create<LanghuanState>()(
       htmlImmersive: false,
       htmlSidebarPeek: false,
       htmlScrollPercent: 0,
+      editorCaret: null,
       htmlPreviewPrefs: {},
       htmlReloadToken: 0,
 
@@ -204,6 +208,7 @@ export const useStore = create<LanghuanState>()(
         const clamped = Math.max(0, Math.min(100, Number.isFinite(n) ? n : 0));
         set({ htmlScrollPercent: clamped });
       },
+      setEditorCaret: (c) => set({ editorCaret: c }),
       getHtmlPreviewPrefs: (id) =>
         normalizeHtmlPrefs(get().htmlPreviewPrefs[id] || DEFAULT_HTML_PREVIEW_PREFS),
       setHtmlPreviewPrefs: (id, patch) => {
@@ -251,6 +256,7 @@ export const useStore = create<LanghuanState>()(
           htmlImmersive: false,
           htmlSidebarPeek: false,
           htmlScrollPercent: 0,
+          editorCaret: null,
         }),
       openDoc: (id) => {
         set({
@@ -259,6 +265,7 @@ export const useStore = create<LanghuanState>()(
           htmlImmersive: false,
           htmlSidebarPeek: false,
           htmlScrollPercent: 0,
+          editorCaret: null,
         });
       },
 
