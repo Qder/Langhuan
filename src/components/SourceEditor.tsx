@@ -74,7 +74,21 @@ function lineStartOffset(text: string, line1: number): number {
   return text.length;
 }
 
+/** Dispatcher — never put conditional hooks here (MD↔HTML would break Rules of Hooks). */
 export function SourceEditor({
+  doc,
+  className,
+}: {
+  doc: Document;
+  className?: string;
+}) {
+  if (doc.type === "html") {
+    return <HtmlSourceEditor doc={doc} className={className} />;
+  }
+  return <MdCodeMirror doc={doc} className={className} />;
+}
+
+function HtmlSourceEditor({
   doc,
   className,
 }: {
@@ -91,12 +105,8 @@ export function SourceEditor({
   const viewMode = useStore((s) => s.viewMode);
   const htmlScrollPercent = useStore((s) => s.htmlScrollPercent);
   const content = getContent(doc.id);
-  const isHtml = doc.type === "html";
-  const ide = isHtml;
-
-  if (!isHtml) {
-    return <MdCodeMirror doc={doc} className={className} />;
-  }
+  const isHtml = true;
+  const ide = true;
   const lines = Math.max(1, content.split("\n").length);
   const taRef = React.useRef<HTMLTextAreaElement>(null);
   const gutterRef = React.useRef<HTMLDivElement>(null);
