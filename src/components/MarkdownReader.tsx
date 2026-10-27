@@ -15,13 +15,16 @@ import { mdSanitizeSchema } from "@/lib/mdSanitizeSchema";
 import { resolveLibraryHref, resolveMediaSrc } from "@/lib/resolveLibraryPath";
 import { MermaidBlock } from "./MermaidBlock";
 import { WikiLink } from "./WikiLink";
+import { WikiEmbed } from "./WikiEmbed";
+import { findUnlinkedMentions, parseWikiInner, wikiDisplayLabel } from "@/lib/wikilink";
 import { DocAside, hasDocAsideContent } from "./DocAside";
+import { getDocMeta } from "@/lib/docMeta";
 import { useStore } from "@/lib/store";
 import { findBacklinks } from "@/lib/search";
 import { extractOutline } from "@/lib/outline";
 import { getTags, parseFrontmatter } from "@/lib/tags";
 import { useMediaQuery } from "@/lib/useMediaQuery";
-import { countWords, readingMinutes, relativeTime, cn } from "@/lib/utils";
+import { countWords, readingMinutes, relativeTime, cn, titleOf } from "@/lib/utils";
 import type { Document } from "@/lib/types";
 import {
   frontmatterOffset,
@@ -37,15 +40,36 @@ import "highlight.js/styles/github-dark.css";
 import "katex/dist/katex.min.css";
 
 function WikiText({ text, docs, onOpen }: { text: string; docs: Document[]; onOpen: (id: string) => void }) {
-  const parts = text.split(/(\[\[[^\]]+\]\])/g);
+  const parts = text.split(/(!?\[\[[^\]]+\]\])/g);
   return (
     <>
       {parts.map((p, i) => {
-        const m = p.match(/^\[\[([^\]|#]+)(?:\|([^\]]+))?\]\]$/);
+        const m = p.match(/^(!?)\[\[([^\]]+)\]\]$/);
         if (!m) return <React.Fragment key={i}>{p}</React.Fragment>;
-        const name = m[1].trim();
-        const label = (m[2] || m[1]).trim();
-        return <WikiLink key={i} name={name} label={label} docs={docs} onOpen={onOpen} />;
+        const embed = m[1] === "!";
+        const parsed = parseWikiInner(m[2]);
+        if (embed) {
+          return (
+            <WikiEmbed
+              key={i}
+              target={parsed.target}
+              heading={parsed.heading}
+              docs={docs}
+              onOpen={onOpen}
+            />
+          );
+        }
+        const label = wikiDisplayLabel(parsed);
+        return (
+          <WikiLink
+            key={i}
+            name={parsed.target}
+            label={label}
+            heading={parsed.heading}
+            docs={docs}
+            onOpen={onOpen}
+          />
+        );
       })}
     </>
   );
@@ -365,8 +389,23 @@ export function MarkdownReader({ doc }: { doc: Document }) {
     return React.createElement(Tag, { ...props, ...attrs }, children);
   };
 
+  const mentionCount = React.useMemo(() => {
+    if (doc.type !== "md") return 0;
+    const titles = documents
+      .filter((d) => d.id !== doc.id)
+      .flatMap((d) => {
+        const m = getDocMeta(d);
+        return [titleOf(d.path), m.title, ...m.aliases];
+      })
+      .filter((x) => x && x.length >= 2);
+    const self = getDocMeta(doc);
+    return findUnlinkedMentions(content, titles, {
+      excludeTitles: [titleOf(doc.path), self.title, ...self.aliases],
+    }).length;
+  }, [doc, documents, content]);
+
   const showRail =
-    outlineRailOpen && wide && hasDocAsideContent(outline, backlinks);
+    outlineRailOpen && wide && hasDocAsideContent(outline, backlinks, mentionCount);
 
   return (
     <div className="h-full flex min-h-0">
@@ -654,6 +693,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
             backlinks={backlinks}
             activeHeading={activeHeading}
             variant="rail"
+            doc={doc}
           />
         )}
         </div>

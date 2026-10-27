@@ -14,6 +14,10 @@ import { FsSyncDialog } from "./FsSyncDialog";
 import { VersionHistoryDialog } from "./VersionHistoryDialog";
 import { DirtyNavDialog } from "./DirtyNavDialog";
 import { BackupReminder } from "./BackupReminder";
+import { KnowledgeGraphDialog } from "./KnowledgeGraphDialog";
+import { PropsPanelDialog } from "./PropsPanelDialog";
+import { ClipUrlDialog } from "./ClipUrlDialog";
+import { TemplateDialog } from "./TemplateDialog";
 import { AUTOSAVE_DEBOUNCE_MS } from "@/lib/storage/constants";
 
 export function AppShell() {
@@ -168,6 +172,10 @@ export function AppShell() {
       <VersionHistoryDialog />
       <DirtyNavDialog />
       <BackupReminder />
+      <KnowledgeGraphDialog />
+      <PropsPanelDialog />
+      <ClipUrlDialog />
+      <TemplateDialog />
     </div>
   );
 }

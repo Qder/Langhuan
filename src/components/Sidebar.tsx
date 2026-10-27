@@ -3,13 +3,17 @@
 import * as React from "react";
 import {
   Archive,
+  BookmarkPlus,
+  CalendarDays,
   FolderSync,
   ChevronDown,
   FileText,
   FolderOpen,
   Globe,
   Home,
+  LayoutTemplate,
   Moon,
+  Network,
   PanelLeft,
   Plus,
   RotateCcw,
@@ -208,6 +212,12 @@ export function Sidebar() {
   const tagFilters = useStore((s) => s.tagFilters);
   const toggleTagFilter = useStore((s) => s.toggleTagFilter);
   const clearTagFilters = useStore((s) => s.clearTagFilters);
+  const statusFilter = useStore((s) => s.statusFilter);
+  const setStatusFilter = useStore((s) => s.setStatusFilter);
+  const openDailyNote = useStore((s) => s.openDailyNote);
+  const setTemplateDialogOpen = useStore((s) => s.setTemplateDialogOpen);
+  const setGraphDialogOpen = useStore((s) => s.setGraphDialogOpen);
+  const setClipUrlDialogOpen = useStore((s) => s.setClipUrlDialogOpen);
   const openHome = useStore((s) => s.requestOpenHome);
   const activeId = useStore((s) => s.activeId);
   const createDoc = useStore((s) => s.createDoc);
@@ -246,7 +256,7 @@ export function Sidebar() {
   const compact = useMediaQuery("(max-height: 699px)");
   const rowH = compact ? "h-7" : "h-8"; // 28 / 32
 
-  const visible = filteredDocuments(documents, tagFilters);
+  const visible = filteredDocuments(documents, tagFilters, statusFilter);
   const tags = collectTagCounts(documents);
   const sortedTags = [...tags.entries()].sort(
     (a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "zh")
@@ -268,11 +278,21 @@ export function Sidebar() {
   );
   const bytes = storageUsage?.usedBytes ?? useStore.getState().storageBytes();
   const activeDoc = documents.find((d) => d.id === activeId) || null;
+  const statusHint =
+    statusFilter === "todo"
+      ? "待整理"
+      : statusFilter === "draft"
+        ? "草稿"
+        : statusFilter === "evergreen"
+          ? "常青"
+          : statusFilter === "archived"
+            ? "归档"
+            : "";
   const pathHint = activeDoc
     ? dirname(activeDoc.path) || "根目录"
-    : tagFilters.length
-      ? `筛选 · ${tagFilters.map((t) => `#${t}`).join(" ")}`
-      : "全部文档";
+    : [tagFilters.length ? `标签 · ${tagFilters.map((t) => `#${t}`).join(" ")}` : "", statusHint ? `状态 · ${statusHint}` : ""]
+        .filter(Boolean)
+        .join(" · ") || "全部文档";
 
   React.useEffect(() => {
     void refreshStorageUsage();
@@ -516,9 +536,21 @@ export function Sidebar() {
           >
             <DropdownItem onClick={() => createDoc({ type: "md" })}>Markdown 笔记</DropdownItem>
             <DropdownItem onClick={() => createDoc({ type: "html" })}>HTML 页面</DropdownItem>
+            <DropdownItem onClick={() => openDailyNote()}>
+              <CalendarDays className="h-3.5 w-3.5" /> 今日笔记
+            </DropdownItem>
+            <DropdownItem onClick={() => setTemplateDialogOpen(true)}>
+              <LayoutTemplate className="h-3.5 w-3.5" /> 从模板新建
+            </DropdownItem>
             <DropdownItem onClick={onPasteSource}>粘贴源码</DropdownItem>
             <DropdownItem onClick={() => void onClipperMd()}>从剪贴板导入网页</DropdownItem>
             <DropdownItem onClick={() => void onClipperHtml()}>保存 HTML 快照</DropdownItem>
+            <DropdownItem onClick={() => setClipUrlDialogOpen(true)}>
+              <BookmarkPlus className="h-3.5 w-3.5" /> 网页剪藏 URL
+            </DropdownItem>
+            <DropdownItem onClick={() => setGraphDialogOpen(true)}>
+              <Network className="h-3.5 w-3.5" /> 知识图谱
+            </DropdownItem>
           </Dropdown>
           <Dropdown
             trigger={
@@ -629,6 +661,34 @@ export function Sidebar() {
               )}
               <div className="sticky top-0 z-[9] mb-1 rounded-lg bg-[color-mix(in_srgb,var(--bg-elevated)_92%,transparent)] px-2 py-1 text-[11px] text-[var(--muted)] truncate backdrop-blur-sm">
                 {pathHint}
+              </div>
+              <div className="mb-1.5 flex flex-wrap gap-1 px-1">
+                {(
+                  [
+                    [null, "全部"],
+                    ["todo", "待整理"],
+                    ["draft", "草稿"],
+                    ["evergreen", "常青"],
+                    ["archived", "归档"],
+                  ] as const
+                ).map(([id, label]) => {
+                  const on = statusFilter === id || (id === null && !statusFilter);
+                  return (
+                    <button
+                      key={label}
+                      type="button"
+                      onClick={() => setStatusFilter(id)}
+                      className={cn(
+                        "rounded-full px-2 py-0.5 text-[10px] border transition-colors",
+                        on
+                          ? "border-[var(--accent)] text-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_10%,transparent)]"
+                          : "border-[var(--border)] text-[var(--muted)] hover:bg-[var(--hover)]"
+                      )}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
               </div>
               <FileTree
                 node={tree}
@@ -890,7 +950,10 @@ export function Sidebar() {
       >
         <DropdownItem onClick={() => createDoc({ type: "md" })}>Markdown 笔记</DropdownItem>
         <DropdownItem onClick={() => createDoc({ type: "html" })}>HTML 页面</DropdownItem>
+        <DropdownItem onClick={() => openDailyNote()}>今日笔记</DropdownItem>
+        <DropdownItem onClick={() => setTemplateDialogOpen(true)}>从模板新建</DropdownItem>
         <DropdownItem onClick={onPasteSource}>粘贴源码</DropdownItem>
+        <DropdownItem onClick={() => setGraphDialogOpen(true)}>知识图谱</DropdownItem>
       </Dropdown>
       <button
         type="button"

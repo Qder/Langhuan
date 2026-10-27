@@ -10,13 +10,17 @@ import type {
   TrashItem,
   ViewMode,
 } from "./types";
+import type { DocMeta, DocStatus } from "./docMeta";
+import { applyDocMeta, getDocMeta, matchesStatusFilter } from "./docMeta";
+import type { SavedSearch } from "./searchQuery";
+import { docLinkNames, rewriteWikiLinksOnRename } from "./wikilink";
 import type { HtmlDocPreviewPrefs } from "./htmlPreviewPrefs";
 import { DEFAULT_HTML_PREVIEW_PREFS, normalizeHtmlPrefs } from "./htmlPreviewPrefs";
 import type { LocateResult } from "./locate/types";
 import { createSeedDocuments } from "./seed";
 import { isImportableLibraryPath, libraryDocTypeFromPath, normalizeImportedPath } from "./importable";
 import { getTags, setHtmlTags, setMdTags } from "./tags";
-import { basename, uniquePath, uid } from "./utils";
+import { basename, titleOf, uniquePath, uid } from "./utils";
 import { idbJSONStorage, STORE_KEY } from "./storage/idbPersist";
 import { pushVersion, clearVersions } from "./storage/versions";
 import { TRASH_RETENTION_DAYS } from "./storage/constants";
@@ -27,6 +31,7 @@ import {
 } from "./storage/usage";
 import type { BackupPayload } from "./storage/backup";
 import { writeThroughDoc } from "./storage/fsSync";
+import { BUILTIN_TEMPLATES, applyTemplate, dailyNoteSpec } from "./templates";
 
 export type PendingReveal = {
   start: number;
@@ -94,6 +99,19 @@ type LanghuanState = {
   fsLastSyncAt: number | null;
   /** UI flag for local folder sync dialog. */
   fsSyncDialogOpen: boolean;
+
+  /** Saved named search queries. */
+  savedSearches: SavedSearch[];
+  /** Document status filter (null = off; "todo" = 待整理). */
+  statusFilter: DocStatus | "todo" | null;
+  /** Knowledge graph dialog. */
+  graphDialogOpen: boolean;
+  /** Properties panel for active doc. */
+  propsDialogOpen: boolean;
+  /** URL clipper dialog. */
+  clipUrlDialogOpen: boolean;
+  /** Template picker dialog. */
+  templateDialogOpen: boolean;
 
   setHydrated: (v: boolean) => void;
   setTheme: (t: ThemeMode) => void;
@@ -169,6 +187,18 @@ type LanghuanState = {
   /** Replace or merge library from backup payload. */
   importLibrary: (payload: BackupPayload, mode: "merge" | "replace") => number;
   exportPayload: () => BackupPayload;
+  setDocMeta: (id: string, patch: Partial<DocMeta>) => void;
+  setSavedSearches: (list: SavedSearch[]) => void;
+  addSavedSearch: (name: string, query: string) => void;
+  removeSavedSearch: (id: string) => void;
+  setStatusFilter: (v: DocStatus | "todo" | null) => void;
+  setGraphDialogOpen: (v: boolean) => void;
+  setPropsDialogOpen: (v: boolean) => void;
+  setClipUrlDialogOpen: (v: boolean) => void;
+  setTemplateDialogOpen: (v: boolean) => void;
+  /** Open or create today's daily note. */
+  openDailyNote: () => Document;
+  createFromTemplate: (templateId: string, title?: string) => Document | null;
 };
 
 function scheduleWriteThrough(get: () => LanghuanState, set: (p: Partial<LanghuanState>) => void, doc: Document | undefined) {
@@ -235,6 +265,12 @@ export const useStore = create<LanghuanState>()(
       fsBoundName: null,
       fsLastSyncAt: null,
       fsSyncDialogOpen: false,
+      savedSearches: [],
+      statusFilter: null,
+      graphDialogOpen: false,
+      propsDialogOpen: false,
+      clipUrlDialogOpen: false,
+      templateDialogOpen: false,
 
       setHydrated: (v) => set({ hydrated: v }),
       setTheme: (t) => {
@@ -507,27 +543,57 @@ export const useStore = create<LanghuanState>()(
       },
 
       renameDoc: (id, newPath) => {
+        const prev = get().documents.find((d) => d.id === id);
+        if (!prev) return;
         const path = ensureUniquePath(newPath.replace(/\\/g, "/"), get().documents, id);
         const ext = path.toLowerCase().endsWith(".html")
           ? "html"
           : path.toLowerCase().endsWith(".md")
             ? "md"
             : null;
-        set((s) => ({
-          documents: s.documents.map((d) =>
-            d.id === id
-              ? {
-                  ...d,
-                  path,
-                  type: (ext as Document["type"]) || d.type,
-                  updatedAt: Date.now(),
-                }
-              : d
-          ),
-        }));
-        get().setStatus(`已重命名为 ${basename(path)}`);
+        const oldNames = docLinkNames(prev, getDocMeta(prev).aliases);
+        const newTitle = titleOf(path);
+        let linkUpdates = 0;
+        const documents = get().documents.map((d) => {
+          if (d.id === id) {
+            return {
+              ...d,
+              path,
+              type: (ext as Document["type"]) || d.type,
+              updatedAt: Date.now(),
+            };
+          }
+          if (d.type !== "md") return d;
+          const { content, count } = rewriteWikiLinksOnRename(d.content, oldNames, newTitle);
+          if (!count) return d;
+          linkUpdates += count;
+          return { ...d, content, updatedAt: Date.now() };
+        });
+        // Also rewrite drafts that reference old names
+        const drafts = { ...get().drafts };
+        for (const [did, draftContent] of Object.entries(drafts)) {
+          if (did === id) continue;
+          const doc = documents.find((x) => x.id === did);
+          if (!doc || doc.type !== "md") continue;
+          const { content, count } = rewriteWikiLinksOnRename(draftContent, oldNames, newTitle);
+          if (count) {
+            drafts[did] = content;
+            linkUpdates += count;
+          }
+        }
+        set({ documents, drafts });
+        const msg =
+          linkUpdates > 0
+            ? `已重命名为 ${basename(path)}，并更新 ${linkUpdates} 处双链`
+            : `已重命名为 ${basename(path)}`;
+        get().setStatus(msg);
         const renamed = get().documents.find((d) => d.id === id);
         scheduleWriteThrough(get, set, renamed);
+        if (linkUpdates > 0) {
+          for (const d of get().documents) {
+            if (d.id !== id && d.type === "md") scheduleWriteThrough(get, set, d);
+          }
+        }
       },
 
       deleteDoc: (id) => {
@@ -649,6 +715,68 @@ export const useStore = create<LanghuanState>()(
       setFsBoundName: (name) => set({ fsBoundName: name }),
       setFsLastSyncAt: (t) => set({ fsLastSyncAt: t }),
 
+      setDocMeta: (id, patch) => {
+        const doc = get().documents.find((d) => d.id === id);
+        if (!doc) return;
+        const cur = get().getContent(id);
+        const next = applyDocMeta(cur, doc.type, patch);
+        const dirty = get().isDirty(id) || id in get().drafts;
+        if (dirty) {
+          set((s) => ({ drafts: { ...s.drafts, [id]: next } }));
+        } else {
+          set((s) => ({
+            documents: s.documents.map((d) =>
+              d.id === id ? { ...d, content: next, updatedAt: Date.now() } : d
+            ),
+          }));
+          scheduleWriteThrough(get, set, get().documents.find((d) => d.id === id));
+        }
+      },
+
+      setSavedSearches: (list) => set({ savedSearches: list }),
+      addSavedSearch: (name, query) => {
+        const n = name.trim();
+        const q = query.trim();
+        if (!n || !q) return;
+        const item: SavedSearch = {
+          id: uid("search"),
+          name: n,
+          query: q,
+          createdAt: Date.now(),
+        };
+        set((s) => ({ savedSearches: [item, ...s.savedSearches].slice(0, 30) }));
+        get().setStatus(`已保存搜索「${n}」`);
+      },
+      removeSavedSearch: (id) =>
+        set((s) => ({ savedSearches: s.savedSearches.filter((x) => x.id !== id) })),
+
+      setStatusFilter: (v) => set({ statusFilter: v }),
+      setGraphDialogOpen: (v) => set({ graphDialogOpen: v }),
+      setPropsDialogOpen: (v) => set({ propsDialogOpen: v }),
+      setClipUrlDialogOpen: (v) => set({ clipUrlDialogOpen: v }),
+      setTemplateDialogOpen: (v) => set({ templateDialogOpen: v }),
+
+      openDailyNote: () => {
+        const spec = dailyNoteSpec();
+        const existing = get().documents.find((d) => d.path === spec.path);
+        if (existing) {
+          get().requestOpenDoc(existing.id);
+          get().setStatus(`已打开今日笔记 ${spec.path}`);
+          return existing;
+        }
+        return get().createDoc({ type: "md", path: spec.path, content: spec.content, open: true });
+      },
+
+      createFromTemplate: (templateId, title) => {
+        const tpl = BUILTIN_TEMPLATES.find((t) => t.id === templateId);
+        if (!tpl) {
+          get().setStatus("未找到模板");
+          return null;
+        }
+        const spec = applyTemplate(tpl, { title: title || tpl.name });
+        return get().createDoc({ type: "md", path: spec.path, content: spec.content, open: true });
+      },
+
       applySyncedDocuments: (docs) => {
         const prevDrafts = get().drafts;
         const nextIds = new Set(docs.map((d) => d.id));
@@ -741,8 +869,10 @@ export const useStore = create<LanghuanState>()(
         autosaveEnabled: s.autosaveEnabled,
         fsBoundName: s.fsBoundName,
         fsLastSyncAt: s.fsLastSyncAt,
+        savedSearches: s.savedSearches,
+        statusFilter: s.statusFilter,
       }),
-      version: 3,
+      version: 4,
       migrate: (persisted, fromVersion) => {
         const p = (persisted || {}) as Record<string, unknown>;
         if (Array.isArray(p.tagFilters)) {
@@ -760,6 +890,8 @@ export const useStore = create<LanghuanState>()(
         if (p.fsLastSyncAt != null && typeof p.fsLastSyncAt !== "number") p.fsLastSyncAt = null;
         if (!("fsBoundName" in p)) p.fsBoundName = null;
         if (!("fsLastSyncAt" in p)) p.fsLastSyncAt = null;
+        if (!Array.isArray(p.savedSearches)) p.savedSearches = [];
+        if (!("statusFilter" in p)) p.statusFilter = null;
         void fromVersion;
         return p as typeof persisted;
       },
@@ -793,12 +925,16 @@ export const useStore = create<LanghuanState>()(
 
 export function filteredDocuments(
   docs: Document[],
-  tagFilters: string[] | null | undefined
+  tagFilters: string[] | null | undefined,
+  statusFilter?: DocStatus | "todo" | null
 ): Document[] {
   const filters = (tagFilters || []).map((t) => t.trim()).filter(Boolean);
-  if (!filters.length) return docs;
   return docs.filter((d) => {
-    const tags = getTags(d);
-    return filters.every((t) => tags.includes(t));
+    if (filters.length) {
+      const tags = getTags(d);
+      if (!filters.every((t) => tags.includes(t))) return false;
+    }
+    if (statusFilter && !matchesStatusFilter(d, statusFilter)) return false;
+    return true;
   });
 }

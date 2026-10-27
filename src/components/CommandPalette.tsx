@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Archive, ClipboardPaste, FilePlus2, FileText, FolderSync, Globe, History, Home, Moon, Search, Sun, Trash2 } from "lucide-react";
+import { Archive, BookmarkPlus, CalendarDays, ClipboardPaste, FilePlus2, FileText, FolderSync, Globe, History, Home, LayoutTemplate, Moon, Network, Search, SlidersHorizontal, Sun, Trash2 } from "lucide-react";
 import { Dialog } from "./ui/dialog";
 import { useStore } from "@/lib/store";
 import { searchDocuments } from "@/lib/search";
@@ -26,6 +26,14 @@ export function CommandPalette() {
   const autosaveEnabled = useStore((s) => s.autosaveEnabled);
   const setAutosaveEnabled = useStore((s) => s.setAutosaveEnabled);
   const activeId = useStore((s) => s.activeId);
+  const openDailyNote = useStore((s) => s.openDailyNote);
+  const setTemplateDialogOpen = useStore((s) => s.setTemplateDialogOpen);
+  const setGraphDialogOpen = useStore((s) => s.setGraphDialogOpen);
+  const setClipUrlDialogOpen = useStore((s) => s.setClipUrlDialogOpen);
+  const setPropsDialogOpen = useStore((s) => s.setPropsDialogOpen);
+  const savedSearches = useStore((s) => s.savedSearches);
+  const addSavedSearch = useStore((s) => s.addSavedSearch);
+  const removeSavedSearch = useStore((s) => s.removeSavedSearch);
   const [q, setQ] = React.useState("");
   const [idx, setIdx] = React.useState(0);
   const inputRef = React.useRef<HTMLInputElement>(null);
@@ -41,7 +49,7 @@ export function CommandPalette() {
   const recent = [...documents].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 6);
   const hits = q.trim() ? searchDocuments(documents, q) : [];
 
-  type Item = { key: string; label: string; hint?: string; icon: React.ReactNode; run: () => void };
+  type Item = { key: string; label: string; hint?: string; icon: React.ReactNode; run: () => void; keepOpen?: boolean };
   const items: Item[] = [];
 
   if (!q.trim()) {
@@ -152,6 +160,44 @@ export function CommandPalette() {
         },
       },
       {
+        key: "cmd-daily",
+        label: "今日笔记",
+        hint: "按日期一键创建 / 打开",
+        icon: <CalendarDays className="h-4 w-4 text-[var(--accent)]" />,
+        run: () => openDailyNote(),
+      },
+      {
+        key: "cmd-template",
+        label: "从模板新建",
+        hint: "会议 / 读书 / 周报…",
+        icon: <LayoutTemplate className="h-4 w-4" />,
+        run: () => setTemplateDialogOpen(true),
+      },
+      {
+        key: "cmd-graph",
+        label: "知识图谱",
+        hint: "双链力导向图",
+        icon: <Network className="h-4 w-4 text-[var(--teal)]" />,
+        run: () => setGraphDialogOpen(true),
+      },
+      {
+        key: "cmd-clip-url",
+        label: "网页剪藏（URL）",
+        hint: "抓取正文或使用书签脚本",
+        icon: <BookmarkPlus className="h-4 w-4 text-[var(--accent)]" />,
+        run: () => setClipUrlDialogOpen(true),
+      },
+      {
+        key: "cmd-props",
+        label: "属性面板",
+        hint: "标题 / 标签 / 状态 / 来源",
+        icon: <SlidersHorizontal className="h-4 w-4" />,
+        run: () => {
+          if (activeId) setPropsDialogOpen(true);
+          else setStatus("请先打开一篇文档");
+        },
+      },
+      {
         key: "cmd-autosave",
         label: autosaveEnabled ? "关闭自动保存" : "开启自动保存",
         hint: "2 秒防抖写入",
@@ -159,6 +205,16 @@ export function CommandPalette() {
         run: () => setAutosaveEnabled(!autosaveEnabled),
       }
     );
+    for (const s of savedSearches) {
+      items.push({
+        key: "saved-" + s.id,
+        label: `常用搜索：${s.name}`,
+        hint: s.query,
+        icon: <Search className="h-4 w-4 text-[var(--accent)]" />,
+        keepOpen: true,
+        run: () => setQ(s.query),
+      });
+    }
   } else {
     for (const h of hits) {
       items.push({
@@ -178,6 +234,20 @@ export function CommandPalette() {
         run: () => createDoc({ type: "md", path: `${q.trim()}.md` }),
       });
     }
+    items.push({
+      key: "save-search",
+      label: "保存为常用搜索",
+      hint: q.trim(),
+      icon: <BookmarkPlus className="h-4 w-4 text-[var(--accent)]" />,
+      keepOpen: true,
+      run: () => {
+        const name = window.prompt("为常用搜索命名", q.trim().slice(0, 24));
+        if (name && name.trim()) {
+          addSavedSearch(name.trim(), q.trim());
+          setStatus(`已保存搜索「${name.trim()}」`);
+        }
+      },
+    });
   }
 
   React.useEffect(() => setIdx(0), [q, open]);
@@ -185,8 +255,8 @@ export function CommandPalette() {
   const runAt = (i: number) => {
     const item = items[i];
     if (!item) return;
-    setOpen(false);
     item.run();
+    if (!item.keepOpen) setOpen(false);
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
@@ -212,7 +282,7 @@ export function CommandPalette() {
           value={q}
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={onKeyDown}
-          placeholder="搜索文档、标签或运行命令…"
+          placeholder="搜索… 支持 tag:  path:  type:html|md"
           className="h-12 flex-1 bg-transparent outline-none text-sm font-ui"
           aria-label="命令面板搜索"
         />

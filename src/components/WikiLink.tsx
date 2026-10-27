@@ -15,11 +15,13 @@ type PeekState = {
 export function WikiLink({
   name,
   label,
+  heading,
   docs,
   onOpen,
 }: {
   name: string;
   label: string;
+  heading?: string;
   docs: Document[];
   onOpen: (id: string) => void;
 }) {
@@ -81,7 +83,20 @@ export function WikiLink({
         ref={anchorRef}
         type="button"
         className={cn("wiki-link", !target && "missing")}
-        onClick={() => target && onOpen(target.id)}
+        onClick={() => {
+          if (!target) return;
+          onOpen(target.id);
+          if (heading) {
+            window.setTimeout(() => {
+              const id = heading
+                .toLowerCase()
+                .replace(/\s+/g, "-")
+                .replace(/[^\w\u4e00-\u9fff-]/g, "");
+              const el = document.getElementById(heading) || document.getElementById(id);
+              el?.scrollIntoView({ behavior: "smooth" });
+            }, 200);
+          }
+        }}
         onMouseEnter={scheduleShow}
         onMouseLeave={scheduleHide}
         onFocus={scheduleShow}

@@ -52,3 +52,29 @@ describe("filteredDocuments AND tag filters", () => {
     expect(filteredDocuments(docs, ["验收", "Mermaid"]).map((d) => d.id)).toEqual([]);
   });
 });
+
+describe("filteredDocuments statusFilter", () => {
+  const docs: Document[] = [
+    doc({
+      id: "d1",
+      path: "draft.md",
+      content: "---\nstatus: draft\ntags: [待整理]\n---\n\nx\n",
+    }),
+    doc({
+      id: "d2",
+      path: "ever.md",
+      content: "---\nstatus: evergreen\n---\n\ny\n",
+    }),
+    doc({
+      id: "d3",
+      path: "plain.md",
+      content: "no frontmatter\n",
+    }),
+  ];
+
+  it("filters by draft / evergreen / todo", () => {
+    expect(filteredDocuments(docs, [], "draft").map((d) => d.id)).toEqual(["d1"]);
+    expect(filteredDocuments(docs, [], "evergreen").map((d) => d.id)).toEqual(["d2"]);
+    expect(filteredDocuments(docs, [], "todo").map((d) => d.id)).toEqual(["d1"]);
+  });
+});

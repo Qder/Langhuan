@@ -10,7 +10,9 @@ import {
   scrollTopFromPercent,
   SOURCE_SCROLL_UNFOLLOW_MS,
 } from "@/lib/locate/scrollSync";
-import { cn } from "@/lib/utils";
+import { cn, titleOf } from "@/lib/utils";
+import { extractOutline } from "@/lib/outline";
+import { getDocMeta } from "@/lib/docMeta";
 
 hljs.registerLanguage("xml", xml);
 
@@ -104,6 +106,13 @@ export function SourceEditor({
   const [activeBand, setActiveBand] = React.useState<{ top: number; height: number } | null>(
     null
   );
+  const documents = useStore((s) => s.documents);
+  const [wikiSuggest, setWikiSuggest] = React.useState<{
+    start: number;
+    query: string;
+    items: { label: string; insert: string }[];
+    index: number;
+  } | null>(null);
 
   const highlightedHtml = React.useMemo(() => {
     if (!isHtml) return null;
@@ -220,6 +229,30 @@ export function SourceEditor({
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (wikiSuggest && wikiSuggest.items.length) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setWikiSuggest((s) =>
+          s ? { ...s, index: Math.min(s.items.length - 1, s.index + 1) } : s
+        );
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setWikiSuggest((s) => (s ? { ...s, index: Math.max(0, s.index - 1) } : s));
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        applyWikiSuggest(wikiSuggest.items[wikiSuggest.index]);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setWikiSuggest(null);
+        return;
+      }
+    }
     if (e.key === "Tab") {
       e.preventDefault();
       const ta = e.currentTarget;
@@ -242,6 +275,82 @@ export function SourceEditor({
       requestPreviewLocate(offset);
       setStatus("已在预览中定位");
     }
+  };
+
+
+  const refreshWikiSuggest = React.useCallback(
+    (value: string, caret: number) => {
+      if (doc.type !== "md") {
+        setWikiSuggest(null);
+        return;
+      }
+      const before = value.slice(0, caret);
+      const m = before.match(/\[\[([^\]]*)$/);
+      if (!m) {
+        setWikiSuggest(null);
+        return;
+      }
+      const q = m[1];
+      const start = caret - q.length - 2;
+      const hash = q.indexOf("#");
+      const items: { label: string; insert: string }[] = [];
+      if (hash >= 0) {
+        const page = q.slice(0, hash).trim();
+        const hPrefix = q.slice(hash + 1).toLowerCase();
+        const target =
+          documents.find((d) => titleOf(d.path) === page) ||
+          documents.find((d) => getDocMeta(d).aliases.includes(page));
+        if (target && target.type === "md") {
+          for (const h of extractOutline(target.content)) {
+            if (hPrefix && !h.text.toLowerCase().includes(hPrefix) && !h.id.includes(hPrefix))
+              continue;
+            items.push({
+              label: `${page}#${h.text}`,
+              insert: `${page}#${h.text}`,
+            });
+          }
+        }
+      } else {
+        const ql = q.toLowerCase();
+        for (const d of documents) {
+          if (d.type !== "md" && d.type !== "html") continue;
+          const title = titleOf(d.path);
+          const aliases = getDocMeta(d).aliases;
+          const hay = [title, ...aliases, d.path].join("\n").toLowerCase();
+          if (ql && !hay.includes(ql)) continue;
+          items.push({ label: title, insert: title });
+          for (const a of aliases) {
+            if (!ql || a.toLowerCase().includes(ql)) {
+              items.push({ label: `${a} → ${title}`, insert: a });
+            }
+          }
+        }
+      }
+      setWikiSuggest({
+        start,
+        query: q,
+        items: items.slice(0, 12),
+        index: 0,
+      });
+    },
+    [doc.type, documents]
+  );
+
+  const applyWikiSuggest = (item: { insert: string }) => {
+    const ta = taRef.current;
+    if (!ta || !wikiSuggest) return;
+    const caret = ta.selectionStart;
+    const before = content.slice(0, wikiSuggest.start);
+    const after = content.slice(caret);
+    // keep typing after ]] 
+    const next = `${before}[[${item.insert}]]${after.replace(/^\]\]?/, "")}`;
+    setDraft(doc.id, next);
+    const newCaret = before.length + item.insert.length + 4;
+    setWikiSuggest(null);
+    requestAnimationFrame(() => {
+      ta.focus();
+      ta.selectionStart = ta.selectionEnd = newCaret;
+    });
   };
 
   const gutterWidthCh = Math.max(3, String(lines).length);
@@ -301,7 +410,11 @@ export function SourceEditor({
           ref={taRef}
           value={content}
           spellCheck={false}
-          onChange={(e) => setDraft(doc.id, e.target.value)}
+          onChange={(e) => {
+            const v = e.target.value;
+            setDraft(doc.id, v);
+            refreshWikiSuggest(v, e.target.selectionStart);
+          }}
           onKeyDown={onKeyDown}
           onKeyUp={updateCaret}
           onClick={updateCaret}
@@ -333,6 +446,33 @@ export function SourceEditor({
           />
         )}
       </div>
+
+      {wikiSuggest && wikiSuggest.items.length > 0 && (
+        <div className="absolute z-30 left-16 bottom-4 max-h-56 w-72 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--menu)] shadow-xl p-1">
+          <div className="px-2 py-1 text-[10px] uppercase tracking-wider text-[var(--muted)]">
+            双链补全
+          </div>
+          {wikiSuggest.items.map((it, i) => (
+            <button
+              key={it.label + i}
+              type="button"
+              className={cn(
+                "flex w-full rounded-lg px-2 py-1.5 text-left text-xs truncate",
+                i === wikiSuggest.index
+                  ? "bg-[color-mix(in_srgb,var(--accent)_14%,transparent)]"
+                  : "hover:bg-[var(--hover)]"
+              )}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                applyWikiSuggest(it);
+              }}
+            >
+              {it.label}
+            </button>
+          ))}
+        </div>
+      )}
+
     </div>
   );
 }

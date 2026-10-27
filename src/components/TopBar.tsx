@@ -12,6 +12,8 @@ import {
   Menu,
   History,
   MoreHorizontal,
+  Network,
+  SlidersHorizontal,
   PanelRight,
   PanelRightClose,
   Pencil,
@@ -28,6 +30,8 @@ import { Dropdown, DropdownItem } from "./ui/dropdown";
 import { Dialog } from "./ui/dialog";
 import { Input } from "./ui/input";
 import { DocAside, hasDocAsideContent } from "./DocAside";
+import { getDocMeta } from "@/lib/docMeta";
+import { findUnlinkedMentions } from "@/lib/wikilink";
 import { useStore } from "@/lib/store";
 import { extractOutline } from "@/lib/outline";
 import { findBacklinks } from "@/lib/search";
@@ -96,6 +100,8 @@ export function TopBar() {
   const bumpHtmlReload = useStore((s) => s.bumpHtmlReload);
   const setDocTags = useStore((s) => s.setDocTags);
   const setVersionDialogOpen = useStore((s) => s.setVersionDialogOpen);
+  const setPropsDialogOpen = useStore((s) => s.setPropsDialogOpen);
+  const setGraphDialogOpen = useStore((s) => s.setGraphDialogOpen);
   const [renameOpen, setRenameOpen] = React.useState(false);
   const [renameVal, setRenameVal] = React.useState("");
   const [deleteOpen, setDeleteOpen] = React.useState(false);
@@ -121,7 +127,29 @@ export function TopBar() {
   const outline =
     active && active.type === "md" ? extractOutline(getContent(active.id)) : [];
   const backlinks = active ? findBacklinks(documents, active) : [];
-  const asideAvailable = hasDocAsideContent(outline, backlinks);
+  const mentionCount =
+    active && active.type === "md"
+      ? findUnlinkedMentions(
+          getContent(active.id),
+          documents
+            .filter((d) => d.id !== active.id)
+            .flatMap((d) => {
+              const m = getDocMeta(d);
+              return [titleOf(d.path), m.title, ...m.aliases];
+            })
+            .filter((x) => x && x.length >= 2),
+          {
+            excludeTitles: [
+              titleOf(active.path),
+              ...(() => {
+                const m = getDocMeta({ ...active, content: getContent(active.id) });
+                return [m.title, ...m.aliases];
+              })(),
+            ],
+          }
+        ).length
+      : 0;
+  const asideAvailable = hasDocAsideContent(outline, backlinks, mentionCount);
 
   // Track active heading for popover (same scroll root as reader)
   React.useEffect(() => {
@@ -556,6 +584,12 @@ export function TopBar() {
                       : "打开目录"}
                   </DropdownItem>
                 )}
+                <DropdownItem onClick={() => setPropsDialogOpen(true)}>
+                  <SlidersHorizontal className="h-3.5 w-3.5" /> 属性面板
+                </DropdownItem>
+                <DropdownItem onClick={() => setGraphDialogOpen(true)}>
+                  <Network className="h-3.5 w-3.5" /> 知识图谱
+                </DropdownItem>
                 <DropdownItem onClick={() => setVersionDialogOpen(true)}>
                   <History className="h-3.5 w-3.5" /> 版本历史
                 </DropdownItem>
@@ -585,6 +619,7 @@ export function TopBar() {
                     backlinks={backlinks}
                     activeHeading={activeHeading}
                     variant="popover"
+                    doc={active}
                   />
                 </div>
               )}
