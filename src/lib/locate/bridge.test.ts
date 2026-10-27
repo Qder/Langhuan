@@ -2,9 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   HTML_LOCATE_BRIDGE,
   buildInstrumentedSrcDoc,
+  fragmentIdsToTry,
   injectLocateBridge,
   isDarkCssColor,
+  isFragmentHref,
   parseBridgeMessage,
+  wouldNavigateAwayFromSrcDoc,
 } from "./bridge";
 import { BRIDGE_MAX_MESSAGE_CHARS } from "./types";
 
@@ -85,6 +88,48 @@ const DATA = {
     expect(HTML_LOCATE_BRIDGE).toContain("lh-scroll-anchors");
     expect(HTML_LOCATE_BRIDGE).toContain("scrollToRange");
     expect(HTML_LOCATE_BRIDGE).toContain("highlightRange");
+  });
+
+  it("intercepts same-document hash clicks so srcDoc does not go blank", () => {
+    expect(HTML_LOCATE_BRIDGE).toContain("handleSrcDocNavClick");
+    expect(HTML_LOCATE_BRIDGE).toContain("findHashTarget");
+    expect(HTML_LOCATE_BRIDGE).toContain("closestAnchor");
+    expect(HTML_LOCATE_BRIDGE).toContain('charAt(0) === "#"');
+    expect(HTML_LOCATE_BRIDGE).toContain("preventDefault");
+    expect(HTML_LOCATE_BRIDGE).toContain("decodeURIComponent");
+    // Must run before the interactive early-return so <a href="#..."> never navigates.
+    const navIdx = HTML_LOCATE_BRIDGE.indexOf("handleSrcDocNavClick(e)");
+    const interactiveIdx = HTML_LOCATE_BRIDGE.indexOf("isInteractive(target)");
+    expect(navIdx).toBeGreaterThan(-1);
+    expect(interactiveIdx).toBeGreaterThan(navIdx);
+  });
+});
+
+describe("isFragmentHref / fragmentIdsToTry / wouldNavigateAwayFromSrcDoc", () => {
+  it("detects fragment hrefs including non-ASCII ids", () => {
+    expect(isFragmentHref("#svg-和-mathml")).toBe(true);
+    expect(isFragmentHref("#")).toBe(true);
+    expect(isFragmentHref("  #foo")).toBe(true);
+    expect(isFragmentHref("/page")).toBe(false);
+    expect(isFragmentHref("https://example.com#x")).toBe(false);
+    expect(isFragmentHref(null)).toBe(false);
+  });
+
+  it("yields raw + decoded fragment id candidates", () => {
+    expect(fragmentIdsToTry("#")).toEqual([]);
+    expect(fragmentIdsToTry("#svg-和-mathml")).toEqual(["svg-和-mathml"]);
+    const encoded = "#svg-%E5%92%8C-mathml";
+    const ids = fragmentIdsToTry(encoded);
+    expect(ids[0]).toBe("svg-%E5%92%8C-mathml");
+    expect(ids).toContain("svg-和-mathml");
+  });
+
+  it("flags in-frame navigations that would wipe about:srcdoc", () => {
+    expect(wouldNavigateAwayFromSrcDoc("#x")).toBe(false);
+    expect(wouldNavigateAwayFromSrcDoc("https://ex.com", "_blank")).toBe(false);
+    expect(wouldNavigateAwayFromSrcDoc("https://ex.com")).toBe(true);
+    expect(wouldNavigateAwayFromSrcDoc("./other.html")).toBe(true);
+    expect(wouldNavigateAwayFromSrcDoc("javascript:void(0)")).toBe(false);
   });
 });
 

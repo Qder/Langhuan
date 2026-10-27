@@ -19,6 +19,49 @@ html{scrollbar-width:thin;scrollbar-color:rgba(127,127,127,.45) transparent;}
 ::-webkit-scrollbar-track{background:transparent;}
 `.replace(/\s+/g, " ").trim();
 
+
+/**
+ * True for same-document fragment hrefs (`#`, `#id`, `#/path` style hashes).
+ * Used by tests and mirrored in the injected bridge (srcDoc must not navigate).
+ */
+export function isFragmentHref(href: string | null | undefined): boolean {
+  if (href == null) return false;
+  const t = String(href).trim();
+  return t.startsWith("#");
+}
+
+/**
+ * Candidate element ids for a fragment href (raw + decodeURIComponent).
+ * Empty fragment (`#` / `# `) yields [].
+ */
+export function fragmentIdsToTry(hashHref: string): string[] {
+  const raw = String(hashHref).trim().replace(/^#/, "");
+  if (!raw) return [];
+  const ids = [raw];
+  try {
+    const decoded = decodeURIComponent(raw);
+    if (decoded !== raw) ids.push(decoded);
+  } catch {
+    /* ignore malformed escape */
+  }
+  return ids;
+}
+
+/** Whether an <a> click would leave about:srcdoc if allowed to default. */
+export function wouldNavigateAwayFromSrcDoc(
+  href: string | null | undefined,
+  targetAttr?: string | null
+): boolean {
+  if (href == null) return false;
+  const t = String(href).trim();
+  if (!t || t.startsWith("#")) return false;
+  if (/^\s*javascript:/i.test(t)) return false;
+  if (/^\s*mailto:/i.test(t) || /^\s*tel:/i.test(t)) return false;
+  const target = String(targetAttr || "").toLowerCase();
+  if (target === "_blank") return false;
+  return true;
+}
+
 export const HTML_LOCATE_BRIDGE = `
 <script data-lh-bridge="1">
 (function () {
@@ -370,11 +413,87 @@ export const HTML_LOCATE_BRIDGE = `
     downBtn = e.button;
   }, true);
 
+  function closestAnchor(node) {
+    var el = node && node.nodeType === 3 ? node.parentElement : node;
+    while (el && el !== document.documentElement) {
+      if (el.tagName && el.tagName.toLowerCase() === "a" && el.getAttribute) return el;
+      el = el.parentElement;
+    }
+    return null;
+  }
+
+  function findHashTarget(hashHref) {
+    var raw = String(hashHref || "").replace(/^#/, "");
+    if (!raw) return null;
+    var candidates = [raw];
+    try {
+      var decoded = decodeURIComponent(raw);
+      if (decoded !== raw) candidates.push(decoded);
+    } catch (errDec) {}
+    for (var ci = 0; ci < candidates.length; ci++) {
+      var id = candidates[ci];
+      var el = null;
+      try { el = document.getElementById(id); } catch (errId) {}
+      if (el) return el;
+      try {
+        if (typeof CSS !== "undefined" && CSS.escape) {
+          el = document.querySelector('[id="' + CSS.escape(id) + '"], [name="' + CSS.escape(id) + '"]');
+        } else {
+          el = document.querySelector('[name="' + id.replace(/"/g, '\\\\"') + '"]');
+        }
+      } catch (errQ) {}
+      if (el) return el;
+    }
+    return null;
+  }
+
+  /**
+   * srcDoc + sandbox(without allow-same-origin): default <a href="#..."> navigation
+   * clears the document (blank preview). Intercept, preventDefault, scroll in-place.
+   * Also block in-frame navigations that would leave about:srcdoc.
+   * Returns true when the click was a handled navigation (caller may skip locate).
+   */
+  function handleSrcDocNavClick(e) {
+    var a = closestAnchor(e.target);
+    if (!a) return false;
+    var href = a.getAttribute("href");
+    if (href == null) return false;
+    var trimmed = String(href).trim();
+    if (!trimmed) return false;
+
+    if (trimmed.charAt(0) === "#") {
+      e.preventDefault();
+      if (trimmed === "#" || trimmed === "#top") {
+        var seTop = document.scrollingElement || document.documentElement;
+        seTop.scrollTop = 0;
+        return true;
+      }
+      var targetEl = findHashTarget(trimmed);
+      if (targetEl) scrollToEl(targetEl, false);
+      return true;
+    }
+
+    if (/^\\s*javascript:/i.test(trimmed)) return false;
+
+    var targetAttr = (a.getAttribute("target") || "").toLowerCase();
+    if (targetAttr === "_blank" || a.hasAttribute("download")) return false;
+
+    // Relative / absolute navigations would wipe srcDoc — block them.
+    e.preventDefault();
+    if (/^https?:\\/\\//i.test(trimmed) || /^\\/\\//.test(trimmed)) {
+      try { window.open(trimmed, "_blank", "noopener,noreferrer"); } catch (errOpen) {}
+    }
+    return true;
+  }
+
   document.addEventListener("click", function (e) {
     if (downBtn !== 0 || e.button !== 0) return;
     if (Math.abs(e.clientX - downX) > 5 || Math.abs(e.clientY - downY) > 5) return;
     if (e.altKey || e.shiftKey) return;
+    var navHandled = handleSrcDocNavClick(e);
     var target = e.target;
+    // Hash / blocked nav: still allow ⌘/Ctrl / double-click locate; skip plain click locate.
+    if (navHandled && !(e.metaKey || e.ctrlKey) && e.detail < 2) return;
     if (isInteractive(target) && !(e.metaKey || e.ctrlKey) && e.detail < 2) return;
     var sel = window.getSelection();
     if (sel && !sel.isCollapsed && String(sel).trim() && e.detail < 2) return;
