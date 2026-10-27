@@ -539,11 +539,11 @@ export function Sidebar() {
     toggleTagFilter(name);
   };
 
-  const segments: { id: "docs" | "tags" | "stars" | "trash"; label: string; count: number }[] = [
+  // Keep 文档|标签|收藏 only (grid-cols-3). Trash lives in the bottom bar / ⌘K.
+  const segments: { id: "docs" | "tags" | "stars"; label: string; count: number }[] = [
     { id: "docs", label: "文档", count: visible.length },
     { id: "tags", label: "标签", count: tags.size },
     { id: "stars", label: "收藏", count: starred.length },
-    { id: "trash", label: "回收站", count: trash.length },
   ];
 
   const panel = (
@@ -976,7 +976,10 @@ export function Sidebar() {
           {sidebarPanel === "trash" && (
             <div className="space-y-2 pb-2">
               <div className="flex items-center justify-between gap-2 px-1">
-                <span className="text-[11px] text-[var(--muted)]">保留 30 天</span>
+                <span className="text-[11px] font-medium text-[var(--fg)]">
+                  回收站
+                  <span className="ml-1 font-normal text-[var(--muted)]">· 保留 30 天</span>
+                </span>
                 <button
                   type="button"
                   disabled={!trash.length}
@@ -1079,6 +1082,26 @@ export function Sidebar() {
             title="备份与恢复"
           >
             <Archive className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              setSidebarPanel(sidebarPanel === "trash" ? "docs" : "trash")
+            }
+            className={cn(
+              "relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl hover:bg-[var(--hover)]",
+              sidebarPanel === "trash" && "bg-[color-mix(in_srgb,var(--accent)_14%,transparent)] text-[var(--accent)]"
+            )}
+            aria-label="回收站"
+            title="回收站"
+            aria-pressed={sidebarPanel === "trash"}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            {trash.length > 0 && (
+              <span className="absolute -right-0.5 -top-0.5 min-w-[14px] rounded-full bg-[var(--accent)] px-1 text-[9px] leading-[14px] text-white tabular-nums text-center">
+                {trash.length > 99 ? "99+" : trash.length}
+              </span>
+            )}
           </button>
         </div>
       )}
