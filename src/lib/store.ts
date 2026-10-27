@@ -5,12 +5,15 @@ import { persist } from "zustand/middleware";
 import type {
   AssetMeta,
   Document,
+  FocusedPane,
   PendingNav,
   StatusFeedback,
   ThemeMode,
   TrashItem,
   ViewMode,
 } from "./types";
+import type { ShortcutMap } from "./shortcuts";
+import { DEFAULT_SHORTCUTS, normalizeShortcuts } from "./shortcuts";
 import type { Annotation, AnnotationInput } from "./annotations";
 import { createAnnotation, updateAnnotationNote } from "./annotations";
 import type { ReadingPrefs } from "./readingPrefs";
@@ -238,6 +241,47 @@ type LanghuanState = {
     filename?: string
   ) => Promise<{ href: string; snippet: string; asset: AssetMeta } | null>;
   removeAsset: (id: string) => void;
+  /** Open document tabs (ordered). */
+  openTabs: string[];
+  /** Pinned tab ids (subset of openTabs). */
+  pinnedTabs: string[];
+  /** Second pane doc for dual-document split (null = off). */
+  secondaryId: string | null;
+  /** Focused pane when secondaryId is set. */
+  focusedPane: FocusedPane;
+  /** Dual-doc split ratio for primary pane (0.2–0.8). */
+  docSplitRatio: number;
+  /** Multi-select in file tree. */
+  treeSelection: string[];
+  /** Whether tree shows checkboxes / batch mode. */
+  batchMode: boolean;
+  /** Custom keyboard shortcuts (overrides defaults). */
+  customShortcuts: Partial<ShortcutMap>;
+  /** Export dialog. */
+  exportDialogOpen: boolean;
+  /** Shortcuts prefs dialog. */
+  shortcutsDialogOpen: boolean;
+
+  openTab: (id: string) => void;
+  closeTab: (id: string) => void;
+  togglePinTab: (id: string) => void;
+  reorderTabs: (from: number, to: number) => void;
+  setSecondaryId: (id: string | null) => void;
+  setFocusedPane: (p: FocusedPane) => void;
+  setDocSplitRatio: (r: number) => void;
+  openInSplit: (id: string) => void;
+  toggleDocSplit: () => void;
+  setTreeSelection: (ids: string[]) => void;
+  toggleTreeSelected: (id: string) => void;
+  clearTreeSelection: () => void;
+  setBatchMode: (v: boolean) => void;
+  moveDocsToFolder: (ids: string[], folderPath: string) => number;
+  batchDelete: (ids: string[]) => number;
+  batchSetTags: (ids: string[], tags: string[], mode: "replace" | "add") => number;
+  setCustomShortcuts: (patch: Partial<ShortcutMap>) => void;
+  resetCustomShortcuts: () => void;
+  setExportDialogOpen: (v: boolean) => void;
+  setShortcutsDialogOpen: (v: boolean) => void;
   assetsForDoc: (docId: string) => AssetMeta[];
 };
 
@@ -315,6 +359,16 @@ export const useStore = create<LanghuanState>()(
       annotations: [],
       readingPrefs: { ...DEFAULT_READING_PREFS },
       mdFocusMode: false,
+      openTabs: [],
+      pinnedTabs: [],
+      secondaryId: null,
+      focusedPane: "primary",
+      docSplitRatio: 0.5,
+      treeSelection: [],
+      batchMode: false,
+      customShortcuts: {},
+      exportDialogOpen: false,
+      shortcutsDialogOpen: false,
 
       setHydrated: (v) => set({ hydrated: v }),
       setTheme: (t) => {
@@ -440,15 +494,21 @@ export const useStore = create<LanghuanState>()(
           htmlSidebarPeek: false,
           htmlScrollPercent: 0,
           editorCaret: null,
+          focusedPane: "primary",
         }),
       openDoc: (id) => {
-        set({
-          activeId: id,
-          sidebarOpen: false,
-          htmlImmersive: false,
-          htmlSidebarPeek: false,
-          htmlScrollPercent: 0,
-          editorCaret: null,
+        set((s) => {
+          const tabs = s.openTabs.includes(id) ? s.openTabs : [...s.openTabs, id];
+          return {
+            activeId: id,
+            openTabs: tabs,
+            sidebarOpen: false,
+            htmlImmersive: false,
+            htmlSidebarPeek: false,
+            htmlScrollPercent: 0,
+            editorCaret: null,
+            focusedPane: "primary" as FocusedPane,
+          };
         });
       },
 
@@ -549,11 +609,18 @@ export const useStore = create<LanghuanState>()(
           createdAt: Date.now(),
           updatedAt: Date.now(),
         };
-        set((s) => ({
-          documents: [...s.documents, doc],
-          activeId: open ? doc.id : s.activeId,
-          viewMode: open ? "source" : s.viewMode,
-        }));
+        set((s) => {
+          const openTabs =
+            open && !s.openTabs.includes(doc.id)
+              ? [...s.openTabs, doc.id]
+              : s.openTabs;
+          return {
+            documents: [...s.documents, doc],
+            activeId: open ? doc.id : s.activeId,
+            openTabs,
+            viewMode: open ? "source" : s.viewMode,
+          };
+        });
         get().setStatus(`已新建 ${basename(doc.path)}`);
         void get().refreshStorageUsage();
         scheduleWriteThrough(get, set, doc);
@@ -644,12 +711,27 @@ export const useStore = create<LanghuanState>()(
         const doc = get().documents.find((d) => d.id === id);
         if (!doc) return;
         const item: TrashItem = { doc, deletedAt: Date.now() };
-        set((s) => ({
-          documents: s.documents.filter((d) => d.id !== id),
-          drafts: Object.fromEntries(Object.entries(s.drafts).filter(([k]) => k !== id)),
-          trash: [item, ...s.trash.filter((t) => t.doc.id !== id)],
-          activeId: s.activeId === id ? null : s.activeId,
-        }));
+        set((s) => {
+          const openTabs = s.openTabs.filter((t) => t !== id);
+          const pinnedTabs = s.pinnedTabs.filter((t) => t !== id);
+          const treeSelection = s.treeSelection.filter((t) => t !== id);
+          let activeId = s.activeId === id ? null : s.activeId;
+          if (s.activeId === id) {
+            const idx = s.openTabs.indexOf(id);
+            const fallback = openTabs[Math.min(idx, openTabs.length - 1)] || openTabs[0] || null;
+            activeId = fallback;
+          }
+          return {
+            documents: s.documents.filter((d) => d.id !== id),
+            drafts: Object.fromEntries(Object.entries(s.drafts).filter(([k]) => k !== id)),
+            trash: [item, ...s.trash.filter((t) => t.doc.id !== id)],
+            activeId,
+            openTabs,
+            pinnedTabs,
+            treeSelection,
+            secondaryId: s.secondaryId === id ? null : s.secondaryId,
+          };
+        });
         get().setStatus(`已移入回收站 ${basename(doc.path)}`);
         void get().refreshStorageUsage();
       },
@@ -1024,6 +1106,165 @@ export const useStore = create<LanghuanState>()(
         void get().refreshStorageUsage();
       },
 
+
+      openTab: (id) => {
+        if (!get().documents.some((d) => d.id === id)) return;
+        set((s) => ({
+          openTabs: s.openTabs.includes(id) ? s.openTabs : [...s.openTabs, id],
+          activeId: id,
+          focusedPane: "primary",
+        }));
+      },
+
+      closeTab: (id) => {
+        const { openTabs, pinnedTabs, activeId, secondaryId } = get();
+        if (pinnedTabs.includes(id)) {
+          get().setStatus("已固定的标签请先取消固定");
+          return;
+        }
+        const next = openTabs.filter((t) => t !== id);
+        let newActive = activeId;
+        if (activeId === id) {
+          const idx = openTabs.indexOf(id);
+          newActive = next[Math.min(idx, next.length - 1)] || next[0] || null;
+        }
+        set({
+          openTabs: next,
+          activeId: newActive,
+          secondaryId: secondaryId === id ? null : secondaryId,
+        });
+      },
+
+      togglePinTab: (id) => {
+        set((s) => ({
+          pinnedTabs: s.pinnedTabs.includes(id)
+            ? s.pinnedTabs.filter((t) => t !== id)
+            : [...s.pinnedTabs, id],
+          openTabs: s.openTabs.includes(id) ? s.openTabs : [...s.openTabs, id],
+        }));
+      },
+
+      reorderTabs: (from, to) => {
+        set((s) => {
+          if (from < 0 || to < 0 || from >= s.openTabs.length || to >= s.openTabs.length) return s;
+          const next = [...s.openTabs];
+          const [item] = next.splice(from, 1);
+          next.splice(to, 0, item);
+          return { openTabs: next };
+        });
+      },
+
+      setSecondaryId: (id) => set({ secondaryId: id }),
+      setFocusedPane: (p) => set({ focusedPane: p }),
+      setDocSplitRatio: (r) => {
+        const clamped = Math.min(0.8, Math.max(0.2, r));
+        set({ docSplitRatio: clamped });
+      },
+
+      openInSplit: (id) => {
+        if (!get().documents.some((d) => d.id === id)) return;
+        const cur = get().activeId;
+        set((s) => {
+          const openTabs = s.openTabs.includes(id) ? s.openTabs : [...s.openTabs, id];
+          if (!cur || cur === id) {
+            return { openTabs, secondaryId: id, focusedPane: "secondary" as FocusedPane };
+          }
+          return {
+            openTabs,
+            secondaryId: id,
+            focusedPane: "secondary" as FocusedPane,
+          };
+        });
+        get().setStatus("已在分屏打开");
+      },
+
+      toggleDocSplit: () => {
+        const { secondaryId, activeId, openTabs } = get();
+        if (secondaryId) {
+          set({ secondaryId: null, focusedPane: "primary" });
+          get().setStatus("已关闭文档分屏");
+          return;
+        }
+        const other = openTabs.find((t) => t !== activeId) || null;
+        if (!other) {
+          get().setStatus("请先打开另一篇文档，或从侧栏「分屏打开」");
+          return;
+        }
+        set({ secondaryId: other, focusedPane: "secondary" });
+        get().setStatus("已开启文档分屏");
+      },
+
+      setTreeSelection: (ids) => set({ treeSelection: [...new Set(ids)] }),
+      toggleTreeSelected: (id) => {
+        set((s) => ({
+          treeSelection: s.treeSelection.includes(id)
+            ? s.treeSelection.filter((x) => x !== id)
+            : [...s.treeSelection, id],
+        }));
+      },
+      clearTreeSelection: () => set({ treeSelection: [] }),
+      setBatchMode: (v) =>
+        set({ batchMode: v, treeSelection: v ? get().treeSelection : [] }),
+
+      moveDocsToFolder: (ids, folderPath) => {
+        const folder = folderPath.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+        let n = 0;
+        for (const id of ids) {
+          const doc = get().documents.find((d) => d.id === id);
+          if (!doc) continue;
+          const name = basename(doc.path);
+          const nextPath = folder ? `${folder}/${name}` : name;
+          if (nextPath === doc.path) continue;
+          get().renameDoc(id, nextPath);
+          n += 1;
+        }
+        if (n) get().setStatus(`已移动 ${n} 篇到 ${folder || "根目录"}`);
+        get().clearTreeSelection();
+        return n;
+      },
+
+      batchDelete: (ids) => {
+        let n = 0;
+        for (const id of [...ids]) {
+          if (get().documents.some((d) => d.id === id)) {
+            get().deleteDoc(id);
+            n += 1;
+          }
+        }
+        get().clearTreeSelection();
+        if (n) get().setStatus(`已将 ${n} 篇移入回收站`);
+        return n;
+      },
+
+      batchSetTags: (ids, tags, mode) => {
+        const clean = [...new Set(tags.map((t) => t.trim()).filter(Boolean))];
+        let n = 0;
+        for (const id of ids) {
+          const doc = get().documents.find((d) => d.id === id);
+          if (!doc) continue;
+          const cur = getTags(doc);
+          const next =
+            mode === "replace" ? clean : [...new Set([...cur, ...clean])];
+          get().setDocTags(id, next);
+          n += 1;
+        }
+        if (n) get().setStatus(`已为 ${n} 篇更新标签`);
+        return n;
+      },
+
+      setCustomShortcuts: (patch) => {
+        set((s) => ({
+          customShortcuts: { ...s.customShortcuts, ...patch },
+        }));
+        get().setStatus("已更新快捷键");
+      },
+      resetCustomShortcuts: () => {
+        set({ customShortcuts: {} });
+        get().setStatus("已恢复默认快捷键");
+      },
+      setExportDialogOpen: (v) => set({ exportDialogOpen: v }),
+      setShortcutsDialogOpen: (v) => set({ shortcutsDialogOpen: v }),
+
       assetsForDoc: (docId) => {
         const doc = get().documents.find((d) => d.id === docId);
         const all = get().assets;
@@ -1064,8 +1305,13 @@ export const useStore = create<LanghuanState>()(
         annotations: s.annotations,
         readingPrefs: s.readingPrefs,
         mdFocusMode: s.mdFocusMode,
+        openTabs: s.openTabs,
+        pinnedTabs: s.pinnedTabs,
+        secondaryId: s.secondaryId,
+        docSplitRatio: s.docSplitRatio,
+        customShortcuts: s.customShortcuts,
       }),
-      version: 5,
+      version: 6,
       migrate: (persisted, fromVersion) => {
         const p = (persisted || {}) as Record<string, unknown>;
         if (Array.isArray(p.tagFilters)) {
@@ -1092,6 +1338,22 @@ export const useStore = create<LanghuanState>()(
         );
         if (typeof p.mdFocusMode !== "boolean") {
           p.mdFocusMode = !!(p.readingPrefs as ReadingPrefs).focusMode;
+        }
+        if (!Array.isArray(p.openTabs)) p.openTabs = [];
+        if (!Array.isArray(p.pinnedTabs)) p.pinnedTabs = [];
+        if (!("secondaryId" in p)) p.secondaryId = null;
+        if (typeof p.docSplitRatio !== "number") p.docSplitRatio = 0.5;
+        p.customShortcuts = normalizeShortcuts(
+          (p.customShortcuts as Partial<ShortcutMap>) || {}
+        );
+        // store only overrides; strip identical defaults later on read
+        {
+          const full = p.customShortcuts as ShortcutMap;
+          const overrides: Partial<ShortcutMap> = {};
+          (Object.keys(DEFAULT_SHORTCUTS) as (keyof ShortcutMap)[]).forEach((k) => {
+            if (full[k] && full[k] !== DEFAULT_SHORTCUTS[k]) overrides[k] = full[k];
+          });
+          p.customShortcuts = overrides;
         }
         void fromVersion;
         return p as typeof persisted;

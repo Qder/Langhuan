@@ -49,3 +49,12 @@ export type AssetMeta = {
   /** Optional owning doc id (hint only). */
   docId?: string;
 };
+
+/** Open editor tab (doc id). */
+export type TabState = {
+  openTabs: string[];
+  pinnedTabs: string[];
+};
+
+/** Which pane is focused when dual-doc split is on. */
+export type FocusedPane = "primary" | "secondary";

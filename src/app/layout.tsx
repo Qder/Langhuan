@@ -25,6 +25,24 @@ const mono = Geist_Mono({
 export const metadata: Metadata = {
   title: "琅嬛 Langhuan",
   description: "私人藏书阁 · 本地 Markdown / HTML 知识库",
+  applicationName: "琅嬛",
+  manifest: "/manifest.webmanifest",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#b3382a" },
+    { media: "(prefers-color-scheme: dark)", color: "#e0594a" },
+  ],
+  appleWebApp: {
+    capable: true,
+    title: "琅嬛",
+    statusBarStyle: "default",
+  },
+  icons: {
+    icon: [
+      { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icons/icon.svg", type: "image/svg+xml" },
+    ],
+    apple: [{ url: "/icons/icon-192.png", sizes: "192x192" }],
+  },
 };
 
 const themeScript = `

@@ -23,6 +23,10 @@ import {
   Trash2,
   Upload,
   X,
+  CheckSquare,
+  Tag,
+  Download,
+  Columns2,
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Dropdown, DropdownItem } from "./ui/dropdown";
@@ -103,6 +107,13 @@ function FileTree({
 }) {
   const openDoc = useStore((s) => s.requestOpenDoc);
   const isDirty = useStore((s) => s.isDirty);
+  const batchMode = useStore((s) => s.batchMode);
+  const treeSelection = useStore((s) => s.treeSelection);
+  const toggleTreeSelected = useStore((s) => s.toggleTreeSelected);
+  const moveDocsToFolder = useStore((s) => s.moveDocsToFolder);
+  const importFiles = useStore((s) => s.importFiles);
+  const openInSplit = useStore((s) => s.openInSplit);
+  const setStatus = useStore((s) => s.setStatus);
   const folders = [...node.children.values()].sort((a, b) =>
     a.name.localeCompare(b.name, "zh")
   );
@@ -111,10 +122,38 @@ function FileTree({
   void compact;
   const deep = depth > 3;
 
+  const onDropToFolder = async (folderPath: string, e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const docId = e.dataTransfer.getData("application/x-langhuan-doc");
+    if (docId) {
+      const selected = useStore.getState().treeSelection;
+      const ids = selected.includes(docId) && selected.length > 1 ? selected : [docId];
+      moveDocsToFolder(ids, folderPath);
+      return;
+    }
+    if (e.dataTransfer.files?.length) {
+      const collected: { path: string; content: string }[] = [];
+      for (const file of Array.from(e.dataTransfer.files)) {
+        if (!isImportableLibraryPath(file.name)) continue;
+        const base = folderPath ? `${folderPath}/${file.name}` : file.name;
+        collected.push({ path: base, content: await file.text() });
+      }
+      if (collected.length) {
+        const n = importFiles(collected);
+        setStatus(n ? `已导入 ${n} 个文件到 ${folderPath || "根目录"}` : "没有可导入的文件");
+      }
+    }
+  };
+
   return (
     <div
       className={cn(depth > 0 && "border-l border-[var(--border)]")}
       style={depth > 0 ? { marginLeft: 12, paddingLeft: 8 } : undefined}
+      onDragOver={(e) => {
+        if (depth === 0) e.preventDefault();
+      }}
+      onDrop={depth === 0 ? (e) => void onDropToFolder("", e) : undefined}
     >
       {deep && depth === 4 && (
         <div className="px-2 text-[10px] text-[var(--muted)] leading-none py-1">…</div>
@@ -126,6 +165,11 @@ function FileTree({
             <button
               type="button"
               onClick={() => onToggle(f.path)}
+              onDragOver={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+              onDrop={(e) => void onDropToFolder(f.path, e)}
               className={cn(
                 "flex w-full cursor-pointer items-center gap-1.5 rounded-xl px-2 text-sm hover:bg-[var(--hover)]",
                 rowH
@@ -161,42 +205,87 @@ function FileTree({
       {files.map((f) => {
         const active = f.id === activeId;
         const dirty = isDirty(f.id);
+        const selected = treeSelection.includes(f.id);
         return (
-          <button
+          <div
             key={f.id}
-            type="button"
-            data-tree-id={f.id}
-            onClick={() => openDoc(f.id)}
             className={cn(
-              "relative flex w-full items-center gap-1.5 rounded-xl px-2 text-left text-sm transition-colors",
+              "relative flex w-full items-center gap-1 rounded-xl px-1 text-left text-sm transition-colors group",
               rowH,
               active
                 ? "bg-[color-mix(in_srgb,var(--accent)_12%,transparent)] text-[var(--accent)]"
-                : "hover:bg-[var(--hover)]"
+                : selected
+                  ? "bg-[color-mix(in_srgb,var(--teal)_10%,transparent)]"
+                  : "hover:bg-[var(--hover)]"
             )}
+            draggable
+            onDragStart={(e) => {
+              e.dataTransfer.setData("application/x-langhuan-doc", f.id);
+              e.dataTransfer.effectAllowed = "move";
+            }}
           >
             {active && (
               <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-full bg-[var(--accent)]" />
             )}
-            {f.type === "html" ? (
-              <Globe className="h-3.5 w-3.5 text-[var(--teal)] shrink-0" />
-            ) : (
-              <FileText className="h-3.5 w-3.5 text-[var(--muted)] shrink-0" />
-            )}
-            <span className="truncate font-ui min-w-0 flex-1">{titleOf(f.name)}</span>
-            {f.starred && (
-              <Star
-                className="h-3 w-3 shrink-0 fill-[var(--gold)] text-[var(--gold)]"
-                aria-label="已收藏"
+            {(batchMode || selected) && (
+              <input
+                type="checkbox"
+                className="ml-1 shrink-0 accent-[var(--accent)]"
+                checked={selected}
+                onChange={() => toggleTreeSelected(f.id)}
+                onClick={(e) => e.stopPropagation()}
+                aria-label={`选择 ${f.name}`}
               />
             )}
-            {dirty && (
-              <span
-                className="h-1.5 w-1.5 rounded-full bg-[var(--accent)] shrink-0"
-                aria-label="未保存"
-              />
-            )}
-          </button>
+            <button
+              type="button"
+              data-tree-id={f.id}
+              className="flex min-w-0 flex-1 items-center gap-1.5 px-1 h-full"
+              onClick={(e) => {
+                if (e.metaKey || e.ctrlKey || batchMode) {
+                  e.preventDefault();
+                  toggleTreeSelected(f.id);
+                  return;
+                }
+                openDoc(f.id);
+              }}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                openInSplit(f.id);
+              }}
+            >
+              {f.type === "html" ? (
+                <Globe className="h-3.5 w-3.5 text-[var(--teal)] shrink-0" />
+              ) : (
+                <FileText className="h-3.5 w-3.5 text-[var(--muted)] shrink-0" />
+              )}
+              <span className="truncate font-ui min-w-0 flex-1">{titleOf(f.name)}</span>
+              {f.starred && (
+                <Star
+                  className="h-3 w-3 shrink-0 fill-[var(--gold)] text-[var(--gold)]"
+                  aria-label="已收藏"
+                />
+              )}
+              {dirty && (
+                <span
+                  className="h-1.5 w-1.5 rounded-full bg-[var(--accent)] shrink-0"
+                  aria-label="未保存"
+                />
+              )}
+            </button>
+            <button
+              type="button"
+              className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-[var(--hover)]"
+              title="分屏打开"
+              aria-label="分屏打开"
+              onClick={(e) => {
+                e.stopPropagation();
+                openInSplit(f.id);
+              }}
+            >
+              <Columns2 className="h-3 w-3 text-[var(--muted)]" />
+            </button>
+          </div>
         );
       })}
     </div>
@@ -241,6 +330,15 @@ export function Sidebar() {
   const setBackupDialogOpen = useStore((s) => s.setBackupDialogOpen);
   const setFsSyncDialogOpen = useStore((s) => s.setFsSyncDialogOpen);
   const fsBoundName = useStore((s) => s.fsBoundName);
+  const batchMode = useStore((s) => s.batchMode);
+  const setBatchMode = useStore((s) => s.setBatchMode);
+  const treeSelection = useStore((s) => s.treeSelection);
+  const clearTreeSelection = useStore((s) => s.clearTreeSelection);
+  const setTreeSelection = useStore((s) => s.setTreeSelection);
+  const batchDelete = useStore((s) => s.batchDelete);
+  const batchSetTags = useStore((s) => s.batchSetTags);
+  const moveDocsToFolder = useStore((s) => s.moveDocsToFolder);
+  const setExportDialogOpen = useStore((s) => s.setExportDialogOpen);
   const htmlImmersive = useStore((s) => s.htmlImmersive);
   const htmlSidebarPeek = useStore((s) => s.htmlSidebarPeek);
   const setHtmlSidebarPeek = useStore((s) => s.setHtmlSidebarPeek);
@@ -690,6 +788,87 @@ export function Sidebar() {
                   );
                 })}
               </div>
+              <div className="mb-1.5 flex items-center gap-1 px-1">
+                <button
+                  type="button"
+                  onClick={() => setBatchMode(!batchMode)}
+                  className={cn(
+                    "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] transition-colors",
+                    batchMode
+                      ? "border-[var(--accent)] text-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_10%,transparent)]"
+                      : "border-[var(--border)] text-[var(--muted)] hover:bg-[var(--hover)]"
+                  )}
+                >
+                  <CheckSquare className="h-3 w-3" /> 批量
+                </button>
+                {treeSelection.length > 0 && (
+                  <span className="text-[10px] text-[var(--muted)] tabular-nums">
+                    已选 {treeSelection.length}
+                  </span>
+                )}
+                {treeSelection.length > 0 && (
+                  <button
+                    type="button"
+                    className="text-[10px] text-[var(--muted)] underline ml-auto"
+                    onClick={() => clearTreeSelection()}
+                  >
+                    清除
+                  </button>
+                )}
+                {batchMode && treeSelection.length === 0 && (
+                  <button
+                    type="button"
+                    className="text-[10px] text-[var(--muted)] underline ml-auto"
+                    onClick={() => setTreeSelection(visible.map((d) => d.id))}
+                  >
+                    全选可见
+                  </button>
+                )}
+              </div>
+              {treeSelection.length > 0 && (
+                <div className="mb-2 flex flex-wrap gap-1 px-1">
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 rounded-lg border border-[var(--border)] px-2 py-1 text-[10px] hover:bg-[var(--hover)]"
+                    onClick={() => {
+                      const folder = window.prompt("移动到文件夹（留空=根目录）", "");
+                      if (folder == null) return;
+                      moveDocsToFolder(treeSelection, folder.trim());
+                    }}
+                  >
+                    <FolderOpen className="h-3 w-3" /> 移动
+                  </button>
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 rounded-lg border border-[var(--border)] px-2 py-1 text-[10px] hover:bg-[var(--hover)]"
+                    onClick={() => {
+                      const raw = window.prompt("添加标签（逗号分隔）", "");
+                      if (raw == null || !raw.trim()) return;
+                      const tags = raw.split(/[,，]/).map((t) => t.trim()).filter(Boolean);
+                      batchSetTags(treeSelection, tags, "add");
+                    }}
+                  >
+                    <Tag className="h-3 w-3" /> 打标签
+                  </button>
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 rounded-lg border border-[var(--border)] px-2 py-1 text-[10px] hover:bg-[var(--hover)]"
+                    onClick={() => setExportDialogOpen(true)}
+                  >
+                    <Download className="h-3 w-3" /> 导出
+                  </button>
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 rounded-lg border border-[var(--accent)]/40 text-[var(--accent)] px-2 py-1 text-[10px] hover:bg-[var(--hover)]"
+                    onClick={() => {
+                      if (!window.confirm(`将 ${treeSelection.length} 篇移入回收站？`)) return;
+                      batchDelete(treeSelection);
+                    }}
+                  >
+                    <Trash2 className="h-3 w-3" /> 删除
+                  </button>
+                </div>
+              )}
               <FileTree
                 node={tree}
                 expanded={expanded}

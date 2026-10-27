@@ -13,13 +13,21 @@ import { ResizeGutter } from "./ui/ResizeGutter";
  * Keep the preview reader mounted across preview ↔ split so large HTML
  * iframes are not torn down (avoids the white-flash remount).
  * Source-only mode still mounts only the editor.
+ *
+ * Optional `docId` enables dual-document split (otherwise uses activeId).
  */
-export function DocWorkspace() {
-  const active = useStore((s) => s.getActive());
+export function DocWorkspace({ docId }: { docId?: string }) {
+  const resolvedId = useStore((s) => docId ?? s.activeId);
+  const active = useStore((s) =>
+    s.documents.find((d) => d.id === resolvedId) || null
+  );
   const viewMode = useStore((s) => s.viewMode);
   const splitRatio = useStore((s) => s.splitRatio);
   const setSplitRatio = useStore((s) => s.setSplitRatio);
   const splitSourceFirst = useStore((s) => s.splitSourceFirst);
+  const setFocusedPane = useStore((s) => s.setFocusedPane);
+  const secondaryId = useStore((s) => s.secondaryId);
+  const activeId = useStore((s) => s.activeId);
 
   const containerRef = React.useRef<HTMLDivElement>(null);
 
@@ -52,14 +60,39 @@ export function DocWorkspace() {
     setSplitRatio(0.5);
   }, [setSplitRatio]);
 
+  const onFocusPane = () => {
+    if (!resolvedId || !secondaryId) return;
+    if (resolvedId === activeId) {
+      setFocusedPane("primary");
+      return;
+    }
+    if (resolvedId === secondaryId && activeId) {
+      // Swap panes: clicked doc becomes primary/active, former active becomes secondary
+      setFocusedPane("secondary");
+      useStore.setState({
+        activeId: resolvedId,
+        secondaryId: activeId,
+        focusedPane: "primary",
+      });
+    }
+  };
+
   if (!active) return null;
 
   if (viewMode === "source") {
-    return <SourceEditor doc={active} />;
+    return (
+      <div className="h-full" onMouseDown={onFocusPane}>
+        <SourceEditor doc={active} />
+      </div>
+    );
   }
 
   if (viewMode === "mixed" && active.type === "md") {
-    return <MixedMdView doc={active} />;
+    return (
+      <div className="h-full" onMouseDown={onFocusPane}>
+        <MixedMdView doc={active} />
+      </div>
+    );
   }
 
   const isSplit = viewMode === "split";
@@ -81,6 +114,7 @@ export function DocWorkspace() {
         "h-full min-h-0 flex",
         isSplit ? "flex-col lg:flex-row" : "flex-col"
       )}
+      onMouseDown={onFocusPane}
     >
       <div
         data-pane="source"
@@ -131,6 +165,55 @@ export function DocWorkspace() {
         }}
       >
         {reader}
+      </div>
+    </div>
+  );
+}
+
+/** Side-by-side two documents when secondaryId is set. */
+export function DualDocLayout() {
+  const activeId = useStore((s) => s.activeId);
+  const secondaryId = useStore((s) => s.secondaryId);
+  const docSplitRatio = useStore((s) => s.docSplitRatio);
+  const setDocSplitRatio = useStore((s) => s.setDocSplitRatio);
+  const containerRef = React.useRef<HTMLDivElement>(null);
+
+  const onDelta = React.useCallback(
+    (deltaPx: number) => {
+      const el = containerRef.current;
+      if (!el) return;
+      const total = el.getBoundingClientRect().width;
+      if (total <= 0) return;
+      setDocSplitRatio(useStore.getState().docSplitRatio + deltaPx / total);
+    },
+    [setDocSplitRatio]
+  );
+
+  if (!activeId) return null;
+  if (!secondaryId || secondaryId === activeId) {
+    return <DocWorkspace docId={activeId} />;
+  }
+
+  return (
+    <div ref={containerRef} className="h-full min-h-0 flex flex-row">
+      <div
+        className="min-h-0 overflow-hidden border-r border-[var(--border)]"
+        style={{ flex: `${docSplitRatio} 1 0%` }}
+      >
+        <DocWorkspace docId={activeId} />
+      </div>
+      <ResizeGutter
+        className="w-2 cursor-col-resize self-stretch"
+        axis="horizontal"
+        label="调整文档分屏"
+        value={Math.round(docSplitRatio * 100)}
+        min={20}
+        max={80}
+        onDelta={onDelta}
+        onReset={() => setDocSplitRatio(0.5)}
+      />
+      <div className="min-h-0 overflow-hidden" style={{ flex: `${1 - docSplitRatio} 1 0%` }}>
+        <DocWorkspace docId={secondaryId} />
       </div>
     </div>
   );

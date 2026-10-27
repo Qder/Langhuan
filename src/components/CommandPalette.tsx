@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Archive, BookmarkPlus, CalendarDays, ClipboardPaste, FilePlus2, FileText, FolderSync, Globe, History, Home, LayoutTemplate, Moon, Network, Search, SlidersHorizontal, Sun, Trash2, Maximize2, Blend, Type} from "lucide-react";
+import { Archive, BookmarkPlus, CalendarDays, ClipboardPaste, Columns2, Download, FilePlus2, FileText, FolderSync, Globe, History, Home, Keyboard, LayoutTemplate, Moon, Network, Search, SlidersHorizontal, Sun, Trash2, Maximize2, Blend, Type } from "lucide-react";
 import { Dialog } from "./ui/dialog";
 import { useStore } from "@/lib/store";
 import { searchDocuments } from "@/lib/search";
@@ -38,6 +38,10 @@ export function CommandPalette() {
   const setGraphDialogOpen = useStore((s) => s.setGraphDialogOpen);
   const setClipUrlDialogOpen = useStore((s) => s.setClipUrlDialogOpen);
   const setPropsDialogOpen = useStore((s) => s.setPropsDialogOpen);
+  const setExportDialogOpen = useStore((s) => s.setExportDialogOpen);
+  const setShortcutsDialogOpen = useStore((s) => s.setShortcutsDialogOpen);
+  const toggleDocSplit = useStore((s) => s.toggleDocSplit);
+  const secondaryId = useStore((s) => s.secondaryId);
   const savedSearches = useStore((s) => s.savedSearches);
   const addSavedSearch = useStore((s) => s.addSavedSearch);
   const removeSavedSearch = useStore((s) => s.removeSavedSearch);
@@ -252,6 +256,27 @@ export function CommandPalette() {
           setReadingPrefs({
             fontSize: Math.max(13, readingPrefs.fontSize - 2),
           }),
+      },
+      {
+        key: "cmd-export",
+        label: "导出…",
+        hint: "PDF / 独立 HTML / 静态站点",
+        icon: <Download className="h-4 w-4 text-[var(--accent)]" />,
+        run: () => setExportDialogOpen(true),
+      },
+      {
+        key: "cmd-doc-split",
+        label: secondaryId ? "关闭文档分屏" : "文档分屏",
+        hint: "并排查看两篇（⌘\\）",
+        icon: <Columns2 className="h-4 w-4 text-[var(--teal)]" />,
+        run: () => toggleDocSplit(),
+      },
+      {
+        key: "cmd-shortcuts",
+        label: "快捷键设置",
+        hint: "自定义 ⌘K / 保存等",
+        icon: <Keyboard className="h-4 w-4" />,
+        run: () => setShortcutsDialogOpen(true),
       },
       {
         key: "cmd-autosave",

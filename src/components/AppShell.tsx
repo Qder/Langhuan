@@ -7,7 +7,8 @@ import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
 import { StatusBar } from "./StatusBar";
 import { HomeView } from "./HomeView";
-import { DocWorkspace } from "./DocWorkspace";
+import { DualDocLayout } from "./DocWorkspace";
+import { TabBar } from "./TabBar";
 import { CommandPalette } from "./CommandPalette";
 import { ReadingProgress } from "./ReadingProgress";
 import { BackupDialog } from "./BackupDialog";
@@ -19,7 +20,11 @@ import { KnowledgeGraphDialog } from "./KnowledgeGraphDialog";
 import { PropsPanelDialog } from "./PropsPanelDialog";
 import { ClipUrlDialog } from "./ClipUrlDialog";
 import { TemplateDialog } from "./TemplateDialog";
+import { ExportDialog } from "./ExportDialog";
+import { ShortcutsDialog } from "./ShortcutsDialog";
+import { RegisterSW } from "./pwa/RegisterSW";
 import { AUTOSAVE_DEBOUNCE_MS } from "@/lib/storage/constants";
+import { matchShortcut, normalizeShortcuts } from "@/lib/shortcuts";
 
 export function AppShell() {
   const hydrated = useStore((s) => s.hydrated);
@@ -41,6 +46,17 @@ export function AppShell() {
   const drafts = useStore((s) => s.drafts);
   const autosaveEnabled = useStore((s) => s.autosaveEnabled);
   const activeIdForSave = useStore((s) => s.activeId);
+  const customShortcuts = useStore((s) => s.customShortcuts);
+  const createDoc = useStore((s) => s.createDoc);
+  const openDailyNote = useStore((s) => s.openDailyNote);
+  const toggleDocSplit = useStore((s) => s.toggleDocSplit);
+  const closeTab = useStore((s) => s.closeTab);
+  const setExportDialogOpen = useStore((s) => s.setExportDialogOpen);
+
+  const shortcuts = React.useMemo(
+    () => normalizeShortcuts(customShortcuts),
+    [customShortcuts]
+  );
 
   // Warn on tab close when there are unsaved drafts
   React.useEffect(() => {
@@ -78,7 +94,6 @@ export function AppShell() {
 
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const meta = e.metaKey || e.ctrlKey;
       const target = e.target as HTMLElement | null;
       const typing =
         !!target &&
@@ -87,17 +102,17 @@ export function AppShell() {
           target.tagName === "SELECT" ||
           target.isContentEditable);
 
-      if (meta && e.key.toLowerCase() === "k") {
+      if (matchShortcut(e, shortcuts.commandPalette)) {
         e.preventDefault();
         setCommandOpen(true);
         return;
       }
-      if (meta && e.key.toLowerCase() === "s") {
+      if (matchShortcut(e, shortcuts.save)) {
         e.preventDefault();
         saveDoc();
         return;
       }
-      if (meta && e.key.toLowerCase() === "e") {
+      if (matchShortcut(e, shortcuts.toggleSource)) {
         const active = getActive();
         if (!active) return;
         e.preventDefault();
@@ -105,6 +120,33 @@ export function AppShell() {
         setViewMode(next);
         setHtmlImmersive(false);
         setStatus(next === "source" ? "已切换到源码" : "已切换到预览");
+        return;
+      }
+      if (matchShortcut(e, shortcuts.newMd) && !typing) {
+        e.preventDefault();
+        createDoc({ type: "md" });
+        return;
+      }
+      if (matchShortcut(e, shortcuts.dailyNote) && !typing) {
+        e.preventDefault();
+        openDailyNote();
+        return;
+      }
+      if (matchShortcut(e, shortcuts.toggleDocSplit) && !typing) {
+        e.preventDefault();
+        toggleDocSplit();
+        return;
+      }
+      if (matchShortcut(e, shortcuts.closeTab) && !typing) {
+        const id = useStore.getState().activeId;
+        if (!id) return;
+        e.preventDefault();
+        closeTab(id);
+        return;
+      }
+      if (matchShortcut(e, shortcuts.exportActive) && !typing) {
+        e.preventDefault();
+        setExportDialogOpen(true);
         return;
       }
 
@@ -116,7 +158,7 @@ export function AppShell() {
           setStatus("已退出沉浸模式");
           return;
         }
-        if ((e.key === "f" || e.key === "F") && !meta) {
+        if (matchShortcut(e, shortcuts.focusMode)) {
           e.preventDefault();
           const next = !htmlImmersive;
           setHtmlImmersive(next);
@@ -130,7 +172,7 @@ export function AppShell() {
           setStatus("已退出专注模式");
           return;
         }
-        if ((e.key === "f" || e.key === "F") && !meta) {
+        if (matchShortcut(e, shortcuts.focusMode)) {
           e.preventDefault();
           const next = !mdFocusMode;
           setMdFocusMode(next);
@@ -151,6 +193,12 @@ export function AppShell() {
     setMdFocusMode,
     setStatus,
     viewMode,
+    shortcuts,
+    createDoc,
+    openDailyNote,
+    toggleDocSplit,
+    closeTab,
+    setExportDialogOpen,
   ]);
 
   if (!hydrated) {
@@ -182,8 +230,9 @@ export function AppShell() {
       <div className="flex-1 flex flex-col min-w-0 relative">
         {activeId && !chromeHidden && <ReadingProgress />}
         {!chromeHidden && <TopBar />}
+        {!chromeHidden && <TabBar />}
         <main className="flex-1 min-h-0 overflow-hidden">
-          {activeId ? <DocWorkspace /> : <HomeView />}
+          {activeId ? <DualDocLayout /> : <HomeView />}
         </main>
         {!chromeHidden && <StatusBar />}
       </div>
@@ -197,6 +246,9 @@ export function AppShell() {
       <PropsPanelDialog />
       <ClipUrlDialog />
       <TemplateDialog />
+      <ExportDialog />
+      <ShortcutsDialog />
+      <RegisterSW />
     </div>
   );
 }

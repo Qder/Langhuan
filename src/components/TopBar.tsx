@@ -105,6 +105,7 @@ export function TopBar() {
   const setDocTags = useStore((s) => s.setDocTags);
   const setVersionDialogOpen = useStore((s) => s.setVersionDialogOpen);
   const setPropsDialogOpen = useStore((s) => s.setPropsDialogOpen);
+  const setExportDialogOpen = useStore((s) => s.setExportDialogOpen);
   const setGraphDialogOpen = useStore((s) => s.setGraphDialogOpen);
   const annotations = useStore((s) => s.annotations);
   const assetsForDoc = useStore((s) => s.assetsForDoc);
@@ -638,8 +639,11 @@ export function TopBar() {
                 >
                   <Pencil className="h-3.5 w-3.5" /> 重命名 / 移动
                 </DropdownItem>
+                <DropdownItem onClick={() => setExportDialogOpen(true)}>
+                  <Download className="h-3.5 w-3.5" /> 导出…
+                </DropdownItem>
                 <DropdownItem onClick={exportDoc}>
-                  <Download className="h-3.5 w-3.5" /> 导出
+                  <Download className="h-3.5 w-3.5" /> 快速导出源码
                 </DropdownItem>
                 <DropdownItem onClick={copySource}>
                   <Copy className="h-3.5 w-3.5" /> 复制源码
