@@ -2,9 +2,9 @@
 
 import * as React from "react";
 import { getAssetObjectUrl } from "@/lib/assets/store";
-import { libraryFileUrl } from "@/lib/storage/contentApi";
+import { isTauriRuntime, libraryFileUrl, resolveLibraryFileUrl } from "@/lib/storage/contentApi";
 
-/** Resolve attachment: prefer content/ API by path, fall back to IDB blob URL. */
+/** Resolve attachment: prefer content/ (API or Tauri), fall back to IDB blob URL. */
 export function AssetImage({
   assetId,
   path,
@@ -13,21 +13,31 @@ export function AssetImage({
   className,
 }: {
   assetId: string;
-  /** Vault-relative path — when set, loads from /api/library/file. */
+  /** Vault-relative path — when set, loads from content library. */
   path?: string;
   alt?: string;
   title?: string;
   className?: string;
 }) {
-  const [src, setSrc] = React.useState<string | null>(
-    path ? libraryFileUrl(path) : null
+  const [src, setSrc] = React.useState<string | null>(() =>
+    path && !isTauriRuntime() ? libraryFileUrl(path) : null
   );
   React.useEffect(() => {
-    if (path) {
-      setSrc(libraryFileUrl(path));
-      return;
-    }
     let alive = true;
+    if (path) {
+      void resolveLibraryFileUrl(path)
+        .then((u) => {
+          if (alive) setSrc(u);
+        })
+        .catch(() => {
+          void getAssetObjectUrl(assetId).then((u) => {
+            if (alive && u) setSrc(u);
+          });
+        });
+      return () => {
+        alive = false;
+      };
+    }
     void getAssetObjectUrl(assetId).then((u) => {
       if (alive) setSrc(u);
     });
@@ -50,7 +60,6 @@ export function AssetImage({
       title={title}
       className={className}
       onError={() => {
-        // API miss → try IDB cache once
         if (path) {
           void getAssetObjectUrl(assetId).then((u) => {
             if (u) setSrc(u);

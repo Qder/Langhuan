@@ -1,0 +1,15 @@
+[[permission]]
+identifier = "allow-langhuan-library"
+description = "读写 content/ 知识库"
+commands.allow = [
+  "library_content_root",
+  "library_scan",
+  "library_put_doc",
+  "library_put_asset",
+  "library_delete_path",
+  "library_trash_restore",
+  "library_trash_purge",
+  "library_mkdir",
+  "library_read_file",
+  "library_bulk"
+]

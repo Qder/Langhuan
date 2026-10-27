@@ -19,6 +19,20 @@ npm run build
 npm start
 ```
 
+
+## 桌面应用（Tauri 2）
+
+开发期桌面壳（WebView + Rust 读写 `content/`）：
+
+```bash
+# 需本机 Rust +（Windows）WebView2
+npm run tauri:dev
+```
+
+浏览器用法不变：`npm run dev`。详见 [STATUS-tauri.md](./STATUS-tauri.md)。
+
+生产 `npm run tauri:build` 目前可编过 Rust；安装包内前端仍为占位页，完整离线 UI 待后续。
+
 ## 主题
 
 五套阅读主题（青灯 / 宣纸 / 松烟 / 绛帐 / 赛博），侧栏或 ⌘K 切换；选择写入偏好存储。

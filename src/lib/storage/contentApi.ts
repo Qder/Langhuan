@@ -10,11 +10,38 @@ export type LibrarySnapshot = {
   source: "content";
 };
 
+/** Detect Tauri 2 webview (do not throw if API package missing in browser). */
+export function isTauriRuntime(): boolean {
+  if (typeof window === "undefined") return false;
+  const w = window as unknown as { __TAURI_INTERNALS__?: unknown; __TAURI__?: unknown };
+  return Boolean(w.__TAURI_INTERNALS__ || w.__TAURI__);
+}
+
+async function tauriInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<T>(cmd, args);
+}
+
+/** Sync URL for browser <img src>. Prefer resolveLibraryFileUrl in Tauri. */
 export function libraryFileUrl(path: string): string {
   return `/api/library/file?path=${encodeURIComponent(path)}`;
 }
 
+/** Browser: API URL. Tauri: data: URL from Rust base64. */
+export async function resolveLibraryFileUrl(path: string): Promise<string> {
+  if (!isTauriRuntime()) return libraryFileUrl(path);
+  const file = await tauriInvoke<{ base64: string; mime: string; path: string }>(
+    "library_read_file",
+    { path }
+  );
+  return `data:${file.mime};base64,${file.base64}`;
+}
+
 export async function fetchLibrary(): Promise<LibrarySnapshot> {
+  if (isTauriRuntime()) {
+    const snap = await tauriInvoke<LibrarySnapshot>("library_scan");
+    return { ...snap, ok: true, source: "content" };
+  }
   const res = await fetch("/api/library", { cache: "no-store" });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -24,6 +51,19 @@ export async function fetchLibrary(): Promise<LibrarySnapshot> {
 }
 
 export async function putLibraryDoc(doc: Document, previousPath?: string): Promise<Document> {
+  if (isTauriRuntime()) {
+    return tauriInvoke<Document>("library_put_doc", {
+      args: {
+        path: doc.path,
+        content: doc.content,
+        id: doc.id,
+        starred: doc.starred,
+        createdAt: doc.createdAt,
+        updatedAt: doc.updatedAt,
+        previousPath,
+      },
+    });
+  }
   const res = await fetch("/api/library/file", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
@@ -49,6 +89,10 @@ export async function deleteLibraryDoc(
   path: string,
   mode: "trash" | "hard" = "trash"
 ): Promise<void> {
+  if (isTauriRuntime()) {
+    await tauriInvoke("library_delete_path", { path, mode });
+    return;
+  }
   const q = new URLSearchParams({ path, mode });
   const res = await fetch(`/api/library/file?${q}`, { method: "DELETE" });
   if (!res.ok) {
@@ -65,6 +109,18 @@ export async function putLibraryAsset(input: {
   docId?: string;
   createdAt?: number;
 }): Promise<AssetMeta> {
+  if (isTauriRuntime()) {
+    return tauriInvoke<AssetMeta>("library_put_asset", {
+      args: {
+        path: input.path,
+        base64: input.base64,
+        mime: input.mime,
+        id: input.id,
+        docId: input.docId,
+        createdAt: input.createdAt,
+      },
+    });
+  }
   const res = await fetch("/api/library/asset", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
@@ -79,6 +135,10 @@ export async function putLibraryAsset(input: {
 }
 
 export async function deleteLibraryAsset(path: string): Promise<void> {
+  if (isTauriRuntime()) {
+    await tauriInvoke("library_delete_path", { path, mode: "hard" });
+    return;
+  }
   const q = new URLSearchParams({ path, mode: "hard" });
   const res = await fetch(`/api/library/file?${q}`, { method: "DELETE" });
   if (!res.ok) {
@@ -88,6 +148,9 @@ export async function deleteLibraryAsset(path: string): Promise<void> {
 }
 
 export async function restoreLibraryTrash(id: string): Promise<Document> {
+  if (isTauriRuntime()) {
+    return tauriInvoke<Document>("library_trash_restore", { id });
+  }
   const res = await fetch("/api/library/trash", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -102,6 +165,10 @@ export async function restoreLibraryTrash(id: string): Promise<Document> {
 }
 
 export async function purgeLibraryTrash(id: string): Promise<void> {
+  if (isTauriRuntime()) {
+    await tauriInvoke("library_trash_purge", { id });
+    return;
+  }
   const res = await fetch("/api/library/trash", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -119,6 +186,16 @@ export async function bulkWriteLibrary(payload: {
   trash?: TrashItem[];
   seed?: boolean;
 }): Promise<LibrarySnapshot> {
+  if (isTauriRuntime()) {
+    const snap = await tauriInvoke<LibrarySnapshot>("library_bulk", {
+      args: {
+        documents: payload.documents,
+        assets: payload.assets,
+        trash: payload.trash,
+      },
+    });
+    return { ...snap, ok: true, source: "content" };
+  }
   const res = await fetch("/api/library/bulk", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -132,6 +209,14 @@ export async function bulkWriteLibrary(payload: {
 }
 
 export async function ensureContentFolder(relDir: string): Promise<void> {
+  if (isTauriRuntime()) {
+    try {
+      await tauriInvoke("library_mkdir", { path: relDir });
+    } catch {
+      /* best-effort */
+    }
+    return;
+  }
   const res = await fetch("/api/library/file", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
