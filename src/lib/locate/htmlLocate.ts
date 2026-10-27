@@ -207,12 +207,132 @@ export function locateInHtml(opts: {
     };
   }
 
+  // Noisy DOM selection: try shorter unique candidates in static HTML
+  const candidates = buildSearchCandidates(sel);
+  for (const needle of candidates) {
+    if (needle === collapseHtmlWs(sel) || needle === sel.trim()) continue;
+    const visIdx = visible.indexOf(needle);
+    if (visIdx >= 0) {
+      const start = map[visIdx];
+      const end = map[Math.min(visIdx + needle.length, map.length - 1)];
+      return {
+        start,
+        end,
+        precision: "fuzzy",
+        line: lineAtOffset(source, start),
+        message: `已定位到第 ${lineAtOffset(source, start)} 行（部分匹配）`,
+      };
+    }
+    const outIdx = findLiteralOutsideScriptStyle(source, needle);
+    if (outIdx >= 0) {
+      return {
+        start: outIdx,
+        end: outIdx + needle.length,
+        precision: "fuzzy",
+        line: lineAtOffset(source, outIdx),
+        message: "位置可能不精确",
+      };
+    }
+  }
+
+  // Script/style-generated: locate the string literal that produced the DOM text
+  const scriptHit = locateInScriptOrStyle(source, candidates.length ? candidates : [collapsedSel]);
+  if (scriptHit) return scriptHit;
+
   return {
     start: 0,
     end: 0,
     precision: "none",
     message: "该内容由脚本生成，源码中没有对应文本",
   };
+}
+
+/** Prefer longest, distinctive substrings for fuzzy / script fallback. */
+export function buildSearchCandidates(text: string): string[] {
+  const collapsed = collapseHtmlWs(text);
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const push = (s: string) => {
+    const t = collapseHtmlWs(s);
+    if (t.length < 4) return;
+    if (seen.has(t)) return;
+    seen.add(t);
+    out.push(t);
+  };
+
+  push(collapsed);
+  push(collapsed.replace(/[。．.！!？?；;：:\s]+$/u, ""));
+
+  // Strip common badge / chrome prefixes that card clicks pick up
+  push(collapsed.replace(/^(常用|进阶\/少用|已弃用|示例)\s*/u, ""));
+
+  if (collapsed.length > 48) {
+    push(collapsed.slice(0, 48));
+    push(collapsed.slice(-48));
+  }
+
+  // Lines / sentence-like chunks
+  for (const part of collapsed.split(/[\n\r]+|(?<=[。！？])\s*/u)) {
+    push(part);
+  }
+
+  // CJK / word runs ≥ 6 chars, longest first after primary
+  const runs = collapsed.match(/[\u4e00-\u9fff\u3400-\u4dbf]{6,}|[A-Za-z0-9_<>=/-]{8,}/g) || [];
+  runs.sort((a, b) => b.length - a.length);
+  for (const r of runs.slice(0, 8)) push(r);
+
+  // Prefer longer needles first for uniqueness
+  out.sort((a, b) => {
+    if (a === collapsed) return -1;
+    if (b === collapsed) return 1;
+    return b.length - a.length;
+  });
+  return out;
+}
+
+function locateInScriptOrStyle(source: string, candidates: string[]): LocateResult | null {
+  const expanded: string[] = [];
+  const seen = new Set<string>();
+  const push = (s: string) => {
+    const t = collapseHtmlWs(s);
+    if (t.length < 4 || seen.has(t)) return;
+    seen.add(t);
+    expanded.push(t);
+  };
+  for (const c of candidates) {
+    push(c);
+    // Shrink from ends so noisy card text ("<h6>常用 六级…。示例") still hits the desc literal
+    const t = collapseHtmlWs(c);
+    for (let end = t.length - 1; end >= 6 && expanded.length < 60; end--) push(t.slice(0, end));
+    for (let start = 1; start <= t.length - 6 && expanded.length < 100; start++) push(t.slice(start));
+  }
+  // Prefer longer matches
+  expanded.sort((a, b) => b.length - a.length);
+
+  let best: LocateResult | null = null;
+  for (const needle of expanded) {
+    const variants = [needle];
+    const jsonBody = JSON.stringify(needle).slice(1, -1);
+    if (jsonBody !== needle) variants.push(jsonBody);
+
+    for (const v of variants) {
+      const idx = findLiteralInsideScriptStyle(source, v);
+      if (idx >= 0) {
+        const line = lineAtOffset(source, idx);
+        const hit: LocateResult = {
+          start: idx,
+          end: idx + v.length,
+          precision: "fuzzy",
+          line,
+          message: `脚本生成，已定位到生成处（第 ${line} 行）`,
+        };
+        if (!best || v.length > best.end - best.start) best = hit;
+        // First hit is already longest due to sort — return immediately
+        return hit;
+      }
+    }
+  }
+  return best;
 }
 
 function findLiteralOutsideScriptStyle(source: string, needle: string): number {
@@ -222,6 +342,18 @@ function findLiteralOutsideScriptStyle(source: string, needle: string): number {
     const idx = source.indexOf(needle, from);
     if (idx < 0) return -1;
     if (!isInsideScriptOrStyle(source, idx)) return idx;
+    from = idx + Math.max(1, needle.length);
+  }
+  return -1;
+}
+
+function findLiteralInsideScriptStyle(source: string, needle: string): number {
+  if (!needle) return -1;
+  let from = 0;
+  while (from < source.length) {
+    const idx = source.indexOf(needle, from);
+    if (idx < 0) return -1;
+    if (isInsideScriptOrStyle(source, idx)) return idx;
     from = idx + Math.max(1, needle.length);
   }
   return -1;

@@ -164,16 +164,19 @@ describe("locateInHtml", () => {
     expect(result.message).toMatch(/第 \d+ 行/);
   });
 
-  it("6b. script-generated text reports clear message", () => {
-    // only inside <script> string
+  it("6b. script-generated text locates the string in <script>", () => {
+    // only inside <script> string → jump to the generating literal
     const resultInScript = locateInHtml({
       source: html,
       text: "42-script-only",
       before: "",
       after: "",
     });
-    expect(resultInScript.precision).toBe("none");
+    expect(resultInScript.precision).toBe("fuzzy");
     expect(resultInScript.message).toContain("脚本生成");
+    expect(resultInScript.message).toContain("生成处");
+    expect(html.slice(resultInScript.start, resultInScript.end)).toBe("42-script-only");
+    expect(resultInScript.start).toBeGreaterThan(0);
 
     // dynamic counter value never present in source
     const resultDynamic = locateInHtml({
@@ -184,6 +187,41 @@ describe("locateInHtml", () => {
     });
     expect(resultDynamic.precision).toBe("none");
     expect(resultDynamic.message).toContain("脚本生成");
+  });
+
+  it("6c. locates JSON data-driven desc inside script (html-elements pattern)", () => {
+    const page = `<!DOCTYPE html><html><body>
+<div id="main"></div>
+<script>
+const DATA = [
+  { "tag": "h6", "desc": "六级章节标题（六个级别中最低）。", "example": "<h6>六级标题</h6>" }
+];
+document.getElementById("main").textContent = DATA[0].desc;
+</script>
+</body></html>`;
+    const result = locateInHtml({
+      source: page,
+      text: "六级章节标题（六个级别中最低）。",
+      before: "",
+      after: "",
+    });
+    expect(result.precision).toBe("fuzzy");
+    expect(result.message).toMatch(/脚本生成.*生成处/);
+    expect(page.slice(result.start, result.end)).toContain("六级章节标题");
+  });
+
+  it("6d. noisy card selection still finds desc via candidate", () => {
+    const page = `<!DOCTYPE html><html><body><script>
+const el = { "desc": "六级章节标题（六个级别中最低）。" };
+</script></body></html>`;
+    const result = locateInHtml({
+      source: page,
+      text: "<h6>常用 六级章节标题（六个级别中最低）。 示例",
+      before: "",
+      after: "",
+    });
+    expect(result.precision).toBe("fuzzy");
+    expect(page.slice(result.start, result.end)).toContain("六级章节标题");
   });
 
   it("visible map skips style/script", () => {

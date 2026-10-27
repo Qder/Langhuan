@@ -201,18 +201,28 @@ export const HTML_LOCATE_BRIDGE = `
     return false;
   }
 
+  function isTextualBlock(tag) {
+    return /^(h[1-6]|p|li|td|th|pre|blockquote|figcaption|dt|dd)$/.test(tag);
+  }
+
+  function isLargeContainer(tag) {
+    return /^(article|section|header|footer|main|aside)$/.test(tag);
+  }
+
   function climbLocateEl(node) {
     var el = node && node.nodeType === 3 ? node.parentElement : node;
     if (!el) return null;
     var cur = el;
-    for (var i = 0; i < 8 && cur && cur !== document.body; i++) {
+    var textual = null;
+    var container = null;
+    for (var i = 0; i < 10 && cur && cur !== document.body; i++) {
       var tag = cur.tagName ? cur.tagName.toLowerCase() : "";
-      if (/^(h[1-6]|p|li|td|th|pre|blockquote|figcaption|dt|dd|article|section|header|footer|main|aside)$/.test(tag)) {
-        return cur;
-      }
+      if (!textual && isTextualBlock(tag)) textual = cur;
+      if (!container && isLargeContainer(tag)) container = cur;
+      if (textual) return textual;
       cur = cur.parentElement;
     }
-    return el;
+    return textual || container || el;
   }
 
   function flashEl(el) {
@@ -239,10 +249,32 @@ export const HTML_LOCATE_BRIDGE = `
     } catch (err) {
       return null;
     }
-    var text = String(range).replace(/\u00a0/g, " ");
-    if (!text || !text.trim()) return null;
-    var needle = text.trim().replace(/\\s+/g, " ");
+    var text = String(range).replace(/\\u00a0/g, " ");
+    var needle = "";
+    try {
+      var descAttr = el.getAttribute && el.getAttribute("data-desc");
+      if (descAttr && String(descAttr).trim()) {
+        needle = String(descAttr).trim().replace(/\\s+/g, " ");
+      }
+    } catch (e0) {}
+    if (!needle) {
+      if (!text || !text.trim()) return null;
+      needle = text.trim().replace(/\\s+/g, " ");
+    }
     if (needle.length > 160) needle = needle.slice(0, 160);
+    if (needle.length > 80 && el.querySelector) {
+      try {
+        var prefer = el.querySelector(".desc, p.desc, [data-desc], h1, h2, h3, h4, h5, h6, p");
+        if (prefer && prefer !== el) {
+          var alt = prefer.getAttribute && prefer.getAttribute("data-desc");
+          var altText = alt && String(alt).trim() ? String(alt).trim() : String(prefer.textContent || "").trim();
+          altText = altText.replace(/\\s+/g, " ");
+          if (altText && altText.length >= 4 && altText.length < needle.length) {
+            needle = altText.length > 160 ? altText.slice(0, 160) : altText;
+          }
+        }
+      } catch (e1) {}
+    }
     var before = "";
     var after = "";
     try {
