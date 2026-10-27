@@ -30,23 +30,26 @@ export function DocWorkspace() {
       : ("horizontal" as const);
   }, []);
 
-  const onSplitDelta = React.useCallback(
-    (deltaPx: number) => {
-      const el = containerRef.current;
-      if (!el) return;
-      const rect = el.getBoundingClientRect();
-      const vertical = getComputedStyle(el).flexDirection === "column";
-      const total = vertical ? rect.height : rect.width;
-      if (total <= 0) return;
-      const deltaFrac = deltaPx / total;
-      if (splitSourceFirst) {
-        setSplitRatio(splitRatio + deltaFrac);
-      } else {
-        setSplitRatio(splitRatio - deltaFrac);
-      }
-    },
-    [setSplitRatio, splitRatio, splitSourceFirst]
-  );
+  /** Read live store on every delta — React closures lag behind pointermove. */
+  const onSplitDelta = React.useCallback((deltaPx: number) => {
+    const el = containerRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const vertical = getComputedStyle(el).flexDirection === "column";
+    const total = vertical ? rect.height : rect.width;
+    if (total <= 0) return;
+    const deltaFrac = deltaPx / total;
+    const { splitRatio: ratio, splitSourceFirst: sourceFirst } = useStore.getState();
+    if (sourceFirst) {
+      setSplitRatio(ratio + deltaFrac);
+    } else {
+      setSplitRatio(ratio - deltaFrac);
+    }
+  }, [setSplitRatio]);
+
+  const resetSplit = React.useCallback(() => {
+    setSplitRatio(0.5);
+  }, [setSplitRatio]);
 
   if (!active) return null;
 
@@ -62,6 +65,7 @@ export function DocWorkspace() {
       <MarkdownReader doc={active} />
     );
 
+  // flex-basis percentages keep panes proportional; gutter stays shrink-0
   const sourceFlex = `${splitRatio} 1 0%`;
   const previewFlex = isSplit ? `${1 - splitRatio} 1 0%` : "1 1 auto";
 
@@ -99,15 +103,17 @@ export function DocWorkspace() {
         className={cn(
           !isSplit && "hidden",
           "h-1.5 w-full cursor-row-resize self-auto",
-          "lg:h-auto lg:w-1.5 lg:cursor-col-resize lg:self-stretch"
+          "lg:h-auto lg:w-2 lg:cursor-col-resize lg:self-stretch"
         )}
         style={{ order: 2 }}
+        axis="horizontal"
         resolveAxis={resolveAxis}
         label="调整分栏大小"
         value={Math.round(splitRatio * 100)}
         min={20}
         max={80}
         onDelta={(d) => onSplitDelta(d)}
+        onReset={resetSplit}
         disabled={!isSplit}
       />
 

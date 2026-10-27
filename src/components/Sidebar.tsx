@@ -440,7 +440,10 @@ export function Sidebar() {
 
   return (
     <>
-      <div className="hidden md:flex h-full shrink-0" style={{ width: sidebarWidth }}>
+      <div
+        className="hidden md:flex h-full shrink-0 overflow-hidden"
+        style={{ width: sidebarWidth, minWidth: sidebarWidth, maxWidth: sidebarWidth }}
+      >
         {panel}
       </div>
       <ResizeGutter
@@ -450,7 +453,11 @@ export function Sidebar() {
         value={sidebarWidth}
         min={220}
         max={420}
-        onDelta={(d) => setSidebarWidth(sidebarWidth + d)}
+        onDelta={(d) => {
+          // Live store read — closures from render lag behind pointermove
+          setSidebarWidth(useStore.getState().sidebarWidth + d);
+        }}
+        onReset={() => setSidebarWidth(300)}
       />
       {sidebarOpen && (
         <div className="md:hidden fixed inset-0 z-50 flex">

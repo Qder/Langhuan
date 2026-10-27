@@ -480,3 +480,24 @@ html.dark .lh-wiki-peek {
   font-weight: 600;
   cursor: pointer;
 }
+
+/* ── Resize gutters ── */
+.lh-resize-gutter-hit {
+  /* Expand hit target ~6px beyond the visible track (both axes) */
+  inset: -6px;
+}
+
+/* While dragging: iframes must not steal pointer events */
+html[data-lh-resizing] iframe {
+  pointer-events: none !important;
+}
+html[data-lh-resizing="col"],
+html[data-lh-resizing="col"] * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+html[data-lh-resizing="row"],
+html[data-lh-resizing="row"] * {
+  cursor: row-resize !important;
+  user-select: none !important;
+}

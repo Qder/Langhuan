@@ -661,11 +661,15 @@ export function MarkdownReader({ doc }: { doc: Document }) {
         value={outlineWidth}
         min={160}
         max={360}
-        onDelta={(d) => setOutlineWidth(outlineWidth - d)}
+        onDelta={(d) => {
+          // Gutter is left of the outline: drag right shrinks outline
+          setOutlineWidth(useStore.getState().outlineWidth - d);
+        }}
+        onReset={() => setOutlineWidth(240)}
       />
       <aside
         className="hidden xl:flex shrink-0 flex-col border-l border-[var(--border)] p-4 gap-6 overflow-y-auto scroll-thin"
-        style={{ width: outlineWidth }}
+        style={{ width: outlineWidth, minWidth: outlineWidth, maxWidth: outlineWidth }}
       >
         <div>
           <div className="text-xs uppercase tracking-wider text-[var(--muted)] mb-2">大纲</div>
