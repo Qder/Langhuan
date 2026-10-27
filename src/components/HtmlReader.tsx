@@ -17,6 +17,7 @@ import {
   locateInHtml,
   parseBridgeMessage,
   previewTopToSourceOffset,
+  lineAtOffset,
 } from "@/lib/locate";
 import type { HtmlLocatePayload, LocateResult } from "@/lib/locate";
 import { prepareHtmlPreview } from "@/lib/fixHtmlPreview";
@@ -27,6 +28,15 @@ import {
 import { PreviewContextMenu, type ContextMenuItem } from "./locate/PreviewContextMenu";
 import { SelectionFloatBar } from "./locate/SelectionFloatBar";
 import { cn } from "@/lib/utils";
+
+
+function editReadyMessage(source: string, start: number, end: number): string {
+  const a = lineAtOffset(source, start);
+  const endPos = end > start ? end - 1 : end;
+  const b = lineAtOffset(source, endPos);
+  if (a === b) return `已选中第 ${a} 行，可直接编辑`;
+  return `已选中第 ${a}–${b} 行，可直接编辑`;
+}
 
 export function HtmlReader({ doc }: { doc: Document }) {
   const getContent = useStore((s) => s.getContent);
@@ -140,6 +150,56 @@ export function HtmlReader({ doc }: { doc: Document }) {
         setHtmlImmersive(false);
       }
       applyLocateResult(result, { select, focus: select, highlight: true });
+      setMenu(null);
+      setFloat(null);
+    },
+    [content, applyLocateResult, setStatus, setHtmlImmersive]
+  );
+
+  /** Preview text drag-select → locate matching source and focus CM6 for edit. */
+  const runEditSelection = React.useCallback(
+    (payload: HtmlLocatePayload) => {
+      const text = payload.text || payload.textSnippet || "";
+      if (isTrivialSelection(text)) {
+        setStatus("请先选中一段文字");
+        return;
+      }
+
+      // Prefer text match so we select the dragged span, not the whole data-lh element.
+      let result = locateInHtml({
+        source: content,
+        text,
+        before: payload.before || "",
+        after: payload.after || "",
+      });
+
+      if (result.precision === "none" && payload.range) {
+        result = locateDynamicHtml({
+          source: content,
+          text,
+          container: payload.range,
+        });
+      }
+
+      if (result.precision === "none" && payload.range) {
+        const line = content.slice(0, payload.range.start).split("\n").length;
+        result = {
+          start: payload.range.start,
+          end: payload.range.end,
+          precision: "container",
+          line,
+          message: `脚本生成，已定位到所在容器（第 ${line} 行）`,
+        };
+      }
+
+      if (result.precision !== "none") {
+        result = {
+          ...result,
+          message: editReadyMessage(content, result.start, result.end),
+        };
+        setHtmlImmersive(false);
+      }
+      applyLocateResult(result, { select: true, focus: true, highlight: true });
       setMenu(null);
       setFloat(null);
     },
@@ -272,6 +332,12 @@ export function HtmlReader({ doc }: { doc: Document }) {
         return;
       }
 
+      if (data.type === "lh-edit-selection") {
+        if (!data.text || isTrivialSelection(data.text)) return;
+        runEditSelection(data);
+        return;
+      }
+
       if (data.type === "lh-selection") {
         if (!data.text || isTrivialSelection(data.text) || !data.rect) {
           setFloat(null);
@@ -290,7 +356,7 @@ export function HtmlReader({ doc }: { doc: Document }) {
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [runLocate, handleBridgeKey, setHtmlScrollPercent, getSyncScrollEnabled, publishScrollSync, doc.id]);
+  }, [runLocate, runEditSelection, handleBridgeKey, setHtmlScrollPercent, getSyncScrollEnabled, publishScrollSync, doc.id]);
 
   // Source → Preview highlight via range (data-lh)
   React.useEffect(() => {
@@ -388,6 +454,21 @@ export function HtmlReader({ doc }: { doc: Document }) {
   const onIframeLoad = () => {
     window.setTimeout(() => setLoaded(true), 200);
   };
+
+
+  // One-time status hint for preview→source edit
+  React.useEffect(() => {
+    if (viewModeStore !== "split") return;
+    if (!loaded) return;
+    try {
+      if (typeof localStorage === "undefined") return;
+      if (localStorage.getItem("langhuan-hint-preview-edit")) return;
+      localStorage.setItem("langhuan-hint-preview-edit", "1");
+      setStatus("在预览中拖选文字可直接改源码");
+    } catch {
+      /* ignore */
+    }
+  }, [viewModeStore, loaded, doc.id, setStatus]);
 
   return (
     <div className="relative h-full min-h-0 flex flex-col bg-[var(--bg)]">
@@ -503,7 +584,7 @@ export function HtmlReader({ doc }: { doc: Document }) {
         />
       )}
       {float && !menu && (
-        <SelectionFloatBar rect={float.rect} onLocate={() => runLocate(float.payload)} />
+        <SelectionFloatBar rect={float.rect} onLocate={() => runEditSelection(float.payload)} />
       )}
     </div>
   );

@@ -40,7 +40,7 @@ export type AnchorTable = {
 };
 
 export type HtmlLocatePayload = {
-  type: "lh-locate" | "lh-contextmenu" | "lh-selection";
+  type: "lh-locate" | "lh-contextmenu" | "lh-selection" | "lh-edit-selection";
   text: string;
   before: string;
   after: string;
@@ -110,6 +110,7 @@ export const BRIDGE_INBOUND_TYPES = [
   "lh-locate",
   "lh-contextmenu",
   "lh-selection",
+  "lh-edit-selection",
   "lh-bg",
   "lh-scroll",
   "lh-scroll-anchors",

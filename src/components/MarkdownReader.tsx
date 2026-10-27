@@ -28,6 +28,7 @@ import { countWords, readingMinutes, relativeTime, cn, titleOf } from "@/lib/uti
 import type { Document } from "@/lib/types";
 import {
   frontmatterOffset,
+  lineAtOffset,
   getPreviewSelectionInfo,
   isTrivialSelection,
   locateInMarkdown,
@@ -240,7 +241,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
     return () => root.removeEventListener("scroll", onScroll);
   }, [body]);
 
-  const runLocate = React.useCallback(() => {
+  const runLocate = React.useCallback((opts?: { select?: boolean; focus?: boolean }) => {
     const root = articleRef.current;
     if (!root) return;
     const info = getPreviewSelectionInfo(root);
@@ -249,14 +250,27 @@ export function MarkdownReader({ doc }: { doc: Document }) {
       setMenu(null);
       return;
     }
-    const result = locateInMarkdown({
+    let result = locateInMarkdown({
       source: content,
       selectedText: info.text,
       startBlock: info.startBlock,
       endBlock: info.endBlock,
       anchorPlainOffset: info.anchorPlainOffset,
     });
-    applyLocateResult(result);
+    const select = opts?.select ?? true;
+    const focus = opts?.focus ?? select;
+    if (result.precision !== "none") {
+      const a = lineAtOffset(content, result.start);
+      const b = lineAtOffset(content, result.end > result.start ? result.end - 1 : result.end);
+      result = {
+        ...result,
+        message:
+          a === b
+            ? `已选中第 ${a} 行，可直接编辑`
+            : `已选中第 ${a}–${b} 行，可直接编辑`,
+      };
+    }
+    applyLocateResult(result, { select, focus, highlight: true });
     setMenu(null);
     setFloatRect(null);
   }, [content, applyLocateResult, setStatus]);
@@ -384,6 +398,22 @@ export function MarkdownReader({ doc }: { doc: Document }) {
     root.addEventListener("click", onClick);
     return () => root.removeEventListener("click", onClick);
   }, [content, applyLocateResult, body]);
+
+  // Drag-select in MD preview → focus source for edit (same as HTML)
+  React.useEffect(() => {
+    const root = articleRef.current;
+    if (!root) return;
+    const onUp = (e: MouseEvent) => {
+      if (e.button !== 0) return;
+      const t = e.target as HTMLElement | null;
+      if (t?.closest("a, button, input, textarea, summary")) return;
+      const info = getPreviewSelectionInfo(root);
+      if (!info || isTrivialSelection(info.text)) return;
+      runLocate({ select: true, focus: true });
+    };
+    root.addEventListener("mouseup", onUp);
+    return () => root.removeEventListener("mouseup", onUp);
+  }, [runLocate, body]);
 
   // selection float bar
   React.useEffect(() => {

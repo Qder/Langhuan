@@ -84,6 +84,8 @@ const DATA = {
     expect(HTML_LOCATE_BRIDGE).toContain("data-lh");
     expect(HTML_LOCATE_BRIDGE).toContain('addEventListener("click"');
     expect(HTML_LOCATE_BRIDGE).toContain('type: "lh-locate"');
+    expect(HTML_LOCATE_BRIDGE).toContain('type: "lh-edit-selection"');
+    expect(HTML_LOCATE_BRIDGE).toContain('addEventListener("mouseup"');
     expect(HTML_LOCATE_BRIDGE).toContain('tag === "button"');
     expect(HTML_LOCATE_BRIDGE).toContain("lh-scroll-anchors");
     expect(HTML_LOCATE_BRIDGE).toContain("spanBottom");
@@ -138,6 +140,9 @@ describe("isFragmentHref / fragmentIdsToTry / wouldNavigateAwayFromSrcDoc", () =
 
 describe("parseBridgeMessage", () => {
   it("accepts whitelisted types", () => {
+    expect(parseBridgeMessage({ type: "lh-edit-selection", text: "hi", before: "", after: "", tagPath: "" })?.type).toBe(
+      "lh-edit-selection"
+    );
     expect(parseBridgeMessage({ type: "lh-bg", color: "rgb(0,0,0)" })).toEqual({
       type: "lh-bg",
       color: "rgb(0,0,0)",

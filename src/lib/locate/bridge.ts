@@ -473,6 +473,33 @@ export const HTML_LOCATE_BRIDGE = `
     downBtn = e.button;
   }, true);
 
+  /**
+   * Drag-select (or any non-empty selection finalized on mouseup) → parent
+   * focuses source CM6 and selects the matched range for immediate edit.
+   * Plain click with collapsed selection does nothing here (click handler locates).
+   */
+  document.addEventListener("mouseup", function (e) {
+    if (downBtn !== 0 || e.button !== 0) return;
+    if (isTypingTarget(e.target)) return;
+    var p = selPayload();
+    if (!p) return;
+    parent.postMessage({
+      type: "lh-edit-selection",
+      text: p.text,
+      textSnippet: p.text,
+      before: p.before,
+      after: p.after,
+      tagPath: p.tagPath,
+      rect: p.rect,
+      range: p.range,
+      tag: p.tag,
+      annotatedSelf: p.annotatedSelf,
+      metaKey: !!e.metaKey,
+      ctrlKey: !!e.ctrlKey,
+      detail: e.detail || 1
+    }, "*");
+  }, true);
+
   function closestAnchor(node) {
     var el = node && node.nodeType === 3 ? node.parentElement : node;
     while (el && el !== document.documentElement) {
