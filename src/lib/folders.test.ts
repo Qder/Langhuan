@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   buildTree,
+  isPathUnderFolder,
   joinFolderPath,
   normalizeFolderPath,
   parentFolderForNew,
   pruneEmptyFolders,
+  removeFolderAndDescendants,
   sanitizeFolderSegment,
 } from "./folders";
 
@@ -64,5 +66,30 @@ describe("parentFolderForNew", () => {
     expect(parentFolderForNew(null)).toBe("");
     expect(parentFolderForNew("a.md")).toBe("");
     expect(parentFolderForNew("笔记/算法/spfa.md")).toBe("笔记/算法");
+  });
+});
+
+describe("isPathUnderFolder", () => {
+  it("matches descendants only; root never matches", () => {
+    expect(isPathUnderFolder("笔记/a.md", "笔记")).toBe(true);
+    expect(isPathUnderFolder("笔记/子/b.md", "笔记")).toBe(true);
+    expect(isPathUnderFolder("笔记.md", "笔记")).toBe(false);
+    expect(isPathUnderFolder("其他/a.md", "笔记")).toBe(false);
+    expect(isPathUnderFolder("笔记/a.md", "")).toBe(false);
+  });
+});
+
+describe("removeFolderAndDescendants", () => {
+  it("drops the folder and nested empty entries", () => {
+    expect(
+      removeFolderAndDescendants(
+        ["笔记", "笔记/空", "笔记/空/更深", "独立空"],
+        "笔记"
+      )
+    ).toEqual(["独立空"]);
+  });
+
+  it("leaves list alone for root path", () => {
+    expect(removeFolderAndDescendants(["a", "b"], "")).toEqual(["a", "b"]);
   });
 });

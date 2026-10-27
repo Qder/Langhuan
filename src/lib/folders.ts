@@ -107,3 +107,27 @@ export function parentFolderForNew(activePath: string | null | undefined): strin
   if (!activePath) return "";
   return dirname(activePath.replace(/\\/g, "/"));
 }
+
+/** True if docPath is strictly under folderPath (not the folder itself). Root "" never matches. */
+export function isPathUnderFolder(docPath: string, folderPath: string): boolean {
+  const folder = normalizeFolderPath(folderPath);
+  if (!folder) return false;
+  return docPath.replace(/\\/g, "/").startsWith(folder + "/");
+}
+
+/** Drop a folder and all its descendant empty-folder entries. */
+export function removeFolderAndDescendants(
+  emptyFolders: string[],
+  folderPath: string
+): string[] {
+  const folder = normalizeFolderPath(folderPath);
+  if (!folder) {
+    return emptyFolders.map(normalizeFolderPath).filter(Boolean);
+  }
+  const prefix = folder + "/";
+  return emptyFolders
+    .map(normalizeFolderPath)
+    .filter((f) => f && f !== folder && !f.startsWith(prefix))
+    .filter((v, i, arr) => arr.indexOf(v) === i)
+    .sort((a, b) => a.localeCompare(b, "zh"));
+}

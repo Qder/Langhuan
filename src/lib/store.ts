@@ -52,9 +52,11 @@ import {
 import type { BackupPayload } from "./storage/backup";
 import { ensureLibraryDir, writeThroughDoc } from "./storage/fsSync";
 import {
+  isPathUnderFolder,
   joinFolderPath,
   normalizeFolderPath,
   pruneEmptyFolders,
+  removeFolderAndDescendants,
   sanitizeFolderSegment,
 } from "./folders";
 import { BUILTIN_TEMPLATES, applyTemplate, dailyNoteSpec } from "./templates";
@@ -258,6 +260,12 @@ type LanghuanState = {
   renameDoc: (id: string, newPath: string) => void;
   /** Soft-delete → recycle bin. */
   deleteDoc: (id: string) => void;
+  /**
+   * Soft-delete every document under folderPath into trash (same as deleteDoc),
+   * remove the folder and descendants from emptyFolders, and close related tabs.
+   * Library root ("") is refused. Returns number of docs moved to trash.
+   */
+  deleteFolder: (folderPath: string) => number;
   restoreFromTrash: (id: string) => void;
   purgeTrashItem: (id: string) => void;
   emptyTrash: () => void;
@@ -935,6 +943,67 @@ export const useStore = create<LanghuanState>()(
         });
         get().setStatus(`已移入回收站 ${basename(doc.path)}`);
         void get().refreshStorageUsage();
+      },
+
+      deleteFolder: (folderPath) => {
+        const folder = normalizeFolderPath(folderPath);
+        if (!folder) {
+          get().setStatus("不能删除库根目录");
+          return 0;
+        }
+        const victims = get().documents.filter((d) =>
+          isPathUnderFolder(d.path, folder)
+        );
+        const now = Date.now();
+        const trashItems: TrashItem[] = victims.map((doc) => ({
+          doc,
+          deletedAt: now,
+        }));
+        const victimIds = new Set(victims.map((d) => d.id));
+
+        set((s) => {
+          const openTabs = s.openTabs.filter((t) => !victimIds.has(t));
+          const pinnedTabs = s.pinnedTabs.filter((t) => !victimIds.has(t));
+          const treeSelection = s.treeSelection.filter((t) => !victimIds.has(t));
+          let activeId =
+            s.activeId && victimIds.has(s.activeId) ? null : s.activeId;
+          if (s.activeId && victimIds.has(s.activeId)) {
+            const idx = s.openTabs.indexOf(s.activeId);
+            const fallback =
+              openTabs[Math.min(idx, openTabs.length - 1)] ||
+              openTabs[0] ||
+              null;
+            activeId = fallback;
+          }
+          return {
+            documents: s.documents.filter((d) => !victimIds.has(d.id)),
+            drafts: Object.fromEntries(
+              Object.entries(s.drafts).filter(([k]) => !victimIds.has(k))
+            ),
+            trash: [
+              ...trashItems,
+              ...s.trash.filter((t) => !victimIds.has(t.doc.id)),
+            ],
+            emptyFolders: removeFolderAndDescendants(s.emptyFolders, folder),
+            activeId,
+            openTabs,
+            pinnedTabs,
+            treeSelection,
+            secondaryId:
+              s.secondaryId && victimIds.has(s.secondaryId)
+                ? null
+                : s.secondaryId,
+          };
+        });
+
+        const n = victims.length;
+        get().setStatus(
+          n
+            ? `已删除文件夹 ${folder}（${n} 篇移入回收站）`
+            : `已删除空文件夹 ${folder}`
+        );
+        void get().refreshStorageUsage();
+        return n;
       },
 
       restoreFromTrash: (id) => {

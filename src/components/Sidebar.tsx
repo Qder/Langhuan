@@ -35,7 +35,7 @@ import { Dropdown, DropdownItem } from "./ui/dropdown";
 import { useStore, filteredDocuments } from "@/lib/store";
 import { collectTagCounts } from "@/lib/tags";
 import { dirname, titleOf, cn, relativeTime, basename } from "@/lib/utils";
-import { buildTree, parentFolderForNew, type FolderTreeNode } from "@/lib/folders";
+import { buildTree, isPathUnderFolder, parentFolderForNew, type FolderTreeNode } from "@/lib/folders";
 import { formatBytes } from "@/lib/storage/usage";
 import { ImportFolderDialog } from "./ImportFolderDialog";
 import { importClipboardAs } from "@/lib/clipboardImport";
@@ -355,11 +355,13 @@ export function Sidebar() {
     y: number;
     docId: string;
   } | null>(null);
-  const [deleteConfirm, setDeleteConfirm] = React.useState<{
-    id: string;
-    title: string;
-  } | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = React.useState<
+    | { kind: "doc"; id: string; title: string }
+    | { kind: "folder"; path: string; docCount: number }
+    | null
+  >(null);
   const deleteDoc = useStore((s) => s.deleteDoc);
+  const deleteFolder = useStore((s) => s.deleteFolder);
   const openInSplit = useStore((s) => s.openInSplit);
 
   const compact = useMediaQuery("(max-height: 699px)");
@@ -543,7 +545,7 @@ export function Sidebar() {
   const folderMenuItems: ContextMenuItem[] = React.useMemo(() => {
     if (!folderMenu) return [];
     const folderPath = folderMenu.folderPath;
-    return [
+    const items: ContextMenuItem[] = [
       {
         id: "new-folder",
         label: "新建文件夹",
@@ -565,7 +567,27 @@ export function Sidebar() {
         onSelect: () => setTemplateDialogOpen(true),
       },
     ];
-  }, [folderMenu, createInFolder, onCreateFolder, setTemplateDialogOpen]);
+    // 库根不可删；仅真实文件夹显示「删除」
+    if (folderPath) {
+      const docCount = documents.filter((d) =>
+        isPathUnderFolder(d.path, folderPath)
+      ).length;
+      items.push({
+        id: "delete-folder",
+        label: "删除",
+        danger: true,
+        onSelect: () =>
+          setDeleteConfirm({ kind: "folder", path: folderPath, docCount }),
+      });
+    }
+    return items;
+  }, [
+    folderMenu,
+    documents,
+    createInFolder,
+    onCreateFolder,
+    setTemplateDialogOpen,
+  ]);
 
   const fileMenuItems: ContextMenuItem[] = React.useMemo(() => {
     if (!fileMenu) return [];
@@ -582,7 +604,7 @@ export function Sidebar() {
         id: "delete",
         label: "删除",
         danger: true,
-        onSelect: () => setDeleteConfirm({ id: docId, title }),
+        onSelect: () => setDeleteConfirm({ kind: "doc", id: docId, title }),
       },
     ];
   }, [fileMenu, documents, openInSplit]);
@@ -1407,10 +1429,16 @@ export function Sidebar() {
       >
         <div className="p-5 space-y-3">
           <h2 id="tree-delete-title" className="font-serif text-lg font-semibold">
-            移入回收站？
+            {deleteConfirm?.kind === "folder" && deleteConfirm.docCount === 0
+              ? "删除空文件夹？"
+              : "移入回收站？"}
           </h2>
           <p className="text-sm text-[var(--muted)]">
-            将「{deleteConfirm?.title ?? ""}」移入回收站，可在 30 天内恢复。
+            {deleteConfirm?.kind === "folder"
+              ? deleteConfirm.docCount > 0
+                ? `将文件夹「${deleteConfirm.path}」及其下的 ${deleteConfirm.docCount} 篇文档移入回收站，可在 30 天内恢复。`
+                : `删除空文件夹「${deleteConfirm.path}」。`
+              : `将「${deleteConfirm?.kind === "doc" ? deleteConfirm.title : ""}」移入回收站，可在 30 天内恢复。`}
           </p>
           <div className="flex justify-end gap-2 pt-1">
             <Button variant="outline" onClick={() => setDeleteConfirm(null)}>
@@ -1419,10 +1447,13 @@ export function Sidebar() {
             <Button
               variant="accent"
               onClick={() => {
-                if (deleteConfirm) {
+                if (!deleteConfirm) return;
+                if (deleteConfirm.kind === "doc") {
                   deleteDoc(deleteConfirm.id);
-                  setDeleteConfirm(null);
+                } else {
+                  deleteFolder(deleteConfirm.path);
                 }
+                setDeleteConfirm(null);
               }}
             >
               删除
