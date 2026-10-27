@@ -57,6 +57,25 @@ export type PendingReveal = {
   start: number;
   end: number;
   nonce: number;
+  /** Select the range and focus the editor (double-click / ⌘-click). */
+  select?: boolean;
+  focus?: boolean;
+  /** Apply 朱砂 highlight decorations (default true). */
+  highlight?: boolean;
+  /** Scroll to center when not already in view (default true). */
+  center?: boolean;
+};
+
+/** Per-document scroll-sync preference (default on). */
+export type SyncScrollPrefs = Record<string, boolean>;
+
+/** Anchor-based scroll sync event between preview and editor panes. */
+export type ScrollSyncEvent = {
+  docId: string;
+  from: "preview" | "editor";
+  /** Target source offset (preview→editor) or cursor/viewport offset (editor→preview). */
+  sourceOffset: number;
+  nonce: number;
 };
 
 export type PendingPreviewLocate = {
@@ -95,8 +114,12 @@ type LanghuanState = {
   htmlImmersive: boolean;
   /** HTML: temporary full sidebar overlay over content (session). */
   htmlSidebarPeek: boolean;
-  /** Scroll percent reported by HTML preview bridge (0–100). */
+  /** Scroll percent reported by HTML preview bridge (0–100). Legacy fallback. */
   htmlScrollPercent: number;
+  /** Per-doc sync scroll enabled (default true when missing). */
+  syncScrollByDoc: SyncScrollPrefs;
+  /** Latest scroll-sync drive event (anchor-based). */
+  scrollSyncEvent: ScrollSyncEvent | null;
   /** Source editor caret (1-based), for status bar Ln/Col. */
   editorCaret: { line: number; col: number } | null;
   /** Per-document HTML preview chrome prefs (width sim / zoom). */
@@ -163,12 +186,17 @@ type LanghuanState = {
   toggleHtmlImmersive: () => void;
   setHtmlSidebarPeek: (v: boolean) => void;
   setHtmlScrollPercent: (n: number) => void;
+  getSyncScrollEnabled: (docId: string) => boolean;
+  setSyncScrollEnabled: (docId: string, enabled: boolean) => void;
+  toggleSyncScroll: (docId: string) => void;
+  publishScrollSync: (ev: Omit<ScrollSyncEvent, "nonce">) => void;
+  clearScrollSyncEvent: () => void;
   setEditorCaret: (c: { line: number; col: number } | null) => void;
   getHtmlPreviewPrefs: (id: string) => HtmlDocPreviewPrefs;
   setHtmlPreviewPrefs: (id: string, patch: Partial<HtmlDocPreviewPrefs>) => void;
   bumpHtmlReload: () => void;
   setStatus: (message: string) => void;
-  applyLocateResult: (result: LocateResult) => void;
+  applyLocateResult: (result: LocateResult, opts?: { select?: boolean; focus?: boolean; highlight?: boolean; center?: boolean }) => void;
   clearPendingReveal: () => void;
   requestPreviewLocate: (offset: number) => void;
   clearPendingPreviewLocate: () => void;
@@ -338,6 +366,8 @@ export const useStore = create<LanghuanState>()(
       htmlImmersive: false,
       htmlSidebarPeek: false,
       htmlScrollPercent: 0,
+      syncScrollByDoc: {},
+      scrollSyncEvent: null,
       editorCaret: null,
       htmlPreviewPrefs: {},
       htmlReloadToken: 0,
@@ -445,6 +475,26 @@ export const useStore = create<LanghuanState>()(
         const clamped = Math.max(0, Math.min(100, Number.isFinite(n) ? n : 0));
         set({ htmlScrollPercent: clamped });
       },
+      getSyncScrollEnabled: (docId) => {
+        const v = get().syncScrollByDoc[docId];
+        return v !== false;
+      },
+      setSyncScrollEnabled: (docId, enabled) => {
+        set((s) => ({
+          syncScrollByDoc: { ...s.syncScrollByDoc, [docId]: enabled },
+        }));
+      },
+      toggleSyncScroll: (docId) => {
+        const cur = get().getSyncScrollEnabled(docId);
+        get().setSyncScrollEnabled(docId, !cur);
+        get().setStatus(!cur ? "已开启同步滚动" : "已关闭同步滚动");
+      },
+      publishScrollSync: (ev) => {
+        set({
+          scrollSyncEvent: { ...ev, nonce: Date.now() },
+        });
+      },
+      clearScrollSyncEvent: () => set({ scrollSyncEvent: null }),
       setEditorCaret: (c) => set({ editorCaret: c }),
       getHtmlPreviewPrefs: (id) =>
         normalizeHtmlPrefs(get().htmlPreviewPrefs[id] || DEFAULT_HTML_PREVIEW_PREFS),
@@ -458,7 +508,7 @@ export const useStore = create<LanghuanState>()(
       bumpHtmlReload: () => set((s) => ({ htmlReloadToken: s.htmlReloadToken + 1 })),
       setStatus: (message) => set({ status: { message, at: Date.now() } }),
 
-      applyLocateResult: (result) => {
+      applyLocateResult: (result, opts) => {
         if (result.precision === "none") {
           get().setStatus(result.message);
           return;
@@ -467,11 +517,17 @@ export const useStore = create<LanghuanState>()(
         if (viewMode === "preview") {
           set({ viewMode: "split" });
         }
+        const select = opts?.select ?? false;
+        const focus = opts?.focus ?? select;
         set({
           pendingReveal: {
             start: result.start,
             end: result.end,
             nonce: Date.now(),
+            select,
+            focus,
+            highlight: opts?.highlight ?? true,
+            center: opts?.center ?? true,
           },
           status: { message: result.message, at: Date.now() },
         });
@@ -1290,6 +1346,7 @@ export const useStore = create<LanghuanState>()(
         activeId: s.activeId,
         splitRatio: s.splitRatio,
         splitSourceFirst: s.splitSourceFirst,
+        syncScrollByDoc: s.syncScrollByDoc,
         sidebarWidth: s.sidebarWidth,
         outlineWidth: s.outlineWidth,
         outlineRailOpen: s.outlineRailOpen,
@@ -1343,6 +1400,7 @@ export const useStore = create<LanghuanState>()(
         if (!Array.isArray(p.pinnedTabs)) p.pinnedTabs = [];
         if (!("secondaryId" in p)) p.secondaryId = null;
         if (typeof p.docSplitRatio !== "number") p.docSplitRatio = 0.5;
+        if (!p.syncScrollByDoc || typeof p.syncScrollByDoc !== "object") p.syncScrollByDoc = {};
         p.customShortcuts = normalizeShortcuts(
           (p.customShortcuts as Partial<ShortcutMap>) || {}
         );

@@ -309,7 +309,7 @@ function locateInScriptOrStyle(source: string, candidates: string[]): LocateResu
   // Prefer longer matches
   expanded.sort((a, b) => b.length - a.length);
 
-  let best: LocateResult | null = null;
+  // expanded is sorted longest-first; first hit is the best unique-ish match
   for (const needle of expanded) {
     const variants = [needle];
     const jsonBody = JSON.stringify(needle).slice(1, -1);
@@ -319,20 +319,17 @@ function locateInScriptOrStyle(source: string, candidates: string[]): LocateResu
       const idx = findLiteralInsideScriptStyle(source, v);
       if (idx >= 0) {
         const line = lineAtOffset(source, idx);
-        const hit: LocateResult = {
+        return {
           start: idx,
           end: idx + v.length,
-          precision: "fuzzy",
+          precision: "script",
           line,
-          message: `脚本生成，已定位到生成处（第 ${line} 行）`,
+          message: `脚本数据中的第 ${line} 行`,
         };
-        if (!best || v.length > best.end - best.start) best = hit;
-        // First hit is already longest due to sort — return immediately
-        return hit;
       }
     }
   }
-  return best;
+  return null;
 }
 
 function findLiteralOutsideScriptStyle(source: string, needle: string): number {
@@ -347,14 +344,14 @@ function findLiteralOutsideScriptStyle(source: string, needle: string): number {
   return -1;
 }
 
-function findLiteralInsideScriptStyle(source: string, needle: string): number {
+function findLiteralInsideScriptStyle(source: string, needle: string, from = 0): number {
   if (!needle) return -1;
-  let from = 0;
-  while (from < source.length) {
-    const idx = source.indexOf(needle, from);
+  let start = from;
+  while (start < source.length) {
+    const idx = source.indexOf(needle, start);
     if (idx < 0) return -1;
     if (isInsideScriptOrStyle(source, idx)) return idx;
-    from = idx + Math.max(1, needle.length);
+    start = idx + Math.max(1, needle.length);
   }
   return -1;
 }
@@ -373,3 +370,94 @@ function isInsideScriptOrStyle(source: string, index: number): boolean {
 function collapseHtmlWs(s: string): string {
   return s.replace(/[\s\u00a0]+/g, " ").trim();
 }
+
+/**
+ * Locate a click that landed on a script-generated node (no data-lh on self).
+ * Rules:
+ * 1. Always have a container range (nearest annotated ancestor).
+ * 2. Search script/JSON for clicked text:
+ *    - unique match → that match + 「脚本数据中的第 N 行」
+ *    - multiple → nearest to container + 「近似」
+ *    - none → container only + 「内容由脚本生成，仅定位到所在容器」
+ */
+export function locateDynamicHtml(opts: {
+  source: string;
+  text: string;
+  container: { start: number; end: number } | null;
+}): LocateResult {
+  const { source, text, container } = opts;
+  const candidates = buildSearchCandidates(text || "");
+  const needles = candidates.length
+    ? candidates
+    : [collapseHtmlWs(text || "")].filter((t) => t.length >= 4);
+
+  type Hit = { start: number; end: number; needle: string };
+  const allHits: Hit[] = [];
+
+  for (const needle of needles) {
+    const variants = [needle];
+    const jsonBody = JSON.stringify(needle).slice(1, -1);
+    if (jsonBody !== needle) variants.push(jsonBody);
+    for (const v of variants) {
+      let from = 0;
+      while (from < source.length) {
+        const idx = findLiteralInsideScriptStyle(source, v, from);
+        if (idx < 0) break;
+        allHits.push({ start: idx, end: idx + v.length, needle: v });
+        from = idx + Math.max(1, v.length);
+      }
+    }
+    if (allHits.length) break;
+  }
+
+  const containerLine = container ? lineAtOffset(source, container.start) : undefined;
+
+  if (!allHits.length) {
+    if (container) {
+      return {
+        start: container.start,
+        end: container.end,
+        precision: "container",
+        line: containerLine,
+        message: `内容由脚本生成，仅定位到所在容器（第 ${containerLine} 行）`,
+      };
+    }
+    return {
+      start: 0,
+      end: 0,
+      precision: "none",
+      message: "内容由脚本生成，源码中没有对应文本",
+    };
+  }
+
+  const uniqueStarts = new Map<number, Hit>();
+  for (const h of allHits) {
+    if (!uniqueStarts.has(h.start)) uniqueStarts.set(h.start, h);
+  }
+  const unique = [...uniqueStarts.values()];
+
+  if (unique.length === 1) {
+    const h = unique[0];
+    const line = lineAtOffset(source, h.start);
+    return {
+      start: h.start,
+      end: h.end,
+      precision: "script",
+      line,
+      message: `脚本数据中的第 ${line} 行`,
+    };
+  }
+
+  const origin = container?.start ?? 0;
+  unique.sort((a, b) => Math.abs(a.start - origin) - Math.abs(b.start - origin));
+  const h = unique[0];
+  const line = lineAtOffset(source, h.start);
+  return {
+    start: h.start,
+    end: h.end,
+    precision: "fuzzy",
+    line,
+    message: `脚本生成，近似定位到第 ${line} 行`,
+  };
+}
+

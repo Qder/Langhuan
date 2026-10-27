@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   HTML_LOCATE_BRIDGE,
+  buildInstrumentedSrcDoc,
   injectLocateBridge,
   isDarkCssColor,
   parseBridgeMessage,
@@ -76,10 +77,14 @@ const DATA = {
 
   it("includes click-to-locate and skips interactive targets", () => {
     expect(HTML_LOCATE_BRIDGE).toContain("isInteractive");
-    expect(HTML_LOCATE_BRIDGE).toContain("elementLocatePayload");
+    expect(HTML_LOCATE_BRIDGE).toContain("closestLh");
+    expect(HTML_LOCATE_BRIDGE).toContain("data-lh");
     expect(HTML_LOCATE_BRIDGE).toContain('addEventListener("click"');
     expect(HTML_LOCATE_BRIDGE).toContain('type: "lh-locate"');
     expect(HTML_LOCATE_BRIDGE).toContain('tag === "button"');
+    expect(HTML_LOCATE_BRIDGE).toContain("lh-scroll-anchors");
+    expect(HTML_LOCATE_BRIDGE).toContain("scrollToRange");
+    expect(HTML_LOCATE_BRIDGE).toContain("highlightRange");
   });
 });
 
@@ -118,5 +123,24 @@ describe("isDarkCssColor", () => {
     expect(isDarkCssColor("rgb(18, 17, 14)")).toBe(true);
     expect(isDarkCssColor("rgb(245, 239, 226)")).toBe(false);
     expect(isDarkCssColor("rgba(0,0,0,1)")).toBe(true);
+  });
+});
+
+describe("buildInstrumentedSrcDoc", () => {
+  it("instruments and injects bridge without mutating markers into a strip-clean export", () => {
+    const src = "<!DOCTYPE html><html><body><h2>标题</h2><p>段</p></body></html>";
+    const out = buildInstrumentedSrcDoc(src);
+    expect(out).toContain("data-lh=");
+    expect(out).toContain("data-lh-bridge");
+    expect(src).not.toContain("data-lh");
+  });
+
+  it("accepts lh-scroll-anchors messages", () => {
+    const msg = parseBridgeMessage({
+      type: "lh-scroll-anchors",
+      viewportTop: 10,
+      anchors: [{ range: { start: 1, end: 5 }, top: 8 }],
+    });
+    expect(msg?.type).toBe("lh-scroll-anchors");
   });
 });

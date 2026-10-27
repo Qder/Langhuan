@@ -4,6 +4,7 @@ import * as React from "react";
 import {
   ArrowLeftRight,
   Check,
+  Link2,
   Copy,
   Download,
   ExternalLink,
@@ -80,6 +81,10 @@ export function TopBar() {
   const viewMode = useStore((s) => s.viewMode);
   const setViewMode = useStore((s) => s.setViewMode);
   const splitSourceFirst = useStore((s) => s.splitSourceFirst);
+  const toggleSyncScroll = useStore((s) => s.toggleSyncScroll);
+  const syncScrollOn = useStore((s) =>
+    active ? s.getSyncScrollEnabled(active.id) : true
+  );
   const toggleSplitSourceFirst = useStore((s) => s.toggleSplitSourceFirst);
   const saveDoc = useStore((s) => s.saveDoc);
   const isDirty = useStore((s) => s.isDirty);
@@ -312,6 +317,7 @@ export function TopBar() {
                 ))}
               </div>
               {viewMode === "split" && (
+                <>
                 <button
                   type="button"
                   onClick={() => toggleSplitSourceFirst()}
@@ -331,6 +337,24 @@ export function TopBar() {
                   <ArrowLeftRight className="h-3.5 w-3.5 text-[var(--muted)]" />
                   <span>{splitSourceFirst ? "源码在左" : "预览在左"}</span>
                 </button>
+                <button
+                  type="button"
+                  onClick={() => active && toggleSyncScroll(active.id)}
+                  title={syncScrollOn ? "关闭同步滚动（点击定位仍可用）" : "开启同步滚动"}
+                  aria-label={syncScrollOn ? "同步滚动已开启" : "同步滚动已关闭"}
+                  aria-pressed={syncScrollOn}
+                  className={cn(
+                    "hidden sm:inline-flex items-center gap-1.5 rounded-xl border border-[var(--border)]",
+                    "bg-[var(--card)] px-2.5 py-1 text-xs font-ui transition-colors",
+                    "hover:bg-[var(--hover)] hover:border-[var(--accent)]/40",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40",
+                    syncScrollOn && "border-[var(--accent)]/50 text-[var(--accent)]"
+                  )}
+                >
+                  <Link2 className="h-3.5 w-3.5" />
+                  <span>{syncScrollOn ? "同步滚动" : "同步已关"}</span>
+                </button>
+                </>
               )}
             </div>
 

@@ -9,13 +9,15 @@ import {
 import { useStore } from "@/lib/store";
 import type { Document } from "@/lib/types";
 import {
-  injectLocateBridge,
+  buildInstrumentedSrcDoc,
   isDarkCssColor,
   isTrivialSelection,
+  locateDynamicHtml,
   locateInHtml,
   parseBridgeMessage,
+  previewTopToSourceOffset,
 } from "@/lib/locate";
-import type { HtmlLocatePayload } from "@/lib/locate";
+import type { HtmlLocatePayload, LocateResult } from "@/lib/locate";
 import { prepareHtmlPreview } from "@/lib/fixHtmlPreview";
 import {
   computeHtmlPreviewFrameLayout,
@@ -34,6 +36,10 @@ export function HtmlReader({ doc }: { doc: Document }) {
   const htmlImmersive = useStore((s) => s.htmlImmersive);
   const setHtmlImmersive = useStore((s) => s.setHtmlImmersive);
   const setHtmlScrollPercent = useStore((s) => s.setHtmlScrollPercent);
+  const publishScrollSync = useStore((s) => s.publishScrollSync);
+  const scrollSyncEvent = useStore((s) => s.scrollSyncEvent);
+  const getSyncScrollEnabled = useStore((s) => s.getSyncScrollEnabled);
+  const viewModeStore = useStore((s) => s.viewMode);
   const setViewMode = useStore((s) => s.setViewMode);
   const openHome = useStore((s) => s.requestOpenHome);
   const setCommandOpen = useStore((s) => s.setCommandOpen);
@@ -60,9 +66,12 @@ export function HtmlReader({ doc }: { doc: Document }) {
   const [stageSize, setStageSize] = React.useState({ w: 0, h: 0 });
 
   const srcDoc = React.useMemo(
-    () => injectLocateBridge(prepareHtmlPreview(content)),
+    () => buildInstrumentedSrcDoc(content, prepareHtmlPreview(content)),
     [content]
   );
+  const ignoreScrollUntil = React.useRef(0);
+  const machineDrive = React.useRef<"preview" | "editor" | null>(null);
+  const resetTimer = React.useRef<number | null>(null);
 
   // Measure stage for device scaling
   React.useEffect(() => {
@@ -85,21 +94,51 @@ export function HtmlReader({ doc }: { doc: Document }) {
   }, [content, htmlReloadToken, doc.id, setHtmlScrollPercent]);
 
   const runLocate = React.useCallback(
-    (payload: Pick<HtmlLocatePayload, "text" | "before" | "after">) => {
-      if (isTrivialSelection(payload.text || "")) {
-        setStatus("请先选中一段文字");
-        return;
+    (
+      payload: HtmlLocatePayload,
+      opts?: { select?: boolean; focus?: boolean }
+    ) => {
+      let result: LocateResult;
+
+      if (payload.range && payload.annotatedSelf) {
+        const line = content.slice(0, payload.range.start).split("\n").length;
+        result = {
+          start: payload.range.start,
+          end: payload.range.end,
+          precision: "exact",
+          line,
+          message: `已定位到第 ${line} 行`,
+        };
+      } else if (payload.range && !payload.annotatedSelf) {
+        result = locateDynamicHtml({
+          source: content,
+          text: payload.textSnippet || payload.text || "",
+          container: payload.range,
+        });
+      } else {
+        if (isTrivialSelection(payload.text || "")) {
+          setStatus("请先选中一段文字");
+          return;
+        }
+        result = locateInHtml({
+          source: content,
+          text: payload.text,
+          before: payload.before,
+          after: payload.after,
+        });
       }
-      const result = locateInHtml({
-        source: content,
-        text: payload.text,
-        before: payload.before,
-        after: payload.after,
-      });
+
+      const select =
+        opts?.select ??
+        !!(
+          payload.metaKey ||
+          payload.ctrlKey ||
+          (payload.detail != null && payload.detail >= 2)
+        );
       if (result.precision !== "none") {
         setHtmlImmersive(false);
       }
-      applyLocateResult(result);
+      applyLocateResult(result, { select, focus: select, highlight: true });
       setMenu(null);
       setFloat(null);
     },
@@ -157,6 +196,37 @@ export function HtmlReader({ doc }: { doc: Document }) {
         setHtmlScrollPercent(data.percent ?? 0);
         return;
       }
+      if (data.type === "lh-scroll-anchors") {
+        const now = Date.now();
+        if (now < ignoreScrollUntil.current) return;
+        if (!getSyncScrollEnabled(doc.id)) return;
+        if (useStore.getState().viewMode !== "split") return;
+        if (machineDrive.current === "editor") return;
+        machineDrive.current = "preview";
+        if (resetTimer.current) window.clearTimeout(resetTimer.current);
+        resetTimer.current = window.setTimeout(() => {
+          machineDrive.current = null;
+        }, 150);
+        const anchors = (data.anchors || []).map((a, i) => ({
+          id: `a${i}`,
+          start: a.range.start,
+          end: a.range.end,
+          startLine: 1,
+          endLine: 1,
+          previewTop: a.top,
+          previewHeight: 0,
+        }));
+        const offset =
+          previewTopToSourceOffset(data.viewportTop, anchors) ??
+          anchors[0]?.start ??
+          0;
+        publishScrollSync({
+          docId: doc.id,
+          from: "preview",
+          sourceOffset: offset,
+        });
+        return;
+      }
       if (data.type === "lh-ready") {
         return;
       }
@@ -166,6 +236,7 @@ export function HtmlReader({ doc }: { doc: Document }) {
       }
 
       if (data.type === "lh-locate") {
+        if (!data.range && isTrivialSelection(data.text || "")) return;
         runLocate(data);
         return;
       }
@@ -198,31 +269,52 @@ export function HtmlReader({ doc }: { doc: Document }) {
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [runLocate, handleBridgeKey, setHtmlScrollPercent]);
+  }, [runLocate, handleBridgeKey, setHtmlScrollPercent, getSyncScrollEnabled, publishScrollSync, doc.id]);
 
-  // Source → Preview highlight
+  // Source → Preview highlight via range (data-lh)
   React.useEffect(() => {
     if (!pendingPreviewLocate) return;
     const offset = pendingPreviewLocate.offset;
     const win = iframeRef.current?.contentWindow;
-    const slice = content.slice(Math.max(0, offset - 1), Math.min(content.length, offset + 40));
-    const text = slice
-      .replace(/<script[\s\S]*?<\/script>/gi, "")
-      .replace(/<style[\s\S]*?<\/style>/gi, "")
-      .replace(/<[^>]+>/g, " ")
-      .replace(/&nbsp;/g, " ")
-      .replace(/&amp;/g, "&")
-      .replace(/\s+/g, " ")
-      .trim()
-      .slice(0, 24);
-    if (win && text) {
-      win.postMessage({ type: "lh-highlight", text }, "*");
+    if (win) {
+      ignoreScrollUntil.current = Date.now() + 120;
+      win.postMessage(
+        { type: "highlightRange", range: { start: offset, end: offset + 1 } },
+        "*"
+      );
+      win.postMessage(
+        { type: "scrollToRange", range: { start: offset, end: offset + 1 } },
+        "*"
+      );
       setStatus("已在预览中定位");
     } else {
       setStatus("未能在预览中定位");
     }
     clearPendingPreviewLocate();
-  }, [pendingPreviewLocate, clearPendingPreviewLocate, setStatus, content]);
+  }, [pendingPreviewLocate, clearPendingPreviewLocate, setStatus]);
+
+  // Editor → preview scroll sync (anchor offset → scrollToRange)
+  React.useEffect(() => {
+    if (!scrollSyncEvent) return;
+    if (scrollSyncEvent.docId !== doc.id) return;
+    if (scrollSyncEvent.from !== "editor") return;
+    if (!getSyncScrollEnabled(doc.id)) return;
+    if (viewModeStore !== "split") return;
+    const win = iframeRef.current?.contentWindow;
+    if (!win) return;
+    if (machineDrive.current === "preview") return;
+    machineDrive.current = "editor";
+    ignoreScrollUntil.current = Date.now() + 100;
+    const o = scrollSyncEvent.sourceOffset;
+    win.postMessage(
+      { type: "scrollToRange", range: { start: o, end: o + 1 } },
+      "*"
+    );
+    if (resetTimer.current) window.clearTimeout(resetTimer.current);
+    resetTimer.current = window.setTimeout(() => {
+      machineDrive.current = null;
+    }, 150);
+  }, [scrollSyncEvent, doc.id, getSyncScrollEnabled, viewModeStore]);
 
   const menuItems = React.useMemo((): ContextMenuItem[] => {
     const payload = menu?.payload;

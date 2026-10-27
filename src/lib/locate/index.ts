@@ -7,3 +7,4 @@ export * from "./bridge";
 export * from "./dom";
 export * from "./rehypeSrcPositions";
 export * from "./scrollSync";
+export * from "./htmlInstrument";

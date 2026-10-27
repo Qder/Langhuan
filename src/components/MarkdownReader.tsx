@@ -31,8 +31,13 @@ import {
   getPreviewSelectionInfo,
   isTrivialSelection,
   locateInMarkdown,
+  previewTopToSourceOffset,
+  sourceOffsetToPreviewTop,
+  shouldUpdateScrollTop,
   srcAttrs,
+  measureAnchorsFromElements,
 } from "@/lib/locate";
+import type { LocateResult } from "@/lib/locate";
 import { rehypeSrcPositions } from "@/lib/locate/rehypeSrcPositions";
 import { PreviewContextMenu, type ContextMenuItem } from "./locate/PreviewContextMenu";
 import { SelectionFloatBar } from "./locate/SelectionFloatBar";
@@ -181,6 +186,10 @@ export function MarkdownReader({ doc }: { doc: Document }) {
   const pendingPreviewLocate = useStore((s) => s.pendingPreviewLocate);
   const clearPendingPreviewLocate = useStore((s) => s.clearPendingPreviewLocate);
   const setStatus = useStore((s) => s.setStatus);
+  const publishScrollSync = useStore((s) => s.publishScrollSync);
+  const scrollSyncEvent = useStore((s) => s.scrollSyncEvent);
+  const getSyncScrollEnabled = useStore((s) => s.getSyncScrollEnabled);
+  const viewMode = useStore((s) => s.viewMode);
   const outlineRailOpen = useStore((s) => s.outlineRailOpen);
   const readingPrefs = useStore((s) => s.readingPrefs);
   const mdFocusMode = useStore((s) => s.mdFocusMode);
@@ -202,6 +211,10 @@ export function MarkdownReader({ doc }: { doc: Document }) {
   const [activeHeading, setActiveHeading] = React.useState<string>("");
   const [tagInput, setTagInput] = React.useState("");
   const articleRef = React.useRef<HTMLElement>(null);
+  const ignoreScrollUntil = React.useRef(0);
+  const machineDrive = React.useRef<"preview" | "editor" | null>(null);
+  const resetTimer = React.useRef<number | null>(null);
+  const [previewFlash, setPreviewFlash] = React.useState<HTMLElement | null>(null);
   const [menu, setMenu] = React.useState<{ x: number; y: number } | null>(null);
   const [floatRect, setFloatRect] = React.useState<{
     top: number;
@@ -247,6 +260,128 @@ export function MarkdownReader({ doc }: { doc: Document }) {
     setMenu(null);
     setFloatRect(null);
   }, [content, applyLocateResult, setStatus]);
+
+  const measureMdAnchors = React.useCallback(() => {
+    const root = document.getElementById("reader-scroll");
+    const article = articleRef.current;
+    if (!root || !article) return [];
+    const rootRect = root.getBoundingClientRect();
+    const nodes = [...article.querySelectorAll<HTMLElement>("[data-src-start]")];
+    return measureAnchorsFromElements(
+      nodes.map((el, i) => {
+        const start = Number(el.getAttribute("data-src-start"));
+        const end = Number(el.getAttribute("data-src-end") || start);
+        const line = Number(el.getAttribute("data-src-line") || 1);
+        const rect = el.getBoundingClientRect();
+        return {
+          id: `md-${i}`,
+          start,
+          end,
+          startLine: line,
+          endLine: line,
+          top: rect.top - rootRect.top + root.scrollTop,
+          height: rect.height,
+        };
+      })
+    );
+  }, []);
+
+  // Preview scroll → editor (anchor interpolate)
+  React.useEffect(() => {
+    const root = document.getElementById("reader-scroll");
+    if (!root) return;
+    let raf = 0;
+    const onScroll = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        const now = Date.now();
+        if (now < ignoreScrollUntil.current) return;
+        if (!getSyncScrollEnabled(doc.id)) return;
+        if (useStore.getState().viewMode !== "split") return;
+        if (machineDrive.current === "editor") return;
+        machineDrive.current = "preview";
+        if (resetTimer.current) window.clearTimeout(resetTimer.current);
+        resetTimer.current = window.setTimeout(() => {
+          machineDrive.current = null;
+        }, 150);
+        const anchors = measureMdAnchors();
+        const offset = previewTopToSourceOffset(root.scrollTop, anchors);
+        if (offset == null) return;
+        publishScrollSync({
+          docId: doc.id,
+          from: "preview",
+          sourceOffset: offset,
+        });
+      });
+    };
+    root.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      root.removeEventListener("scroll", onScroll);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [doc.id, getSyncScrollEnabled, measureMdAnchors, publishScrollSync, body]);
+
+  // Editor → preview scroll
+  React.useEffect(() => {
+    if (!scrollSyncEvent) return;
+    if (scrollSyncEvent.docId !== doc.id) return;
+    if (scrollSyncEvent.from !== "editor") return;
+    if (!getSyncScrollEnabled(doc.id)) return;
+    if (viewMode !== "split") return;
+    const root = document.getElementById("reader-scroll");
+    if (!root) return;
+    if (machineDrive.current === "preview") return;
+    machineDrive.current = "editor";
+    ignoreScrollUntil.current = Date.now() + 100;
+    const anchors = measureMdAnchors();
+    const top = sourceOffsetToPreviewTop(scrollSyncEvent.sourceOffset, anchors);
+    if (top != null && shouldUpdateScrollTop(root.scrollTop, top)) {
+      root.scrollTop = top;
+    }
+    if (resetTimer.current) window.clearTimeout(resetTimer.current);
+    resetTimer.current = window.setTimeout(() => {
+      machineDrive.current = null;
+    }, 150);
+  }, [scrollSyncEvent, doc.id, getSyncScrollEnabled, viewMode, measureMdAnchors]);
+
+  // Click preview block → locate source (capture)
+  React.useEffect(() => {
+    const root = articleRef.current;
+    if (!root) return;
+    const onClick = (e: MouseEvent) => {
+      if (e.altKey || e.shiftKey) return;
+      const t = e.target as HTMLElement | null;
+      if (!t) return;
+      if (t.closest("a, button, input, textarea, summary")) return;
+      const el = t.closest<HTMLElement>("[data-src-start]");
+      if (!el) return;
+      // Ignore pure text-selection clicks
+      const sel = window.getSelection();
+      if (sel && !sel.isCollapsed && String(sel).trim() && e.detail < 2) return;
+      const start = Number(el.getAttribute("data-src-start"));
+      const end = Number(el.getAttribute("data-src-end") || start);
+      if (!Number.isFinite(start)) return;
+      const line = Number(el.getAttribute("data-src-line") || content.slice(0, start).split("\n").length);
+      const isCodeLine = el.tagName === "SPAN" && el.hasAttribute("data-src-line");
+      const result: LocateResult = {
+        start,
+        end,
+        precision: isCodeLine ? "exact" : "block",
+        line,
+        message: isCodeLine
+          ? `已定位到第 ${line} 行`
+          : `已定位到所在段落（第 ${line} 行）`,
+      };
+      const select = !!(e.metaKey || e.ctrlKey || e.detail >= 2);
+      applyLocateResult(result, { select, focus: select, highlight: true });
+      // Flash preview element
+      el.classList.add("lh-preview-flash");
+      window.setTimeout(() => el.classList.remove("lh-preview-flash"), 1200);
+    };
+    root.addEventListener("click", onClick);
+    return () => root.removeEventListener("click", onClick);
+  }, [content, applyLocateResult, body]);
 
   // selection float bar
   React.useEffect(() => {
@@ -306,11 +441,15 @@ export function MarkdownReader({ doc }: { doc: Document }) {
       if (offset === e) target = el;
     }
     if (target) {
+      ignoreScrollUntil.current = Date.now() + 120;
       target.scrollIntoView({ behavior: "smooth", block: "center" });
+      articleRef.current?.querySelectorAll(".lh-preview-flash").forEach((n) => n.classList.remove("lh-preview-flash"));
       target.classList.add("lh-preview-flash");
+      setPreviewFlash(target);
       const t = window.setTimeout(() => {
         target?.classList.remove("lh-preview-flash");
-      }, 1200);
+        setPreviewFlash((cur) => (cur === target ? null : cur));
+      }, 1600);
       clearPendingPreviewLocate();
       return () => clearTimeout(t);
     }

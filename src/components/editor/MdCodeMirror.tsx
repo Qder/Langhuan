@@ -22,7 +22,13 @@ import {
 } from "@/lib/slashCommands";
 import {
   SOURCE_SCROLL_UNFOLLOW_MS,
+  shouldUpdateScrollTop,
 } from "@/lib/locate/scrollSync";
+import {
+  clearRevealInView,
+  locateHighlightExtensions,
+  revealRangeInView,
+} from "./locateHighlight";
 
 function offsetToLineCol(text: string, offset: number): { line: number; col: number } {
   const o = Math.max(0, Math.min(offset, text.length));
@@ -71,6 +77,13 @@ export function MdCodeMirror({
   } | null>(null);
   const unfollowUntil = React.useRef(0);
   const applyingExternal = React.useRef(false);
+  const ignoreScrollUntil = React.useRef(0);
+  const machineDrive = React.useRef<"preview" | "editor" | null>(null);
+  const resetTimer = React.useRef<number | null>(null);
+  const cursorThrottle = React.useRef(0);
+  const publishScrollSync = useStore((s) => s.publishScrollSync);
+  const scrollSyncEvent = useStore((s) => s.scrollSyncEvent);
+  const getSyncScrollEnabled = useStore((s) => s.getSyncScrollEnabled);
   const readOnlyComp = React.useRef(new Compartment());
   const slashRef = React.useRef(slash);
   const wikiRef = React.useRef(wiki);
@@ -161,13 +174,46 @@ export function MdCodeMirror({
       if (update.docChanged && !applyingExternal.current) {
         const next = update.state.doc.toString();
         setDraft(doc.id, next);
+        clearRevealInView(update.view);
       }
       if (update.selectionSet || update.docChanged) {
         const head = update.state.selection.main.head;
         const { line, col } = offsetToLineCol(update.state.doc.toString(), head);
         setEditorCaret({ line, col });
         refreshSuggest(update.view);
+        if (update.selectionSet) {
+          const now = Date.now();
+          if (now - cursorThrottle.current > 100) {
+            cursorThrottle.current = now;
+            if (useStore.getState().viewMode !== "source") {
+              requestPreviewLocate(head);
+            }
+          }
+        }
       }
+    });
+
+    const scrollHandler = EditorView.domEventHandlers({
+      scroll(_e, view) {
+        const now = Date.now();
+        if (now < ignoreScrollUntil.current) return false;
+        if (now < unfollowUntil.current) return false;
+        if (!useStore.getState().getSyncScrollEnabled(doc.id)) return false;
+        if (useStore.getState().viewMode !== "split") return false;
+        if (machineDrive.current === "preview") return false;
+        machineDrive.current = "editor";
+        if (resetTimer.current) window.clearTimeout(resetTimer.current);
+        resetTimer.current = window.setTimeout(() => {
+          machineDrive.current = null;
+        }, 150);
+        const scroll = view.scrollDOM;
+        const rect = scroll.getBoundingClientRect();
+        const pos =
+          view.posAtCoords({ x: rect.left + 8, y: rect.top + 8 }) ??
+          view.state.selection.main.head;
+        publishScrollSync({ docId: doc.id, from: "editor", sourceOffset: pos });
+        return false;
+      },
     });
 
     const pasteHandler = EditorView.domEventHandlers({
@@ -349,12 +395,13 @@ export function MdCodeMirror({
       },
       {
         key: "Escape",
-        run: () => {
+        run: (view) => {
           if (slashRef.current || wikiRef.current) {
             setSlash(null);
             setWiki(null);
             return true;
           }
+          clearRevealInView(view);
           return false;
         },
       },
@@ -446,8 +493,10 @@ export function MdCodeMirror({
         Prec.highest(customKeymap),
         updateListener,
         pasteHandler,
+        scrollHandler,
         themeExt,
         EditorView.lineWrapping,
+        ...locateHighlightExtensions(),
         readOnlyComp.current.of([]),
       ],
     });
@@ -458,6 +507,7 @@ export function MdCodeMirror({
       view.destroy();
       viewRef.current = null;
       setEditorCaret(null);
+      if (resetTimer.current) window.clearTimeout(resetTimer.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount once per doc
   }, [doc.id]);
@@ -481,15 +531,43 @@ export function MdCodeMirror({
     const view = viewRef.current;
     if (!view) return;
     unfollowUntil.current = Date.now() + SOURCE_SCROLL_UNFOLLOW_MS;
-    const s = Math.max(0, Math.min(pendingReveal.start, view.state.doc.length));
-    const e = Math.max(s, Math.min(pendingReveal.end, view.state.doc.length));
-    view.dispatch({
-      selection: { anchor: s, head: e },
-      effects: EditorView.scrollIntoView(s, { y: "center" }),
+    ignoreScrollUntil.current = Date.now() + 120;
+    revealRangeInView(view, pendingReveal.start, pendingReveal.end, {
+      center: pendingReveal.center !== false,
+      highlight: pendingReveal.highlight !== false,
+      select: !!pendingReveal.select,
+      focus: !!pendingReveal.focus,
     });
-    view.focus();
     clearPendingReveal();
   }, [pendingReveal, clearPendingReveal]);
+
+  // Preview → editor anchor scroll sync
+  React.useEffect(() => {
+    if (!scrollSyncEvent) return;
+    if (scrollSyncEvent.docId !== doc.id) return;
+    if (scrollSyncEvent.from !== "preview") return;
+    if (!getSyncScrollEnabled(doc.id)) return;
+    if (viewMode !== "split") return;
+    const view = viewRef.current;
+    if (!view) return;
+    if (Date.now() < unfollowUntil.current) return;
+    machineDrive.current = "preview";
+    ignoreScrollUntil.current = Date.now() + 100;
+    const o = Math.max(0, Math.min(scrollSyncEvent.sourceOffset, view.state.doc.length));
+    const coords = view.coordsAtPos(o);
+    const scroll = view.scrollDOM;
+    if (coords) {
+      const rect = scroll.getBoundingClientRect();
+      const next = scroll.scrollTop + (coords.top - rect.top) - 8;
+      if (shouldUpdateScrollTop(scroll.scrollTop, next)) scroll.scrollTop = next;
+    } else {
+      view.dispatch({ effects: EditorView.scrollIntoView(o, { y: "start" }) });
+    }
+    if (resetTimer.current) window.clearTimeout(resetTimer.current);
+    resetTimer.current = window.setTimeout(() => {
+      machineDrive.current = null;
+    }, 150);
+  }, [scrollSyncEvent, doc.id, getSyncScrollEnabled, viewMode]);
 
   const applySlash = (
     view: EditorView,
@@ -525,7 +603,6 @@ export function MdCodeMirror({
   };
 
   void viewMode;
-  void unfollowUntil;
 
   return (
     <div className={cn("relative h-full min-h-0 bg-[var(--bg-elevated)]", className)}>

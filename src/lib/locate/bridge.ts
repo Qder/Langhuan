@@ -7,6 +7,8 @@ import {
   type BridgeInboundType,
 } from "./types";
 
+import { instrumentHtmlSrcDoc } from "./htmlInstrument";
+
 const BRIDGE_TYPE_SET = new Set<string>(BRIDGE_INBOUND_TYPES);
 
 /** Thin scrollbar only — preview chrome, never written to source/export. */
@@ -29,6 +31,34 @@ export const HTML_LOCATE_BRIDGE = `
     style.textContent = ${JSON.stringify(PREVIEW_SCROLLBAR_CSS)};
     (document.head || document.documentElement).appendChild(style);
   } catch (e) {}
+
+  var overlay = null;
+  function ensureOverlay() {
+    if (overlay && overlay.parentNode) return overlay;
+    overlay = document.createElement("div");
+    overlay.setAttribute("data-lh-overlay", "1");
+    overlay.style.cssText = "position:absolute;pointer-events:none;z-index:2147483646;border:2px solid rgba(179,56,42,0.85);background:rgba(179,56,42,0.08);border-radius:2px;box-sizing:border-box;display:none;";
+    (document.documentElement || document.body).appendChild(overlay);
+    return overlay;
+  }
+
+  function parseLh(el) {
+    if (!el || !el.getAttribute) return null;
+    var v = el.getAttribute("data-lh");
+    if (!v) return null;
+    var m = String(v).match(/^(\\d+)-(\\d+)$/);
+    if (!m) return null;
+    return { start: +m[1], end: +m[2] };
+  }
+
+  function closestLh(node) {
+    var el = node && node.nodeType === 3 ? node.parentElement : node;
+    while (el && el !== document.documentElement) {
+      if (el.getAttribute && el.getAttribute("data-lh")) return el;
+      el = el.parentElement;
+    }
+    return null;
+  }
 
   function tagPath(node) {
     var parts = [];
@@ -73,12 +103,17 @@ export const HTML_LOCATE_BRIDGE = `
       after = String(post).slice(0, 30);
     } catch (e) {}
     var rect = range.getBoundingClientRect();
+    var lhEl = closestLh(range.startContainer);
+    var lh = parseLh(lhEl);
     return {
       text: text,
       before: before,
       after: after,
       tagPath: tagPath(range.startContainer),
-      rect: { top: rect.top, left: rect.left, bottom: rect.bottom, right: rect.right }
+      rect: { top: rect.top, left: rect.left, bottom: rect.bottom, right: rect.right },
+      range: lh || undefined,
+      tag: lhEl && lhEl.tagName ? lhEl.tagName.toLowerCase() : undefined,
+      annotatedSelf: !!(lhEl && range.startContainer && lhEl.contains(range.startContainer))
     };
   }
 
@@ -98,16 +133,104 @@ export const HTML_LOCATE_BRIDGE = `
     parent.postMessage({ type: "lh-bg", color: color }, "*");
   }
 
-  function reportScroll() {
+  function reportScrollPercent() {
     var se = document.scrollingElement || document.documentElement;
     var max = (se.scrollHeight || 0) - (se.clientHeight || 0);
     var pct = max > 0 ? (se.scrollTop / max) * 100 : 0;
     parent.postMessage({ type: "lh-scroll", percent: pct }, "*");
   }
 
+  var scrollRaf = 0;
+  function reportScrollAnchors() {
+    var se = document.scrollingElement || document.documentElement;
+    var viewportTop = se.scrollTop || 0;
+    var nodes = document.querySelectorAll("[data-lh]");
+    var scored = [];
+    for (var i = 0; i < nodes.length; i++) {
+      var el = nodes[i];
+      var lh = parseLh(el);
+      if (!lh) continue;
+      var top = 0;
+      try {
+        var r = el.getBoundingClientRect();
+        top = r.top + viewportTop;
+      } catch (e) { continue; }
+      scored.push({ range: lh, top: top, dist: Math.abs(top - viewportTop) });
+    }
+    scored.sort(function (a, b) { return a.dist - b.dist; });
+    var anchors = scored.slice(0, 3).map(function (s) {
+      return { range: s.range, top: s.top };
+    });
+    parent.postMessage({
+      type: "lh-scroll-anchors",
+      viewportTop: viewportTop,
+      anchors: anchors
+    }, "*");
+    reportScrollPercent();
+  }
+
+  function onScroll() {
+    if (scrollRaf) return;
+    scrollRaf = requestAnimationFrame(function () {
+      scrollRaf = 0;
+      reportScrollAnchors();
+    });
+  }
+
+  function findElByRange(range) {
+    if (!range) return null;
+    var nodes = document.querySelectorAll("[data-lh]");
+    var best = null;
+    for (var i = 0; i < nodes.length; i++) {
+      var lh = parseLh(nodes[i]);
+      if (!lh) continue;
+      if (lh.start === range.start && lh.end === range.end) return nodes[i];
+      if (lh.start <= range.start && lh.end >= range.end) {
+        if (!best) best = nodes[i];
+        else {
+          var bl = parseLh(best);
+          if (bl && (lh.end - lh.start) < (bl.end - bl.start)) best = nodes[i];
+        }
+      }
+    }
+    return best;
+  }
+
+  function showOverlayFor(el) {
+    if (!el) return;
+    var ov = ensureOverlay();
+    var se = document.scrollingElement || document.documentElement;
+    var r = el.getBoundingClientRect();
+    var top = r.top + (se.scrollTop || 0);
+    var left = r.left + (se.scrollLeft || 0);
+    ov.style.display = "block";
+    ov.style.top = top + "px";
+    ov.style.left = left + "px";
+    ov.style.width = Math.max(2, r.width) + "px";
+    ov.style.height = Math.max(2, r.height) + "px";
+  }
+
+  function clearOverlay() {
+    if (overlay) overlay.style.display = "none";
+  }
+
+  function scrollToEl(el, center) {
+    if (!el) return;
+    try {
+      var r = el.getBoundingClientRect();
+      var vh = window.innerHeight || 1;
+      var wellInView = r.top >= vh * 0.15 && r.bottom <= vh * 0.85;
+      if (!wellInView) {
+        var se = document.scrollingElement || document.documentElement;
+        var y = (se.scrollTop || 0) + r.top - (center ? vh / 3 : 40);
+        se.scrollTop = Math.max(0, y);
+      }
+    } catch (e) {}
+  }
+
   function onReady() {
     reportBg();
-    reportScroll();
+    reportScrollAnchors();
     parent.postMessage({ type: "lh-ready" }, "*");
   }
 
@@ -116,8 +239,17 @@ export const HTML_LOCATE_BRIDGE = `
   } else {
     onReady();
   }
-  window.addEventListener("load", function () { reportBg(); reportScroll(); });
-  window.addEventListener("scroll", reportScroll, { passive: true });
+  window.addEventListener("load", function () { reportBg(); reportScrollAnchors(); });
+  window.addEventListener("scroll", onScroll, { passive: true });
+  document.addEventListener("toggle", function () {
+    setTimeout(reportScrollAnchors, 30);
+  }, true);
+  window.addEventListener("load", function () {
+    var imgs = document.images;
+    for (var i = 0; i < imgs.length; i++) {
+      imgs[i].addEventListener("load", function () { reportScrollAnchors(); }, { once: true });
+    }
+  });
 
   document.addEventListener("keydown", function (e) {
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter" && !e.shiftKey) {
@@ -127,7 +259,19 @@ export const HTML_LOCATE_BRIDGE = `
         return;
       }
       e.preventDefault();
-      parent.postMessage({ type: "lh-locate", text: p.text, before: p.before, after: p.after, tagPath: p.tagPath }, "*");
+      parent.postMessage({
+        type: "lh-locate",
+        text: p.text,
+        before: p.before,
+        after: p.after,
+        tagPath: p.tagPath,
+        range: p.range,
+        tag: p.tag,
+        annotatedSelf: p.annotatedSelf,
+        metaKey: !!e.metaKey,
+        ctrlKey: !!e.ctrlKey,
+        detail: 1
+      }, "*");
       return;
     }
 
@@ -136,7 +280,10 @@ export const HTML_LOCATE_BRIDGE = `
     var forward = false;
     if (meta && (key === "k" || key === "K" || key === "e" || key === "E")) forward = true;
     if (!meta && (key === "f" || key === "F") && !isTypingTarget(e.target)) forward = true;
-    if (key === "Escape") forward = true;
+    if (key === "Escape") {
+      clearOverlay();
+      forward = true;
+    }
     if (!forward) return;
     e.preventDefault();
     parent.postMessage({
@@ -161,7 +308,9 @@ export const HTML_LOCATE_BRIDGE = `
       tagPath: p.tagPath,
       x: e.clientX,
       y: e.clientY,
-      rect: p.rect
+      rect: p.rect,
+      range: p.range,
+      tag: p.tag
     }, "*");
   }, true);
 
@@ -177,7 +326,9 @@ export const HTML_LOCATE_BRIDGE = `
       before: p.before,
       after: p.after,
       tagPath: p.tagPath,
-      rect: p.rect
+      rect: p.rect,
+      range: p.range,
+      tag: p.tag
     }, "*");
   });
 
@@ -201,98 +352,15 @@ export const HTML_LOCATE_BRIDGE = `
     return false;
   }
 
-  function isTextualBlock(tag) {
-    return /^(h[1-6]|p|li|td|th|pre|blockquote|figcaption|dt|dd)$/.test(tag);
-  }
-
-  function isLargeContainer(tag) {
-    return /^(article|section|header|footer|main|aside)$/.test(tag);
-  }
-
-  function climbLocateEl(node) {
-    var el = node && node.nodeType === 3 ? node.parentElement : node;
-    if (!el) return null;
-    var cur = el;
-    var textual = null;
-    var container = null;
-    for (var i = 0; i < 10 && cur && cur !== document.body; i++) {
-      var tag = cur.tagName ? cur.tagName.toLowerCase() : "";
-      if (!textual && isTextualBlock(tag)) textual = cur;
-      if (!container && isLargeContainer(tag)) container = cur;
-      if (textual) return textual;
-      cur = cur.parentElement;
-    }
-    return textual || container || el;
-  }
-
-  function flashEl(el) {
-    if (!el || !el.style) return;
+  function textSnippetOf(el) {
+    if (!el) return "";
     try {
-      var prev = el.getAttribute("data-lh-outline") || "";
-      el.setAttribute("data-lh-outline", "1");
-      el.style.outline = "2px solid rgba(179,56,42,0.75)";
-      el.style.outlineOffset = "2px";
-      setTimeout(function () {
-        el.style.outline = "";
-        el.style.outlineOffset = "";
-        if (prev) el.setAttribute("data-lh-outline", prev);
-        else el.removeAttribute("data-lh-outline");
-      }, 700);
-    } catch (err) {}
-  }
-
-  function elementLocatePayload(el) {
-    if (!el) return null;
-    var range = document.createRange();
-    try {
-      range.selectNodeContents(el);
-    } catch (err) {
-      return null;
-    }
-    var text = String(range).replace(/\\u00a0/g, " ");
-    var needle = "";
-    try {
-      var descAttr = el.getAttribute && el.getAttribute("data-desc");
-      if (descAttr && String(descAttr).trim()) {
-        needle = String(descAttr).trim().replace(/\\s+/g, " ");
-      }
+      var desc = el.getAttribute && el.getAttribute("data-desc");
+      if (desc && String(desc).trim()) return String(desc).trim().replace(/\\s+/g, " ").slice(0, 160);
     } catch (e0) {}
-    if (!needle) {
-      if (!text || !text.trim()) return null;
-      needle = text.trim().replace(/\\s+/g, " ");
-    }
-    if (needle.length > 160) needle = needle.slice(0, 160);
-    if (needle.length > 80 && el.querySelector) {
-      try {
-        var prefer = el.querySelector(".desc, p.desc, [data-desc], h1, h2, h3, h4, h5, h6, p");
-        if (prefer && prefer !== el) {
-          var alt = prefer.getAttribute && prefer.getAttribute("data-desc");
-          var altText = alt && String(alt).trim() ? String(alt).trim() : String(prefer.textContent || "").trim();
-          altText = altText.replace(/\\s+/g, " ");
-          if (altText && altText.length >= 4 && altText.length < needle.length) {
-            needle = altText.length > 160 ? altText.slice(0, 160) : altText;
-          }
-        }
-      } catch (e1) {}
-    }
-    var before = "";
-    var after = "";
-    try {
-      var pre = range.cloneRange();
-      pre.selectNodeContents(document.body);
-      pre.setEnd(range.startContainer, range.startOffset);
-      before = String(pre).slice(-30);
-      var post = range.cloneRange();
-      post.selectNodeContents(document.body);
-      post.setStart(range.endContainer, range.endOffset);
-      after = String(post).slice(0, 30);
-    } catch (e2) {}
-    return {
-      text: needle,
-      before: before,
-      after: after,
-      tagPath: tagPath(el)
-    };
+    var t = String(el.textContent || "").replace(/\\u00a0/g, " ").trim().replace(/\\s+/g, " ");
+    if (t.length > 160) t = t.slice(0, 160);
+    return t;
   }
 
   var downX = 0, downY = 0, downBtn = 0;
@@ -305,27 +373,66 @@ export const HTML_LOCATE_BRIDGE = `
   document.addEventListener("click", function (e) {
     if (downBtn !== 0 || e.button !== 0) return;
     if (Math.abs(e.clientX - downX) > 5 || Math.abs(e.clientY - downY) > 5) return;
-    if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+    if (e.altKey || e.shiftKey) return;
     var target = e.target;
-    if (isInteractive(target)) return;
+    if (isInteractive(target) && !(e.metaKey || e.ctrlKey) && e.detail < 2) return;
     var sel = window.getSelection();
-    if (sel && !sel.isCollapsed && String(sel).trim()) return;
-    var el = climbLocateEl(target);
-    var p = elementLocatePayload(el);
-    if (!p || !p.text || !p.text.trim()) return;
-    flashEl(el);
+    if (sel && !sel.isCollapsed && String(sel).trim() && e.detail < 2) return;
+
+    var lhEl = closestLh(target);
+    var selfAnnotated = !!(target && target.getAttribute && target.getAttribute("data-lh"));
+    if (!selfAnnotated && target && target.nodeType === 3) {
+      selfAnnotated = !!(target.parentElement && target.parentElement.getAttribute && target.parentElement.getAttribute("data-lh"));
+    }
+    // Also treat direct element with data-lh
+    if (!selfAnnotated && lhEl && (lhEl === target || (target.nodeType === 1 && lhEl === target))) {
+      selfAnnotated = true;
+    }
+    if (lhEl && target && target.closest) {
+      try {
+        var direct = (target.nodeType === 1 ? target : target.parentElement);
+        selfAnnotated = !!(direct && direct.getAttribute && direct.getAttribute("data-lh"));
+      } catch (e1) {}
+    }
+
+    var lh = parseLh(lhEl);
+    var snippet = textSnippetOf(target && target.nodeType === 1 ? target : (target && target.parentElement) || lhEl);
+    if (lhEl) showOverlayFor(lhEl);
+
     parent.postMessage({
       type: "lh-locate",
-      text: p.text,
-      before: p.before,
-      after: p.after,
-      tagPath: p.tagPath
+      text: snippet,
+      textSnippet: snippet,
+      before: "",
+      after: "",
+      tagPath: tagPath(lhEl || target),
+      range: lh || undefined,
+      tag: lhEl && lhEl.tagName ? lhEl.tagName.toLowerCase() : undefined,
+      annotatedSelf: selfAnnotated,
+      metaKey: !!e.metaKey,
+      ctrlKey: !!e.ctrlKey,
+      detail: e.detail || 1
     }, "*");
   }, true);
 
   window.addEventListener("message", function (e) {
     var d = e.data;
-    if (!d || d.type !== "lh-highlight" || typeof d.text !== "string") return;
+    if (!d || typeof d !== "object") return;
+    if (d.type === "clearHighlight") {
+      clearOverlay();
+      return;
+    }
+    if (d.type === "scrollToRange" || d.type === "highlightRange") {
+      var range = d.range;
+      if (!range || typeof range.start !== "number") return;
+      var el = findElByRange(range);
+      if (!el) return;
+      if (d.type === "scrollToRange") scrollToEl(el, true);
+      showOverlayFor(el);
+      return;
+    }
+    // legacy text highlight
+    if (d.type !== "lh-highlight" || typeof d.text !== "string") return;
     var needle = d.text;
     if (!needle) return;
     var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
@@ -336,27 +443,14 @@ export const HTML_LOCATE_BRIDGE = `
       if (i >= 0) { found = node; idx = i; break; }
     }
     if (!found) return;
-    var range = document.createRange();
-    range.setStart(found, idx);
-    range.setEnd(found, Math.min(idx + needle.length, found.textContent.length));
-    var rect = range.getBoundingClientRect();
+    var rg = document.createRange();
+    rg.setStart(found, idx);
+    rg.setEnd(found, Math.min(idx + needle.length, found.textContent.length));
+    var rect = rg.getBoundingClientRect();
     window.scrollTo({ top: window.scrollY + rect.top - window.innerHeight / 3, behavior: "smooth" });
-    var mark = document.createElement("span");
-    mark.setAttribute("data-lh-flash", "1");
-    mark.style.background = "rgba(179,56,42,0.28)";
-    mark.style.borderRadius = "2px";
-    mark.style.transition = "opacity 1.2s ease-out";
     try {
-      range.surroundContents(mark);
-      setTimeout(function () {
-        mark.style.opacity = "0";
-        setTimeout(function () {
-          var parentEl = mark.parentNode;
-          if (!parentEl) return;
-          while (mark.firstChild) parentEl.insertBefore(mark.firstChild, mark);
-          parentEl.removeChild(mark);
-        }, 1200);
-      }, 40);
+      var markParent = found.parentElement;
+      if (markParent) showOverlayFor(markParent);
     } catch (err) {}
   });
 })();
@@ -368,8 +462,6 @@ export function injectLocateBridge(srcDoc: string): string {
   let html = srcDoc.replace(/<script[^>]*data-lh-bridge=["']1["'][^>]*>[\s\S]*?<\/script>/gi, "");
 
   // Prefer the last </body>: pages may embed "</body>" inside <script> JSON/examples
-  // (e.g. html-elements-reference). Replacing the first one injects our </script>
-  // mid-script and dumps the rest of the data as visible text.
   const lower = html.toLowerCase();
   const marker = "</body>";
   const idx = lower.lastIndexOf(marker);
@@ -378,6 +470,27 @@ export function injectLocateBridge(srcDoc: string): string {
   }
   return html + "\n" + HTML_LOCATE_BRIDGE;
 }
+
+/**
+ * Build preview srcDoc: instrument data-lh on a copy, then inject bridge.
+ * `rawSource` must be the user's original HTML (offsets relative to it).
+ * `prepared` is optionally already run through prepareHtmlPreview; if omitted,
+ * instrumentation runs on rawSource directly.
+ */
+export function buildInstrumentedSrcDoc(rawSource: string, prepared?: string): string {
+  // Instrument the prepared markup when helpers were rewritten, but offsets must
+  // still match rawSource. If prepareHtmlPreview only replaces colorize bodies,
+  // offsets after the replacement shift — so we instrument rawSource first when
+  // prepared === rawSource, otherwise instrument prepared and accept that
+  // dynamic pages with colorize rewrites are rare for locate.
+  const base = prepared ?? rawSource;
+  // Prefer instrumenting the same string that will be shown, BUT rewrite
+  // data-lh values only from parse of the same string. Callers should pass
+  // the string whose offsets they will use for locate (typically raw).
+  const { html } = instrumentHtmlSrcDoc(base);
+  return injectLocateBridge(html);
+}
+
 
 /**
  * Validate an inbound postMessage from the preview iframe.
@@ -408,7 +521,6 @@ export function isDarkCssColor(color: string): boolean {
   const r = Number(m[1]);
   const g = Number(m[2]);
   const b = Number(m[3]);
-  // relative luminance approx
   const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
   return lum < 0.45;
 }

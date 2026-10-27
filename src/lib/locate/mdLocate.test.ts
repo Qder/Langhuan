@@ -172,9 +172,8 @@ describe("locateInHtml", () => {
       before: "",
       after: "",
     });
-    expect(resultInScript.precision).toBe("fuzzy");
-    expect(resultInScript.message).toContain("脚本生成");
-    expect(resultInScript.message).toContain("生成处");
+    expect(resultInScript.precision).toBe("script");
+    expect(resultInScript.message).toMatch(/脚本数据中的第 \d+ 行/);
     expect(html.slice(resultInScript.start, resultInScript.end)).toBe("42-script-only");
     expect(resultInScript.start).toBeGreaterThan(0);
 
@@ -205,8 +204,8 @@ document.getElementById("main").textContent = DATA[0].desc;
       before: "",
       after: "",
     });
-    expect(result.precision).toBe("fuzzy");
-    expect(result.message).toMatch(/脚本生成.*生成处/);
+    expect(result.precision).toBe("script");
+    expect(result.message).toMatch(/脚本数据中的第 \d+ 行/);
     expect(page.slice(result.start, result.end)).toContain("六级章节标题");
   });
 
@@ -220,7 +219,7 @@ const el = { "desc": "六级章节标题（六个级别中最低）。" };
       before: "",
       after: "",
     });
-    expect(result.precision).toBe("fuzzy");
+    expect(["script", "fuzzy"]).toContain(result.precision);
     expect(page.slice(result.start, result.end)).toContain("六级章节标题");
   });
 

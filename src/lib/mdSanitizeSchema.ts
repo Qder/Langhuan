@@ -85,6 +85,9 @@ export const mdSanitizeSchema: SanitizeOptions = {
       ["className"],
       ["class"],
       ["id"],
+      ["data-src-start"],
+      ["data-src-end"],
+      ["data-src-line"],
     ],
   },
   protocols: {
