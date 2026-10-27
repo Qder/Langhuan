@@ -322,7 +322,7 @@ export function HtmlReader({ doc }: { doc: Document }) {
       }
 
       if (data.type === "lh-contextmenu") {
-        const hasText = !isTrivialSelection(data.text || data.textSnippet || "");
+        const hasText = !isTrivialSelection(data.text || "");
         const hasRange = !!(data.range && Number.isFinite(data.range.start));
         if (!hasText && !hasRange) return;
         setMenu({
