@@ -358,23 +358,36 @@ export function HtmlReader({ doc }: { doc: Document }) {
     return () => window.removeEventListener("message", onMessage);
   }, [runLocate, runEditSelection, handleBridgeKey, setHtmlScrollPercent, getSyncScrollEnabled, publishScrollSync, doc.id]);
 
-  // Source → Preview highlight via range (data-lh)
+  // Source → Preview highlight via range (data-lh).
+  // Caret follow: highlight only (no scroll) — scrolling preview would emit
+  // lh-scroll-anchors and yank the editor to a sparse static node like #empty.
+  // Explicit locate (⌘⇧↵) may scroll + announce.
   React.useEffect(() => {
     if (!pendingPreviewLocate) return;
     const offset = pendingPreviewLocate.offset;
+    const wantScroll = pendingPreviewLocate.scroll === true;
+    const wantAnnounce = pendingPreviewLocate.announce === true;
     const win = iframeRef.current?.contentWindow;
     if (win) {
-      ignoreScrollUntil.current = Date.now() + 120;
+      // Block preview→source sync while we touch the iframe.
+      ignoreScrollUntil.current = Date.now() + (wantScroll ? 350 : 200);
+      machineDrive.current = "editor";
+      if (resetTimer.current) window.clearTimeout(resetTimer.current);
+      resetTimer.current = window.setTimeout(() => {
+        machineDrive.current = null;
+      }, wantScroll ? 400 : 250);
       win.postMessage(
         { type: "highlightRange", range: { start: offset, end: offset + 1 } },
         "*"
       );
-      win.postMessage(
-        { type: "scrollToRange", range: { start: offset, end: offset + 1 } },
-        "*"
-      );
-      setStatus("已在预览中定位");
-    } else {
+      if (wantScroll) {
+        win.postMessage(
+          { type: "scrollToRange", range: { start: offset, end: offset + 1 } },
+          "*"
+        );
+      }
+      if (wantAnnounce) setStatus("已在预览中定位");
+    } else if (wantAnnounce) {
       setStatus("未能在预览中定位");
     }
     clearPendingPreviewLocate();

@@ -278,19 +278,28 @@ export const HTML_LOCATE_BRIDGE = `
     });
   }
 
+  // Point caret queries (end-start <= 2) must not match giant shells
+  // (layout/main/body) — those yanked the editor to #empty via scroll sync.
+  var LH_POINT_MAX_SPAN = 1200;
   function findElByRange(range) {
     if (!range) return null;
+    var pointQuery = (range.end - range.start) <= 2;
     var nodes = document.querySelectorAll("[data-lh]");
     var best = null;
     for (var i = 0; i < nodes.length; i++) {
-      var lh = parseLh(nodes[i]);
+      var el = nodes[i];
+      var lh = parseLh(el);
       if (!lh) continue;
-      if (lh.start === range.start && lh.end === range.end) return nodes[i];
+      if (lh.start === range.start && lh.end === range.end) return el;
       if (lh.start <= range.start && lh.end >= range.end) {
-        if (!best) best = nodes[i];
+        var span = lh.end - lh.start;
+        if (pointQuery && span > LH_POINT_MAX_SPAN) continue;
+        var tag = (el.tagName || "").toLowerCase();
+        if (pointQuery && (tag === "html" || tag === "head" || tag === "body")) continue;
+        if (!best) best = el;
         else {
           var bl = parseLh(best);
-          if (bl && (lh.end - lh.start) < (bl.end - bl.start)) best = nodes[i];
+          if (bl && span < (bl.end - bl.start)) best = el;
         }
       }
     }

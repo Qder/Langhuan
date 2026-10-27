@@ -93,6 +93,8 @@ const DATA = {
     expect(HTML_LOCATE_BRIDGE).toContain("resolveScrollRoot");
     expect(HTML_LOCATE_BRIDGE).toContain("scrollToRange");
     expect(HTML_LOCATE_BRIDGE).toContain("highlightRange");
+    expect(HTML_LOCATE_BRIDGE).toContain("LH_POINT_MAX_SPAN");
+    expect(HTML_LOCATE_BRIDGE).toContain("pointQuery");
   });
 
   it("intercepts same-document hash clicks so srcDoc does not go blank", () => {

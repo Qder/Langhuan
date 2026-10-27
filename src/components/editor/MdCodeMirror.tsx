@@ -183,10 +183,18 @@ export function MdCodeMirror({
         refreshSuggest(update.view);
         if (update.selectionSet) {
           const now = Date.now();
+          // Caret/click: claim drive briefly; hasFocus blocks inbound yank.
+          // Do NOT set unfollowUntil — that mutes editor→preview scroll.
+          machineDrive.current = "editor";
+          ignoreScrollUntil.current = now + 150;
+          if (resetTimer.current) window.clearTimeout(resetTimer.current);
+          resetTimer.current = window.setTimeout(() => {
+            machineDrive.current = null;
+          }, 280);
           if (now - cursorThrottle.current > 100) {
             cursorThrottle.current = now;
             if (useStore.getState().viewMode !== "source") {
-              requestPreviewLocate(head);
+              requestPreviewLocate(head, { scroll: false, announce: false });
             }
           }
         }
@@ -282,7 +290,10 @@ export function MdCodeMirror({
           if (useStore.getState().viewMode === "source") {
             useStore.getState().setViewMode("split");
           }
-          requestPreviewLocate(offset);
+          machineDrive.current = "editor";
+          unfollowUntil.current = Date.now() + SOURCE_SCROLL_UNFOLLOW_MS;
+          ignoreScrollUntil.current = Date.now() + 200;
+          requestPreviewLocate(offset, { scroll: true, announce: true });
           setStatus("已在预览中定位");
           return true;
         },
@@ -551,6 +562,8 @@ export function MdCodeMirror({
     const view = viewRef.current;
     if (!view) return;
     if (Date.now() < unfollowUntil.current) return;
+    if (machineDrive.current === "editor") return;
+    if (view.hasFocus) return;
     machineDrive.current = "preview";
     ignoreScrollUntil.current = Date.now() + 100;
     if (scrollSyncEvent.sourceOffset == null || !Number.isFinite(scrollSyncEvent.sourceOffset)) return;

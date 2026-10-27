@@ -452,7 +452,8 @@ export function MarkdownReader({ doc }: { doc: Document }) {
     return () => document.removeEventListener("keydown", onKey);
   }, [runLocate]);
 
-  // Source → Preview highlight
+  // Source → Preview highlight. Caret follow flashes without scrolling unless
+  // explicitly requested — scrolling would drive sync back into the editor.
   React.useEffect(() => {
     if (!pendingPreviewLocate) return;
     const root = articleRef.current;
@@ -461,29 +462,40 @@ export function MarkdownReader({ doc }: { doc: Document }) {
       return;
     }
     const offset = pendingPreviewLocate.offset;
+    const wantScroll = pendingPreviewLocate.scroll === true;
     const blocks = [...root.querySelectorAll<HTMLElement>("[data-src-start]")];
     let target: HTMLElement | null = null;
+    let bestSpan = Infinity;
     for (const el of blocks) {
       const s = Number(el.getAttribute("data-src-start"));
       const e = Number(el.getAttribute("data-src-end"));
-      if (offset >= s && offset < e) {
+      if (!Number.isFinite(s) || !Number.isFinite(e) || e < s) continue;
+      if (offset < s || offset > e) continue;
+      const span = e - s;
+      if (span < bestSpan) {
+        bestSpan = span;
         target = el;
-        break;
       }
-      if (offset === e) target = el;
     }
     if (target) {
-      ignoreScrollUntil.current = Date.now() + 120;
-      target.scrollIntoView({ behavior: "smooth", block: "center" });
+      ignoreScrollUntil.current = Date.now() + (wantScroll ? 350 : 200);
+      machineDrive.current = "editor";
+      if (resetTimer.current) window.clearTimeout(resetTimer.current);
+      resetTimer.current = window.setTimeout(() => {
+        machineDrive.current = null;
+      }, wantScroll ? 400 : 250);
+      if (wantScroll) {
+        target.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
       articleRef.current?.querySelectorAll(".lh-preview-flash").forEach((n) => n.classList.remove("lh-preview-flash"));
       target.classList.add("lh-preview-flash");
       setPreviewFlash(target);
-      const t = window.setTimeout(() => {
+      const flashTimer = window.setTimeout(() => {
         target?.classList.remove("lh-preview-flash");
         setPreviewFlash((cur) => (cur === target ? null : cur));
       }, 1600);
       clearPendingPreviewLocate();
-      return () => clearTimeout(t);
+      return () => clearTimeout(flashTimer);
     }
     clearPendingPreviewLocate();
   }, [pendingPreviewLocate, clearPendingPreviewLocate, body]);

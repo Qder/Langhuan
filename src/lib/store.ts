@@ -83,9 +83,18 @@ export type ScrollSyncEvent = {
   nonce: number;
 };
 
+export type PreviewLocateOpts = {
+  /** Scroll preview to the match. Default false (caret follow must not yank preview/source). */
+  scroll?: boolean;
+  /** Status-bar announcement. Default false. */
+  announce?: boolean;
+};
+
 export type PendingPreviewLocate = {
   offset: number;
   nonce: number;
+  scroll?: boolean;
+  announce?: boolean;
 };
 
 type LanghuanState = {
@@ -203,7 +212,7 @@ type LanghuanState = {
   setStatus: (message: string) => void;
   applyLocateResult: (result: LocateResult, opts?: { select?: boolean; focus?: boolean; highlight?: boolean; center?: boolean }) => void;
   clearPendingReveal: () => void;
-  requestPreviewLocate: (offset: number) => void;
+  requestPreviewLocate: (offset: number, opts?: PreviewLocateOpts) => void;
   clearPendingPreviewLocate: () => void;
   openHome: () => void;
   openDoc: (id: string) => void;
@@ -540,9 +549,14 @@ export const useStore = create<LanghuanState>()(
 
       clearPendingReveal: () => set({ pendingReveal: null }),
 
-      requestPreviewLocate: (offset) => {
+      requestPreviewLocate: (offset, opts) => {
         set({
-          pendingPreviewLocate: { offset, nonce: Date.now() },
+          pendingPreviewLocate: {
+            offset,
+            nonce: Date.now(),
+            scroll: opts?.scroll === true,
+            announce: opts?.announce === true,
+          },
         });
       },
 

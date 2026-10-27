@@ -74,7 +74,6 @@ export function HtmlCodeMirror({
   const pendingReveal = useStore((s) => s.pendingReveal);
   const clearPendingReveal = useStore((s) => s.clearPendingReveal);
   const requestPreviewLocate = useStore((s) => s.requestPreviewLocate);
-  const setStatus = useStore((s) => s.setStatus);
   const setEditorCaret = useStore((s) => s.setEditorCaret);
   const viewMode = useStore((s) => s.viewMode);
   const getSyncScrollEnabled = useStore((s) => s.getSyncScrollEnabled);
@@ -107,11 +106,20 @@ export function HtmlCodeMirror({
         const head = update.state.selection.main.head;
         const { line, col } = offsetToLineCol(update.state.doc.toString(), head);
         setEditorCaret({ line, col });
+        // Caret/click: claim drive briefly. hasFocus also blocks inbound sync.
+        // Do NOT set unfollowUntil here — that would mute editor→preview scroll.
         const now = Date.now();
+        machineDrive.current = "editor";
+        ignoreScrollUntil.current = now + 150;
+        if (resetTimer.current) window.clearTimeout(resetTimer.current);
+        resetTimer.current = window.setTimeout(() => {
+          machineDrive.current = null;
+        }, 280);
         if (now - cursorThrottle.current > 100) {
           cursorThrottle.current = now;
           if (useStore.getState().viewMode !== "source") {
-            requestPreviewLocate(head);
+            // Highlight only — never scrollToRange here (that wrote sparse #empty anchors back).
+            requestPreviewLocate(head, { scroll: false, announce: false });
           }
         }
       }
@@ -145,8 +153,10 @@ export function HtmlCodeMirror({
           if (useStore.getState().viewMode === "source") {
             useStore.getState().setViewMode("split");
           }
-          requestPreviewLocate(offset);
-          setStatus("已在预览中定位");
+          machineDrive.current = "editor";
+          unfollowUntil.current = Date.now() + SOURCE_SCROLL_UNFOLLOW_MS;
+          ignoreScrollUntil.current = Date.now() + 200;
+          requestPreviewLocate(offset, { scroll: true, announce: true });
           return true;
         }
         return false;
@@ -243,6 +253,8 @@ export function HtmlCodeMirror({
     if (!view) return;
     if (Date.now() < unfollowUntil.current) return;
     if (machineDrive.current === "editor") return;
+    // Never move the source viewport while the user is actively in the editor.
+    if (view.hasFocus) return;
 
     machineDrive.current = "preview";
     ignoreScrollUntil.current = Date.now() + 100;
@@ -282,6 +294,7 @@ export function HtmlCodeMirror({
     }
     const view = viewRef.current;
     if (!view) return;
+    if (view.hasFocus) return;
     const scroll = view.scrollDOM;
     const next = scrollTopFromPercent(
       htmlScrollPercent,
