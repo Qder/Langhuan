@@ -76,6 +76,7 @@ export const HTML_LOCATE_BRIDGE = `
   } catch (e) {}
 
   var overlay = null;
+  var lastClickPayload = null;
   function ensureOverlay() {
     if (overlay && overlay.parentNode) return overlay;
     overlay = document.createElement("div");
@@ -394,6 +395,7 @@ export const HTML_LOCATE_BRIDGE = `
     if (!meta && (key === "f" || key === "F") && !isTypingTarget(e.target)) forward = true;
     if (key === "Escape") {
       clearOverlay();
+      lastClickPayload = null;
       forward = true;
     }
     if (!forward) return;
@@ -428,26 +430,44 @@ export const HTML_LOCATE_BRIDGE = `
       }, "*");
       return;
     }
-    // No text selection: still offer locate when right-clicking a data-lh node.
+    // No text selection: prefer data-lh under cursor, else last plain-click target.
     var lhEl = closestLh(e.target);
     var lh = parseLh(lhEl);
-    if (!lh) return;
-    e.preventDefault();
-    var snippet = textSnippetOf(e.target && e.target.nodeType === 1 ? e.target : (e.target && e.target.parentElement) || lhEl);
-    var selfAnnotated = !!(lhEl && lhEl.getAttribute && lhEl.getAttribute("data-lh"));
-    parent.postMessage({
-      type: "lh-contextmenu",
-      text: "",
-      textSnippet: snippet,
-      before: "",
-      after: "",
-      tagPath: "",
-      x: e.clientX,
-      y: e.clientY,
-      range: lh,
-      tag: lhEl && lhEl.tagName ? lhEl.tagName.toLowerCase() : "",
-      annotatedSelf: selfAnnotated
-    }, "*");
+    if (lh) {
+      e.preventDefault();
+      var snippet = textSnippetOf(e.target && e.target.nodeType === 1 ? e.target : (e.target && e.target.parentElement) || lhEl);
+      var selfAnnotated = !!(lhEl && lhEl.getAttribute && lhEl.getAttribute("data-lh"));
+      parent.postMessage({
+        type: "lh-contextmenu",
+        text: snippet,
+        textSnippet: snippet,
+        before: "",
+        after: "",
+        tagPath: tagPath(lhEl || e.target),
+        x: e.clientX,
+        y: e.clientY,
+        range: lh,
+        tag: lhEl && lhEl.tagName ? lhEl.tagName.toLowerCase() : "",
+        annotatedSelf: selfAnnotated
+      }, "*");
+      return;
+    }
+    if (lastClickPayload) {
+      e.preventDefault();
+      parent.postMessage({
+        type: "lh-contextmenu",
+        text: lastClickPayload.textSnippet || lastClickPayload.text || "",
+        textSnippet: lastClickPayload.textSnippet || lastClickPayload.text || "",
+        before: lastClickPayload.before || "",
+        after: lastClickPayload.after || "",
+        tagPath: lastClickPayload.tagPath || "",
+        x: e.clientX,
+        y: e.clientY,
+        range: lastClickPayload.range,
+        tag: lastClickPayload.tag || "",
+        annotatedSelf: !!lastClickPayload.annotatedSelf
+      }, "*");
+    }
   }, true);
 
   document.addEventListener("selectionchange", function () {
@@ -488,6 +508,85 @@ export const HTML_LOCATE_BRIDGE = `
     return false;
   }
 
+  /** Form / typing controls — skip overlay+locate so real inputs still work. */
+  function isHardInteractive(node) {
+    var el = node && node.nodeType === 3 ? node.parentElement : node;
+    if (!el) return false;
+    if (isTypingTarget(el)) return true;
+    var tag = el.tagName ? el.tagName.toLowerCase() : "";
+    if (tag === "option") return true;
+    return false;
+  }
+
+  function isTextualBlock(tag) {
+    return /^(h[1-6]|p|li|td|th|pre|blockquote|figcaption|dt|dd)$/.test(tag);
+  }
+
+  function isBlockish(tag) {
+    return /^(div|article|section|li|td|th|blockquote|figure|details|fieldset|aside|header|footer|main)$/.test(tag);
+  }
+
+  /**
+   * Pick a sensible 朱砂 overlay target for a plain click:
+   * prefer p/h* text blocks, then card-sized containers, then tight data-lh.
+   * Never return body/html or a near-fullscreen shell.
+   */
+  function climbOverlayEl(node) {
+    var start = node && node.nodeType === 3 ? node.parentElement : node;
+    if (!start || start === document.documentElement) return null;
+    var textual = null;
+    var blockish = null;
+    var namedCard = null;
+    var lhTight = null;
+    var cur = start;
+    for (var i = 0; i < 14 && cur && cur !== document.body && cur !== document.documentElement; i++) {
+      var tag = cur.tagName ? cur.tagName.toLowerCase() : "";
+      if (!textual && isTextualBlock(tag)) textual = cur;
+      if (cur.getAttribute && cur.getAttribute("data-lh")) {
+        var lhSpan = parseLh(cur);
+        var span = lhSpan ? (lhSpan.end - lhSpan.start) : 0;
+        if (!lhTight && span > 0 && span <= 2500) lhTight = cur;
+      }
+      try {
+        var cls = "";
+        if (typeof cur.className === "string") cls = cur.className;
+        else if (cur.getAttribute) cls = cur.getAttribute("class") || "";
+        var role = cur.getAttribute ? (cur.getAttribute("role") || "") : "";
+        if (/card|question|quiz|item|panel|block|entry|题/.test(cls) || role === "article" || role === "listitem") {
+          namedCard = cur;
+        }
+      } catch (eC) {}
+      if (!blockish && isBlockish(tag)) {
+        try {
+          var r = cur.getBoundingClientRect();
+          var vh = window.innerHeight || 1;
+          var vw = window.innerWidth || 1;
+          if (r.height >= 24 && r.width >= 40 && r.height <= vh * 0.9 && r.width <= vw * 0.98) {
+            var tc = String(cur.textContent || "").trim();
+            if (tc.length >= 2) blockish = cur;
+          }
+        } catch (eB) {}
+      }
+      if (textual) break;
+      cur = cur.parentElement;
+    }
+    var pick = textual || namedCard || blockish || lhTight || null;
+    if (!pick && start !== document.body) {
+      try {
+        var rs = start.getBoundingClientRect();
+        if (rs.width >= 2 && rs.height >= 2) pick = start;
+      } catch (eS) {}
+    }
+    if (!pick) return null;
+    try {
+      var rp = pick.getBoundingClientRect();
+      var vh2 = window.innerHeight || 1;
+      var vw2 = window.innerWidth || 1;
+      if (rp.width > vw2 * 0.96 && rp.height > vh2 * 0.9) return null;
+    } catch (eR) {}
+    return pick;
+  }
+
   function textSnippetOf(el) {
     if (!el) return "";
     try {
@@ -495,11 +594,25 @@ export const HTML_LOCATE_BRIDGE = `
       if (desc && String(desc).trim()) return String(desc).trim().replace(/\\s+/g, " ").slice(0, 160);
     } catch (e0) {}
     var t = String(el.textContent || "").replace(/\\u00a0/g, " ").trim().replace(/\\s+/g, " ");
+    if (t.length > 80 && el.querySelector) {
+      try {
+        var prefer = el.querySelector(".desc, p.desc, [data-desc], h1, h2, h3, h4, h5, h6, p");
+        if (prefer && prefer !== el) {
+          var alt = prefer.getAttribute && prefer.getAttribute("data-desc");
+          var altText = alt && String(alt).trim() ? String(alt).trim() : String(prefer.textContent || "").trim();
+          altText = altText.replace(/\\s+/g, " ");
+          if (altText && altText.length >= 4 && altText.length < t.length) {
+            t = altText;
+          }
+        }
+      } catch (e1) {}
+    }
     if (t.length > 160) t = t.slice(0, 160);
     return t;
   }
 
   var downX = 0, downY = 0, downBtn = 0;
+  /** lastClickPayload: remember plain-click so right-click can show 「定位源码」 without drag-select. */
   document.addEventListener("mousedown", function (e) {
     downX = e.clientX;
     downY = e.clientY;
@@ -509,6 +622,7 @@ export const HTML_LOCATE_BRIDGE = `
   /**
    * Selection alone does NOT auto-locate. User right-clicks → parent shows
    * 「定位源码」 in the context menu. Keep mousedown tracking for click-vs-drag.
+   * Plain left-click draws the 朱砂 overlay and remembers the target.
    */
 
   function closestAnchor(node) {
@@ -584,6 +698,32 @@ export const HTML_LOCATE_BRIDGE = `
     return true;
   }
 
+  function buildClickPayload(target, overlayEl, lhEl) {
+    var selfAnnotated = !!(target && target.getAttribute && target.getAttribute("data-lh"));
+    if (!selfAnnotated && target && target.nodeType === 3) {
+      selfAnnotated = !!(target.parentElement && target.parentElement.getAttribute && target.parentElement.getAttribute("data-lh"));
+    }
+    if (!selfAnnotated && lhEl && target && target.closest) {
+      try {
+        var direct = (target.nodeType === 1 ? target : target.parentElement);
+        selfAnnotated = !!(direct && direct.getAttribute && direct.getAttribute("data-lh"));
+      } catch (e1) {}
+    }
+    var lh = parseLh(lhEl);
+    var snippetEl = overlayEl || (target && target.nodeType === 1 ? target : (target && target.parentElement)) || lhEl;
+    var snippet = textSnippetOf(snippetEl);
+    return {
+      text: snippet,
+      textSnippet: snippet,
+      before: "",
+      after: "",
+      tagPath: tagPath(overlayEl || lhEl || target),
+      range: lh || undefined,
+      tag: (overlayEl && overlayEl.tagName) ? overlayEl.tagName.toLowerCase() : (lhEl && lhEl.tagName ? lhEl.tagName.toLowerCase() : undefined),
+      annotatedSelf: selfAnnotated
+    };
+  }
+
   document.addEventListener("click", function (e) {
     if (downBtn !== 0 || e.button !== 0) return;
     if (Math.abs(e.clientX - downX) > 5 || Math.abs(e.clientY - downY) > 5) return;
@@ -592,40 +732,47 @@ export const HTML_LOCATE_BRIDGE = `
     var target = e.target;
     // Hash / blocked nav: still allow ⌘/Ctrl / double-click locate; skip plain click locate.
     if (navHandled && !(e.metaKey || e.ctrlKey) && e.detail < 2) return;
-    if (isInteractive(target) && !(e.metaKey || e.ctrlKey) && e.detail < 2) return;
+    // Real inputs keep focus/caret; soft controls (button/label/role=button) still get overlay.
+    if (isHardInteractive(target) && !(e.metaKey || e.ctrlKey) && e.detail < 2) return;
     var sel = window.getSelection();
     if (sel && !sel.isCollapsed && String(sel).trim() && e.detail < 2) return;
 
+    var overlayEl = climbOverlayEl(target);
     var lhEl = closestLh(target);
-    var selfAnnotated = !!(target && target.getAttribute && target.getAttribute("data-lh"));
-    if (!selfAnnotated && target && target.nodeType === 3) {
-      selfAnnotated = !!(target.parentElement && target.parentElement.getAttribute && target.parentElement.getAttribute("data-lh"));
+    if (!overlayEl && !lhEl) {
+      lastClickPayload = null;
+      clearOverlay();
+      return;
     }
-    // Also treat direct element with data-lh
-    if (!selfAnnotated && lhEl && (lhEl === target || (target.nodeType === 1 && lhEl === target))) {
-      selfAnnotated = true;
-    }
-    if (lhEl && target && target.closest) {
+    if (!overlayEl && lhEl) {
+      // Fall back to annotated node only when it is not a near-fullscreen shell.
       try {
-        var direct = (target.nodeType === 1 ? target : target.parentElement);
-        selfAnnotated = !!(direct && direct.getAttribute && direct.getAttribute("data-lh"));
-      } catch (e1) {}
+        var rr = lhEl.getBoundingClientRect();
+        var vh3 = window.innerHeight || 1;
+        var vw3 = window.innerWidth || 1;
+        if (rr.width <= vw3 * 0.96 && rr.height <= vh3 * 0.9) overlayEl = lhEl;
+      } catch (e2) {}
+    }
+    if (!overlayEl) {
+      lastClickPayload = null;
+      clearOverlay();
+      return;
     }
 
-    var lh = parseLh(lhEl);
-    var snippet = textSnippetOf(target && target.nodeType === 1 ? target : (target && target.parentElement) || lhEl);
-    if (lhEl) showOverlayFor(lhEl);
+    var payload = buildClickPayload(target, overlayEl, lhEl);
+    lastClickPayload = payload;
+    showOverlayFor(overlayEl);
 
     parent.postMessage({
       type: "lh-locate",
-      text: snippet,
-      textSnippet: snippet,
-      before: "",
-      after: "",
-      tagPath: tagPath(lhEl || target),
-      range: lh || undefined,
-      tag: lhEl && lhEl.tagName ? lhEl.tagName.toLowerCase() : undefined,
-      annotatedSelf: selfAnnotated,
+      text: payload.text,
+      textSnippet: payload.textSnippet,
+      before: payload.before,
+      after: payload.after,
+      tagPath: payload.tagPath,
+      range: payload.range,
+      tag: payload.tag,
+      annotatedSelf: payload.annotatedSelf,
       metaKey: !!e.metaKey,
       ctrlKey: !!e.ctrlKey,
       detail: e.detail || 1
@@ -637,6 +784,7 @@ export const HTML_LOCATE_BRIDGE = `
     if (!d || typeof d !== "object") return;
     if (d.type === "clearHighlight") {
       clearOverlay();
+      lastClickPayload = null;
       return;
     }
     if (d.type === "scrollToRange" || d.type === "highlightRange") {

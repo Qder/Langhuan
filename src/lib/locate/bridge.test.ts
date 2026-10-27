@@ -80,6 +80,9 @@ const DATA = {
 
   it("includes click-to-locate and skips interactive targets", () => {
     expect(HTML_LOCATE_BRIDGE).toContain("isInteractive");
+    expect(HTML_LOCATE_BRIDGE).toContain("isHardInteractive");
+    expect(HTML_LOCATE_BRIDGE).toContain("climbOverlayEl");
+    expect(HTML_LOCATE_BRIDGE).toContain("lastClickPayload");
     expect(HTML_LOCATE_BRIDGE).toContain("closestLh");
     expect(HTML_LOCATE_BRIDGE).toContain("data-lh");
     expect(HTML_LOCATE_BRIDGE).toContain('addEventListener("click"');
@@ -88,6 +91,7 @@ const DATA = {
     // 框选 alone must not auto-edit; locate is via context menu.
     expect(HTML_LOCATE_BRIDGE).not.toContain('type: "lh-edit-selection"');
     expect(HTML_LOCATE_BRIDGE).toContain('tag === "button"');
+    expect(HTML_LOCATE_BRIDGE).toContain("showOverlayFor");
     expect(HTML_LOCATE_BRIDGE).toContain("lh-scroll-anchors");
     expect(HTML_LOCATE_BRIDGE).toContain("spanBottom");
     expect(HTML_LOCATE_BRIDGE).toContain("capture: true");
@@ -98,6 +102,20 @@ const DATA = {
     expect(HTML_LOCATE_BRIDGE).toContain("pointQuery");
   });
 
+  it("draws 朱砂 overlay on plain click and remembers target for context menu", () => {
+    expect(HTML_LOCATE_BRIDGE).toContain("climbOverlayEl(target)");
+    expect(HTML_LOCATE_BRIDGE).toContain("showOverlayFor(overlayEl)");
+    expect(HTML_LOCATE_BRIDGE).toContain("lastClickPayload = payload");
+    // Soft controls (button/label) must not block overlay; only hard inputs do.
+    expect(HTML_LOCATE_BRIDGE).toContain("isHardInteractive(target)");
+    const hardIdx = HTML_LOCATE_BRIDGE.indexOf("isHardInteractive(target)");
+    const overlayIdx = HTML_LOCATE_BRIDGE.indexOf("showOverlayFor(overlayEl)");
+    expect(hardIdx).toBeGreaterThan(-1);
+    expect(overlayIdx).toBeGreaterThan(hardIdx);
+    // Right-click without selection can use last plain-click payload.
+    expect(HTML_LOCATE_BRIDGE).toContain("if (lastClickPayload)");
+  });
+
   it("intercepts same-document hash clicks so srcDoc does not go blank", () => {
     expect(HTML_LOCATE_BRIDGE).toContain("handleSrcDocNavClick");
     expect(HTML_LOCATE_BRIDGE).toContain("findHashTarget");
@@ -105,9 +123,9 @@ const DATA = {
     expect(HTML_LOCATE_BRIDGE).toContain('charAt(0) === "#"');
     expect(HTML_LOCATE_BRIDGE).toContain("preventDefault");
     expect(HTML_LOCATE_BRIDGE).toContain("decodeURIComponent");
-    // Must run before the interactive early-return so <a href="#..."> never navigates.
+    // Must run before the hard-interactive early-return so <a href="#..."> never navigates.
     const navIdx = HTML_LOCATE_BRIDGE.indexOf("handleSrcDocNavClick(e)");
-    const interactiveIdx = HTML_LOCATE_BRIDGE.indexOf("isInteractive(target)");
+    const interactiveIdx = HTML_LOCATE_BRIDGE.indexOf("isHardInteractive(target)");
     expect(navIdx).toBeGreaterThan(-1);
     expect(interactiveIdx).toBeGreaterThan(navIdx);
   });
