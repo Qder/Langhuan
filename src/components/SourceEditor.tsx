@@ -3,6 +3,7 @@
 import * as React from "react";
 import { useStore } from "@/lib/store";
 import type { Document } from "@/lib/types";
+import { htmlToMarkdown, looksLikeRichHtml } from "@/lib/htmlToMarkdown";
 import { cn } from "@/lib/utils";
 
 function measureOffsetTop(ta: HTMLTextAreaElement, offset: number): number {
@@ -92,6 +93,25 @@ export function SourceEditor({
     return () => cancelAnimationFrame(id);
   }, [pendingReveal, revealRange, clearPendingReveal]);
 
+  const onPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    // Plain-only paste (e.g. Ctrl+Shift+V) usually has no text/html → keep default.
+    if (doc.type !== "md") return;
+    const html = e.clipboardData.getData("text/html");
+    if (!html || !looksLikeRichHtml(html)) return;
+    e.preventDefault();
+    const md = htmlToMarkdown(html);
+    const ta = e.currentTarget;
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    const next = content.slice(0, start) + md + content.slice(end);
+    setDraft(doc.id, next);
+    const caret = start + md.length;
+    requestAnimationFrame(() => {
+      ta.selectionStart = ta.selectionEnd = caret;
+    });
+    setStatus("已将富文本转为 Markdown");
+  };
+
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Tab") {
       e.preventDefault();
@@ -144,6 +164,7 @@ export function SourceEditor({
           spellCheck={false}
           onChange={(e) => setDraft(doc.id, e.target.value)}
           onKeyDown={onKeyDown}
+          onPaste={onPaste}
           onScroll={(e) => {
             if (gutterRef.current) gutterRef.current.scrollTop = e.currentTarget.scrollTop;
             // flash follows scroll only during animation — clear relative pos on scroll

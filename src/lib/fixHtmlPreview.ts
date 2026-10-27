@@ -1,3 +1,4 @@
+import DOMPurify from "isomorphic-dompurify";
 /**
  * Rewrite known-broken preview helpers inside user HTML before iframe srcDoc.
  * Never written back to the saved document.
@@ -99,8 +100,66 @@ export function replaceColorizeFunction(html: string): string {
 
 /** Prepare HTML for iframe preview (mutate helpers only; keep user content intact on disk). */
 export function prepareHtmlPreview(src: string): string {
-  return replaceColorizeFunction(src);
+  return sanitizeHtmlPreview(replaceColorizeFunction(src));
 }
+
+/** Strip inline handlers / javascript: URLs without touching <script> bodies. */
+function lightStripHandlers(html: string): string {
+  let out = html.replace(/\son[a-z]+\s*=\s*(["'])[\s\S]*?\1/gi, "");
+  out = out.replace(/\son[a-z]+\s*=\s*[^\s>]+/gi, "");
+  out = out.replace(/\s(href|src|xlink:href)\s*=\s*(["'])\s*javascript:[\s\S]*?\2/gi, ' $1="#"');
+  return out;
+}
+
+/**
+ * Defense-in-depth HTML sanitize before iframe srcDoc.
+ * Primary control remains iframe sandbox (no allow-same-origin).
+ *
+ * Full DOMPurify is used for markup-only pages. Pages that include <script>
+ * (intentional HTML snapshots / demos) only get light handler stripping —
+ * DOMPurify otherwise mangles documents whose script strings contain "<script>".
+ */
+export function sanitizeHtmlPreview(html: string): string {
+  if (/<script\b/i.test(html)) {
+    return lightStripHandlers(html);
+  }
+  return DOMPurify.sanitize(html, {
+    WHOLE_DOCUMENT: true,
+    FORCE_BODY: false,
+    ADD_TAGS: [
+      "style",
+      "link",
+      "meta",
+      "title",
+      "head",
+      "html",
+      "body",
+      "noscript",
+      "iframe",
+    ],
+    ADD_ATTR: [
+      "target",
+      "allow",
+      "allowfullscreen",
+      "frameborder",
+      "scrolling",
+      "type",
+      "src",
+      "rel",
+      "href",
+      "media",
+      "name",
+      "content",
+      "property",
+      "http-equiv",
+      "id",
+      "class",
+      "style",
+    ],
+    ALLOW_DATA_ATTR: true,
+  });
+}
+
 
 /** Pure reference implementation used by tests (mirrors FIXED_COLORIZE_FN logic). */
 export function colorizeFixed(src: string, escapeHtml: (s: string) => string): string {

@@ -174,12 +174,34 @@ tags: [方法论, 双链]
 1. **小而稳的标题**：页面名即链接名
 2. **别名**：\`[[快速上手|上手指南]]\` 让句子更顺
 3. **反向链接**：阅读页右侧会列出谁指向了当前文
+4. **悬停 Peek**：把鼠标停在双链胶囊上，会浮出摘要卡片
+
+相对路径图片（库内 SVG / data URL）示例：
+
+![琅嬛印](./assets/seal.svg)
+
+缺失的二进制图会显示占位提示：
+
+![未入库](./assets/missing.png)
 
 ## 与标签的关系
 
 标签是横切分类（如 \`技术\`、\`入门\`）；双链是具体关系。两者并用，检索更快。
 
 回到 [[欢迎]]，或去看 [[技术笔记·表格与代码]]。
+`,
+    },
+    {
+      id: uid(),
+      path: "笔记/assets/seal.svg",
+      type: "html",
+      starred: false,
+      createdAt: now - 86400000 * 2,
+      updatedAt: now - 15000000,
+      content: `<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96">
+  <rect width="96" height="96" rx="16" fill="#b3382a"/>
+  <text x="48" y="58" text-anchor="middle" font-size="36" fill="#f5efe2" font-family="serif">嬛</text>
+</svg>
 `,
     },
     {

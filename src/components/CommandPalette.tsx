@@ -1,11 +1,12 @@
 "use client";
 
 import * as React from "react";
-import { FilePlus2, FileText, Globe, Home, Moon, Search, Sun } from "lucide-react";
+import { ClipboardPaste, FilePlus2, FileText, Globe, Home, Moon, Search, Sun } from "lucide-react";
 import { Dialog } from "./ui/dialog";
 import { useStore } from "@/lib/store";
 import { searchDocuments } from "@/lib/search";
 import { titleOf, cn } from "@/lib/utils";
+import { importClipboardAs } from "@/lib/clipboardImport";
 
 export function CommandPalette() {
   const open = useStore((s) => s.commandOpen);
@@ -14,6 +15,7 @@ export function CommandPalette() {
   const openDoc = useStore((s) => s.openDoc);
   const openHome = useStore((s) => s.openHome);
   const createDoc = useStore((s) => s.createDoc);
+  const setStatus = useStore((s) => s.setStatus);
   const toggleTheme = useStore((s) => s.toggleTheme);
   const theme = useStore((s) => s.theme);
   const [q, setQ] = React.useState("");
@@ -56,6 +58,48 @@ export function CommandPalette() {
         label: "新建 HTML 页面",
         icon: <Globe className="h-4 w-4 text-[var(--teal)]" />,
         run: () => createDoc({ type: "html" }),
+      },
+      {
+        key: "cmd-clip-md",
+        label: "从剪贴板导入网页",
+        hint: "HTML → Markdown 笔记",
+        icon: <ClipboardPaste className="h-4 w-4 text-[var(--accent)]" />,
+        run: () => {
+          void (async () => {
+            const res = await importClipboardAs("md");
+            if (!res.ok) {
+              setStatus(res.message);
+              return;
+            }
+            const base = (res.doc.title || "剪藏笔记").replace(/[/\\?%*:|"<>]/g, "-");
+            createDoc({
+              type: "md",
+              path: `剪藏/${base}.md`,
+              content: res.doc.content,
+            });
+          })();
+        },
+      },
+      {
+        key: "cmd-clip-html",
+        label: "保存 HTML 快照",
+        hint: "剪贴板网页 → HTML 文档",
+        icon: <ClipboardPaste className="h-4 w-4 text-[var(--teal)]" />,
+        run: () => {
+          void (async () => {
+            const res = await importClipboardAs("html");
+            if (!res.ok) {
+              setStatus(res.message);
+              return;
+            }
+            const base = (res.doc.title || "网页快照").replace(/[/\\?%*:|"<>]/g, "-");
+            createDoc({
+              type: "html",
+              path: `剪藏/${base}.html`,
+              content: res.doc.content,
+            });
+          })();
+        },
       },
       {
         key: "cmd-theme",

@@ -20,6 +20,7 @@ import { collectTagCounts } from "@/lib/tags";
 import { titleOf } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import { ImportFolderDialog } from "./ImportFolderDialog";
+import { importClipboardAs } from "@/lib/clipboardImport";
 import { ResizeGutter } from "./ui/ResizeGutter";
 
 function Brand() {
@@ -135,6 +136,7 @@ export function Sidebar() {
   const openHome = useStore((s) => s.openHome);
   const activeId = useStore((s) => s.activeId);
   const createDoc = useStore((s) => s.createDoc);
+  const setStatus = useStore((s) => s.setStatus);
   const setCommandOpen = useStore((s) => s.setCommandOpen);
   const theme = useStore((s) => s.theme);
   const toggleTheme = useStore((s) => s.toggleTheme);
@@ -171,6 +173,36 @@ export function Sidebar() {
     if (text == null || !text.trim()) return;
     const isHtml = /^\s*</.test(text) || /<\/?[a-z][\s\S]*>/i.test(text);
     createDoc({ type: isHtml ? "html" : "md", content: text, open: true });
+  };
+
+  const onClipperMd = async () => {
+    const res = await importClipboardAs("md");
+    if (!res.ok) {
+      setStatus(res.message);
+      return;
+    }
+    const base = (res.doc.title || "剪藏笔记").replace(/[/\\?%*:|"<>]/g, "-");
+    createDoc({
+      type: "md",
+      path: `剪藏/${base}.md`,
+      content: res.doc.content,
+      open: true,
+    });
+  };
+
+  const onClipperHtml = async () => {
+    const res = await importClipboardAs("html");
+    if (!res.ok) {
+      setStatus(res.message);
+      return;
+    }
+    const base = (res.doc.title || "网页快照").replace(/[/\\?%*:|"<>]/g, "-");
+    createDoc({
+      type: "html",
+      path: `剪藏/${base}.html`,
+      content: res.doc.content,
+      open: true,
+    });
   };
 
   const handleImportList = async (list: FileList | File[], keepDir: boolean) => {
@@ -236,6 +268,8 @@ export function Sidebar() {
             <DropdownItem onClick={() => createDoc({ type: "md" })}>Markdown 笔记</DropdownItem>
             <DropdownItem onClick={() => createDoc({ type: "html" })}>HTML 页面</DropdownItem>
             <DropdownItem onClick={onPasteSource}>粘贴源码</DropdownItem>
+            <DropdownItem onClick={() => void onClipperMd()}>从剪贴板导入网页</DropdownItem>
+            <DropdownItem onClick={() => void onClipperHtml()}>保存 HTML 快照</DropdownItem>
           </Dropdown>
           <Dropdown
             trigger={

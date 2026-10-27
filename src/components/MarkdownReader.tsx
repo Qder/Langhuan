@@ -8,11 +8,15 @@ import rehypeSlug from "rehype-slug";
 import rehypeKatex from "rehype-katex";
 import rehypeHighlight from "rehype-highlight";
 import rehypeRaw from "rehype-raw";
+import rehypeSanitize from "rehype-sanitize";
 import { Copy, Info, Lightbulb, TriangleAlert } from "lucide-react";
 import { flattenCodeText, isMermaidLanguage } from "@/lib/codeText";
+import { mdSanitizeSchema } from "@/lib/mdSanitizeSchema";
+import { resolveLibraryHref, resolveMediaSrc } from "@/lib/resolveLibraryPath";
 import { MermaidBlock } from "./MermaidBlock";
+import { WikiLink } from "./WikiLink";
 import { useStore } from "@/lib/store";
-import { findBacklinks, resolveWikiTarget } from "@/lib/search";
+import { findBacklinks } from "@/lib/search";
 import { getTags, parseFrontmatter } from "@/lib/tags";
 import { countWords, readingMinutes, relativeTime, titleOf, cn } from "@/lib/utils";
 import type { Document } from "@/lib/types";
@@ -37,18 +41,9 @@ function WikiText({ text, docs, onOpen }: { text: string; docs: Document[]; onOp
       {parts.map((p, i) => {
         const m = p.match(/^\[\[([^\]|#]+)(?:\|([^\]]+))?\]\]$/);
         if (!m) return <React.Fragment key={i}>{p}</React.Fragment>;
-        const target = resolveWikiTarget(docs, m[1].trim());
+        const name = m[1].trim();
         const label = (m[2] || m[1]).trim();
-        return (
-          <button
-            key={i}
-            type="button"
-            className={cn("wiki-link", !target && "missing")}
-            onClick={() => target && onOpen(target.id)}
-          >
-            {label}
-          </button>
-        );
+        return <WikiLink key={i} name={name} label={label} docs={docs} onOpen={onOpen} />;
       })}
     </>
   );
@@ -106,9 +101,18 @@ function CodeBlock({
           <Copy className="h-3 w-3" /> {copied ? "已复制" : "复制"}
         </button>
       </div>
-      <pre className="!m-0 !border-0 !rounded-none">
-        <code className={className}>{children}</code>
-      </pre>
+      <div className="lh-codeblock-body flex min-w-0 overflow-x-auto">
+        <div className="lh-code-gutter" aria-hidden>
+          {Array.from({ length: Math.max(1, text.split("\n").length) }, (_, i) => (
+            <div key={i} className="lh-code-gutter-line">
+              {i + 1}
+            </div>
+          ))}
+        </div>
+        <pre className="!m-0 !border-0 !rounded-none flex-1 min-w-0">
+          <code className={className}>{children}</code>
+        </pre>
+      </div>
     </div>
   );
 }
@@ -441,6 +445,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
               rehypeKatex,
               rehypeSlug,
               rehypeRaw,
+              [rehypeSanitize, mdSanitizeSchema],
               [rehypeHighlight, { plainText: ["mermaid"] }],
               rehypeSrcPositions(fmOffset),
             ]}
@@ -534,6 +539,79 @@ export function MarkdownReader({ doc }: { doc: Document }) {
                   <code className={className} {...props}>
                     {children}
                   </code>
+                );
+              },
+              img: ({ src, alt, title }) => {
+                const resolved = resolveMediaSrc(
+                  typeof src === "string" ? src : undefined,
+                  doc.path,
+                  documents
+                );
+                if (resolved.kind === "external" || resolved.kind === "data") {
+                  return (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={resolved.src}
+                      alt={alt || ""}
+                      title={title}
+                      className="lh-md-img"
+                    />
+                  );
+                }
+                return (
+                  <span
+                    className="lh-broken-img"
+                    title={resolved.reason}
+                    role="img"
+                    aria-label={alt || "缺失图片"}
+                  >
+                    <span className="lh-broken-img-label">图片未找到</span>
+                    <span className="lh-broken-img-path">{resolved.path || "(空路径)"}</span>
+                    <span className="lh-broken-img-reason">{resolved.reason}</span>
+                  </span>
+                );
+              },
+              a: ({ href, children, ...props }) => {
+                const resolved = resolveLibraryHref(
+                  typeof href === "string" ? href : undefined,
+                  doc.path,
+                  documents
+                );
+                if (resolved.kind === "doc") {
+                  return (
+                    <button
+                      type="button"
+                      className="lh-lib-link"
+                      onClick={() => openDoc(resolved.doc.id)}
+                    >
+                      {children}
+                    </button>
+                  );
+                }
+                if (
+                  resolved.kind === "missing" &&
+                  href &&
+                  !/^(https?:|mailto:|#)/i.test(String(href))
+                ) {
+                  return (
+                    <span className="lh-lib-link missing" title={`未找到 ${resolved.path}`}>
+                      {children}
+                    </span>
+                  );
+                }
+                return (
+                  <a
+                    href={href}
+                    target={typeof href === "string" && href.startsWith("http") ? "_blank" : undefined}
+                    rel={
+                      typeof href === "string" && href.startsWith("http")
+                        ? "noreferrer noopener"
+                        : undefined
+                    }
+                    {...(props as React.AnchorHTMLAttributes<HTMLAnchorElement>)}
+                  >
+                    {children}
+                  </a>
                 );
               },
               div: ({ className, children, ...props }) => {

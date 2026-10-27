@@ -15,10 +15,12 @@ import {
   cn,
 } from "@/lib/utils";
 import { ImportFolderDialog } from "./ImportFolderDialog";
+import { importClipboardAs } from "@/lib/clipboardImport";
 
 export function HomeView() {
   const documents = useStore((s) => s.documents);
   const createDoc = useStore((s) => s.createDoc);
+  const setStatus = useStore((s) => s.setStatus);
   const openDoc = useStore((s) => s.openDoc);
   const setCommandOpen = useStore((s) => s.setCommandOpen);
   const setTagFilter = useStore((s) => s.setTagFilter);
@@ -39,10 +41,25 @@ export function HomeView() {
     createDoc({ type: isHtml ? "html" : "md", content: text });
   };
 
+  const onClipperMd = async () => {
+    const res = await importClipboardAs("md");
+    if (!res.ok) {
+      setStatus(res.message);
+      return;
+    }
+    const base = (res.doc.title || "剪藏笔记").replace(/[/\\?%*:|"<>]/g, "-");
+    createDoc({
+      type: "md",
+      path: `剪藏/${base}.md`,
+      content: res.doc.content,
+    });
+  };
+
   const shortcuts = [
     { title: "新建笔记", desc: "写一篇 Markdown", icon: FilePlus2, onClick: () => createDoc({ type: "md" }) },
     { title: "新建页面", desc: "收藏 HTML", icon: Globe, onClick: () => createDoc({ type: "html" }) },
     { title: "粘贴源码", desc: "快速收入片段", icon: FileCode2, onClick: onPaste },
+    { title: "网页剪藏", desc: "剪贴板 → Markdown", icon: Globe, onClick: () => void onClipperMd() },
     { title: "导入文件夹", desc: "保留目录结构", icon: FolderInput, onClick: () => folderRef.current?.click() },
   ];
 

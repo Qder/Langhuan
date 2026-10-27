@@ -365,3 +365,118 @@ html.dark .prose-langhuan .katex {
   -webkit-user-select: text;
   user-select: text;
 }
+
+
+/* Code block line gutter */
+.lh-codeblock-body {
+  align-items: stretch;
+}
+.lh-code-gutter {
+  flex-shrink: 0;
+  user-select: none;
+  -webkit-user-select: none;
+  padding: 1em 0.55em 1em 0.75em;
+  text-align: right;
+  font-family: var(--font-mono), monospace;
+  font-size: 0.86rem;
+  line-height: 1.65;
+  color: rgba(236, 228, 210, 0.35);
+  border-right: 1px solid rgba(236, 228, 210, 0.08);
+  background: rgba(0, 0, 0, 0.18);
+}
+.lh-code-gutter-line {
+  height: 1.65em;
+}
+.lh-codeblock-body pre code {
+  padding-left: 0.9em !important;
+}
+
+/* Relative / broken images */
+.lh-md-img {
+  max-width: 100%;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+}
+.lh-broken-img {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2em;
+  margin: 0.75em 0;
+  padding: 0.85em 1em;
+  border-radius: 12px;
+  border: 1px dashed var(--border);
+  background: color-mix(in srgb, var(--muted) 8%, var(--card));
+  font-family: var(--font-sans), "Noto Sans SC", sans-serif;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.lh-broken-img-label {
+  color: var(--accent);
+  font-weight: 600;
+}
+.lh-broken-img-path {
+  font-family: var(--font-mono), monospace;
+  font-size: 0.8em;
+  word-break: break-all;
+}
+.lh-lib-link {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+}
+.lh-lib-link.missing {
+  color: var(--muted);
+  text-decoration-style: dashed;
+  cursor: default;
+}
+
+/* Wikilink Peek card */
+.lh-wiki-peek {
+  position: fixed;
+  z-index: 80;
+  width: min(300px, calc(100vw - 16px));
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  box-shadow: 0 12px 40px rgba(43, 38, 31, 0.14);
+  font-family: var(--font-sans), "Noto Sans SC", sans-serif;
+}
+html.dark .lh-wiki-peek {
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+}
+.lh-wiki-peek-title {
+  font-family: var(--font-serif), "Noto Serif SC", serif;
+  font-weight: 650;
+  font-size: 0.98rem;
+  color: var(--fg);
+}
+.lh-wiki-peek-path {
+  margin-top: 2px;
+  font-size: 0.72rem;
+  color: var(--muted);
+  word-break: break-all;
+}
+.lh-wiki-peek-excerpt {
+  margin: 8px 0 0;
+  font-size: 0.82rem;
+  line-height: 1.55;
+  color: var(--muted);
+}
+.lh-wiki-peek-open {
+  margin-top: 10px;
+  appearance: none;
+  border: 0;
+  border-radius: 10px;
+  padding: 6px 12px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
