@@ -314,8 +314,12 @@ export function HtmlReader({ doc }: { doc: Document }) {
         // Click outside the context menu (inside iframe) dismisses it.
         setMenu(null);
         if (!data.range && isTrivialSelection(data.text || "")) return;
-        // Preview-only: plain click must NOT remember locate — only 「定位源码」 via context menu.
-        // Split: keep highlight-only (select/focus only on ⌘/Ctrl or double-click).
+        // Plain left-click must never locate/highlight (bridge also suppresses it).
+        // Only ⌘/Ctrl+click, double-click, or ⌘/Ctrl+Enter (and context-menu 「定位源码」).
+        const explicit =
+          !!(data.metaKey || data.ctrlKey) ||
+          (data.detail != null && data.detail >= 2);
+        if (!explicit) return;
         if (useStore.getState().viewMode === "preview") return;
         runLocate(data);
         return;

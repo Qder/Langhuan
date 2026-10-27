@@ -590,9 +590,16 @@ export const HTML_LOCATE_BRIDGE = `
     if (e.altKey || e.shiftKey) return;
     var navHandled = handleSrcDocNavClick(e);
     var target = e.target;
-    // Hash / blocked nav: still allow ⌘/Ctrl / double-click locate; skip plain click locate.
-    if (navHandled && !(e.metaKey || e.ctrlKey) && e.detail < 2) return;
-    if (isInteractive(target) && !(e.metaKey || e.ctrlKey) && e.detail < 2) return;
+    var explicitLocate = !!(e.metaKey || e.ctrlKey) || (e.detail >= 2);
+    // Plain left-click: never draw 朱砂 overlay / never post lh-locate.
+    // Clear any stale box from a prior locate so chrome clicks dismiss it.
+    if (!explicitLocate) {
+      clearOverlay();
+      return;
+    }
+    // Hash / blocked nav / interactive: skip even for ⌘/Ctrl / double-click locate.
+    if (navHandled) return;
+    if (isInteractive(target)) return;
     var sel = window.getSelection();
     if (sel && !sel.isCollapsed && String(sel).trim() && e.detail < 2) return;
 
@@ -614,7 +621,8 @@ export const HTML_LOCATE_BRIDGE = `
 
     var lh = parseLh(lhEl);
     var snippet = textSnippetOf(target && target.nodeType === 1 ? target : (target && target.parentElement) || lhEl);
-    if (lhEl) showOverlayFor(lhEl);
+    // Overlay is drawn only by inbound highlightRange / scrollToRange
+    // (source→preview sync or after explicit 「定位源码」), never on click.
 
     parent.postMessage({
       type: "lh-locate",

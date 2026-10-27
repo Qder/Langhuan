@@ -98,6 +98,24 @@ const DATA = {
     expect(HTML_LOCATE_BRIDGE).toContain("pointQuery");
   });
 
+  it("plain left-click clears overlay and never draws 朱砂 box", () => {
+    // Plain click must clear stale overlay and return before any showOverlayFor / lh-locate.
+    expect(HTML_LOCATE_BRIDGE).toContain("explicitLocate");
+    expect(HTML_LOCATE_BRIDGE).toContain("clearOverlay()");
+    expect(HTML_LOCATE_BRIDGE).toMatch(/if \(!explicitLocate\) \{[\s\S]*?clearOverlay\(\);[\s\S]*?return;/);
+    // Click path must not call showOverlayFor — only highlightRange / scrollToRange / legacy lh-highlight.
+    const clickIdx = HTML_LOCATE_BRIDGE.indexOf('addEventListener("click"');
+    const msgIdx = HTML_LOCATE_BRIDGE.indexOf('window.addEventListener("message"');
+    expect(clickIdx).toBeGreaterThan(-1);
+    expect(msgIdx).toBeGreaterThan(clickIdx);
+    const clickRegion = HTML_LOCATE_BRIDGE.slice(clickIdx, msgIdx);
+    expect(clickRegion).not.toContain("showOverlayFor");
+    expect(clickRegion).toContain('type: "lh-locate"');
+    // Overlay draw remains for source→preview sync
+    const msgRegion = HTML_LOCATE_BRIDGE.slice(msgIdx);
+    expect(msgRegion).toContain("showOverlayFor(el)");
+  });
+
   it("intercepts same-document hash clicks so srcDoc does not go blank", () => {
     expect(HTML_LOCATE_BRIDGE).toContain("handleSrcDocNavClick");
     expect(HTML_LOCATE_BRIDGE).toContain("findHashTarget");
