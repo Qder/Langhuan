@@ -226,9 +226,10 @@ export function HtmlCodeMirror({
     applyingExternal.current = false;
   }, [content]);
 
-  // pending reveal
+  // pending reveal — defer while preview-only (editor may be mounted but hidden)
   React.useEffect(() => {
     if (!pendingReveal) return;
+    if (viewMode === "preview") return;
     const view = viewRef.current;
     if (!view) return;
     unfollowUntil.current = Date.now() + SOURCE_SCROLL_UNFOLLOW_MS;
@@ -240,7 +241,7 @@ export function HtmlCodeMirror({
       focus: !!pendingReveal.focus,
     });
     clearPendingReveal();
-  }, [pendingReveal, clearPendingReveal]);
+  }, [pendingReveal, clearPendingReveal, viewMode]);
 
   // Preview → source: prefer anchor offset when coverage is good; else percent.
   React.useEffect(() => {

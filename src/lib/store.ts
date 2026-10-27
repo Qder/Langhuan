@@ -448,7 +448,24 @@ export const useStore = create<LanghuanState>()(
         });
       },
       clearTagFilters: () => set({ tagFilters: [] }),
-      setViewMode: (m) => set({ viewMode: m }),
+      setViewMode: (m) => {
+        const prev = get().viewMode;
+        const pending = get().pendingReveal;
+        // Opening source/split with a memorized preview locate: bump nonce so
+        // the (possibly already-mounted, was-hidden) editor re-applies reveal.
+        if (
+          pending &&
+          prev === "preview" &&
+          (m === "split" || m === "source")
+        ) {
+          set({
+            viewMode: m,
+            pendingReveal: { ...pending, nonce: Date.now() },
+          });
+          return;
+        }
+        set({ viewMode: m });
+      },
       setSplitRatio: (r) => {
         const clamped = Math.min(0.8, Math.max(0.2, r));
         set({ splitRatio: clamped });
@@ -528,21 +545,32 @@ export const useStore = create<LanghuanState>()(
           return;
         }
         const viewMode = get().viewMode;
-        if (viewMode === "preview") {
-          set({ viewMode: "split" });
-        }
         const select = opts?.select ?? false;
         const focus = opts?.focus ?? select;
+        const pending = {
+          start: result.start,
+          end: result.end,
+          nonce: Date.now(),
+          select,
+          focus,
+          highlight: opts?.highlight ?? true,
+          center: opts?.center ?? true,
+        };
+        // Preview-only: remember for later; do NOT auto-switch to split.
+        // User opens 源码/分栏 explicitly, then editors apply pendingReveal.
+        if (viewMode === "preview") {
+          const hint =
+            select || focus
+              ? "已记住选区，点「源码」或「分栏」可编辑"
+              : "已记住位置，点「源码」或「分栏」可查看";
+          set({
+            pendingReveal: pending,
+            status: { message: hint, at: Date.now() },
+          });
+          return;
+        }
         set({
-          pendingReveal: {
-            start: result.start,
-            end: result.end,
-            nonce: Date.now(),
-            select,
-            focus,
-            highlight: opts?.highlight ?? true,
-            center: opts?.center ?? true,
-          },
+          pendingReveal: pending,
           status: { message: result.message, at: Date.now() },
         });
       },

@@ -536,9 +536,10 @@ export function MdCodeMirror({
     applyingExternal.current = false;
   }, [content]);
 
-  // pending reveal from preview locate
+  // pending reveal — defer while preview-only (editor may be mounted but hidden)
   React.useEffect(() => {
     if (!pendingReveal) return;
+    if (viewMode === "preview") return;
     const view = viewRef.current;
     if (!view) return;
     unfollowUntil.current = Date.now() + SOURCE_SCROLL_UNFOLLOW_MS;
@@ -550,7 +551,7 @@ export function MdCodeMirror({
       focus: !!pendingReveal.focus,
     });
     clearPendingReveal();
-  }, [pendingReveal, clearPendingReveal]);
+  }, [pendingReveal, clearPendingReveal, viewMode]);
 
   // Preview → editor anchor scroll sync
   React.useEffect(() => {
