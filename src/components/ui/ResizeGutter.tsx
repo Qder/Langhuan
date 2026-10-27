@@ -186,7 +186,8 @@ export function ResizeGutter({
       data-axis={axis}
       className={cn(
         "lh-resize-gutter group relative shrink-0 z-20 touch-none select-none",
-        "bg-[var(--border)]/55 hover:bg-[var(--accent)]/45",
+        // N-langhuan-split-gutter: resting track solid enough on paper bg
+        "bg-[var(--border)] hover:bg-[var(--accent)]/45",
         "focus-visible:outline-none focus-visible:bg-[var(--accent)]/55",
         "data-[active=1]:bg-[var(--accent)]/70",
         "transition-colors",
@@ -200,10 +201,11 @@ export function ResizeGutter({
       <span
         aria-hidden
         className={cn(
-          "pointer-events-none absolute rounded-full bg-[var(--accent)] opacity-0 transition-opacity z-[1]",
-          "group-hover:opacity-100 group-focus-visible:opacity-100 group-data-[active=1]:opacity-100",
+          "pointer-events-none absolute rounded-full bg-[var(--accent)] transition-opacity z-[1]",
+          // Resting mid-handle faintly visible; full on hover/drag
+          "opacity-45 group-hover:opacity-100 group-focus-visible:opacity-100 group-data-[active=1]:opacity-100",
           "left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2",
-          "h-10 w-1"
+          "h-12 w-1"
         )}
       />
     </div>

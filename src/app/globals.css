@@ -483,8 +483,8 @@ html.dark .lh-wiki-peek {
 
 /* ── Resize gutters ── */
 .lh-resize-gutter-hit {
-  /* Expand hit target ~6px beyond the visible track (both axes) */
-  inset: -6px;
+  /* Expand hit target ~8px beyond the visible track (both axes) */
+  inset: -8px;
 }
 
 /* While dragging: iframes must not steal pointer events */
