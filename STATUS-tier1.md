@@ -16,7 +16,7 @@
 - 版本快照存于独立 IDB 键，导出 zip **不含**版本历史（含文档与回收站）。
 - 滚动比例同步等既有 HTML IDE 行为未改。
 - 配额告警基于内容估算 + `navigator.storage.estimate()`，不同浏览器数字会有差异。
-- Tier 2（本地文件夹双向同步）尚未做。
+- Tier 2 本地文件夹同步见 `STATUS-tier2-fs-sync.md`。
 
 ## 关键文件
 

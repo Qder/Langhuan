@@ -10,6 +10,7 @@ import { DocWorkspace } from "./DocWorkspace";
 import { CommandPalette } from "./CommandPalette";
 import { ReadingProgress } from "./ReadingProgress";
 import { BackupDialog } from "./BackupDialog";
+import { FsSyncDialog } from "./FsSyncDialog";
 import { VersionHistoryDialog } from "./VersionHistoryDialog";
 import { DirtyNavDialog } from "./DirtyNavDialog";
 import { BackupReminder } from "./BackupReminder";
@@ -34,8 +35,7 @@ export function AppShell() {
   const autosaveEnabled = useStore((s) => s.autosaveEnabled);
   const activeIdForSave = useStore((s) => s.activeId);
 
-  React.useEffect(() => {
-    // Warn on tab close when there are unsaved drafts
+  // Warn on tab close when there are unsaved drafts
   React.useEffect(() => {
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
       if (!anyDirty()) return;
@@ -58,7 +58,8 @@ export function AppShell() {
     return () => window.clearTimeout(t);
   }, [autosaveEnabled, activeIdForSave, drafts, isDirty]);
 
-  if (!hydrated) {
+  React.useEffect(() => {
+    if (!hydrated) {
       const t = window.setTimeout(() => setHydrated(true), 50);
       return () => window.clearTimeout(t);
     }
@@ -163,6 +164,7 @@ export function AppShell() {
       </div>
       <CommandPalette />
       <BackupDialog />
+      <FsSyncDialog />
       <VersionHistoryDialog />
       <DirtyNavDialog />
       <BackupReminder />

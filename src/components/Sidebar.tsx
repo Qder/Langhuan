@@ -3,6 +3,7 @@
 import * as React from "react";
 import {
   Archive,
+  FolderSync,
   ChevronDown,
   FileText,
   FolderOpen,
@@ -228,6 +229,8 @@ export function Sidebar() {
   const storageUsage = useStore((s) => s.storageUsage);
   const refreshStorageUsage = useStore((s) => s.refreshStorageUsage);
   const setBackupDialogOpen = useStore((s) => s.setBackupDialogOpen);
+  const setFsSyncDialogOpen = useStore((s) => s.setFsSyncDialogOpen);
+  const fsBoundName = useStore((s) => s.fsBoundName);
   const htmlImmersive = useStore((s) => s.htmlImmersive);
   const htmlSidebarPeek = useStore((s) => s.htmlSidebarPeek);
   const setHtmlSidebarPeek = useStore((s) => s.setHtmlSidebarPeek);
@@ -391,7 +394,6 @@ export function Sidebar() {
       const dir = await w.showDirectoryPicker();
       const collected: { path: string; content: string }[] = [];
       const walk = async (handle: FileSystemDirectoryHandle, prefix: string) => {
-        // @ts-expect-error async iterator
         for await (const [name, entry] of handle.entries()) {
           if (entry.kind === "file" && isImportableLibraryPath(name)) {
             const file = await (entry as FileSystemFileHandle).getFile();
@@ -820,6 +822,15 @@ export function Sidebar() {
                 ? ` / ${formatBytes(storageUsage.quotaBytes)}`
                 : ""}
             </div>
+          </button>
+          <button
+            type="button"
+            onClick={() => setFsSyncDialogOpen(true)}
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl hover:bg-[var(--hover)]"
+            aria-label="本地文件夹同步"
+            title={fsBoundName ? `本地同步：${fsBoundName}` : "本地文件夹同步"}
+          >
+            <FolderSync className="h-3.5 w-3.5" />
           </button>
           <button
             type="button"

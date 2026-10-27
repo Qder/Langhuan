@@ -4,3 +4,4 @@ export * from "./versions";
 export * from "./backup";
 export * from "./diff";
 export * from "./usage";
+export * from "./fsSync";

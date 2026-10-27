@@ -19,3 +19,11 @@ export const STORAGE_CRIT_BYTES = 8 * 1024 * 1024;
 export const STORE_KEY = "langhuan-store";
 export const VERSIONS_KEY_PREFIX = "langhuan-versions:";
 export const MIGRATION_FLAG = "langhuan-idb-migrated";
+
+/** IndexedDB key for persisted FileSystemDirectoryHandle. */
+export const FS_HANDLE_KEY = "langhuan-fs-dir-handle";
+
+/** Bound-folder meta directory (not imported as notes). */
+export const FS_INDEX_DIR = ".langhuan";
+
+export const FS_INDEX_FILE = "index.json";

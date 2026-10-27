@@ -26,6 +26,7 @@ import {
   type StorageUsage,
 } from "./storage/usage";
 import type { BackupPayload } from "./storage/backup";
+import { writeThroughDoc } from "./storage/fsSync";
 
 export type PendingReveal = {
   start: number;
@@ -87,6 +88,12 @@ type LanghuanState = {
   versionDialogOpen: boolean;
   /** Cached storage usage (refreshed async). */
   storageUsage: StorageUsage | null;
+  /** Bound local folder display name (handle itself in IDB). */
+  fsBoundName: string | null;
+  /** Last successful folder sync timestamp. */
+  fsLastSyncAt: number | null;
+  /** UI flag for local folder sync dialog. */
+  fsSyncDialogOpen: boolean;
 
   setHydrated: (v: boolean) => void;
   setTheme: (t: ThemeMode) => void;
@@ -154,10 +161,26 @@ type LanghuanState = {
   setAutosaveEnabled: (v: boolean) => void;
   setBackupDialogOpen: (v: boolean) => void;
   setVersionDialogOpen: (v: boolean) => void;
+  setFsSyncDialogOpen: (v: boolean) => void;
+  setFsBoundName: (name: string | null) => void;
+  setFsLastSyncAt: (t: number | null) => void;
+  /** Apply documents returned from a folder sync-in (preserves drafts for untouched ids). */
+  applySyncedDocuments: (docs: Document[]) => void;
   /** Replace or merge library from backup payload. */
   importLibrary: (payload: BackupPayload, mode: "merge" | "replace") => number;
   exportPayload: () => BackupPayload;
 };
+
+function scheduleWriteThrough(get: () => LanghuanState, set: (p: Partial<LanghuanState>) => void, doc: Document | undefined) {
+  if (!doc || !get().fsBoundName) return;
+  void writeThroughDoc(doc)
+    .then((ok) => {
+      if (ok) set({ fsLastSyncAt: Date.now() });
+    })
+    .catch(() => {
+      /* best-effort */
+    });
+}
 
 function ensureUniquePath(path: string, docs: Document[], exceptId?: string): string {
   const set = new Set(docs.filter((d) => d.id !== exceptId).map((d) => d.path));
@@ -209,6 +232,9 @@ export const useStore = create<LanghuanState>()(
       backupDialogOpen: false,
       versionDialogOpen: false,
       storageUsage: null,
+      fsBoundName: null,
+      fsLastSyncAt: null,
+      fsSyncDialogOpen: false,
 
       setHydrated: (v) => set({ hydrated: v }),
       setTheme: (t) => {
@@ -413,6 +439,7 @@ export const useStore = create<LanghuanState>()(
         const doc = get().documents.find((d) => d.id === target);
         get().setStatus(`已保存 ${doc ? basename(doc.path) : ""}`);
         void get().refreshStorageUsage();
+        scheduleWriteThrough(get, set, doc);
       },
 
       discardDraft: (id) => {
@@ -449,6 +476,7 @@ export const useStore = create<LanghuanState>()(
         }));
         get().setStatus(`已新建 ${basename(doc.path)}`);
         void get().refreshStorageUsage();
+        scheduleWriteThrough(get, set, doc);
         return doc;
       },
 
@@ -498,6 +526,8 @@ export const useStore = create<LanghuanState>()(
           ),
         }));
         get().setStatus(`已重命名为 ${basename(path)}`);
+        const renamed = get().documents.find((d) => d.id === id);
+        scheduleWriteThrough(get, set, renamed);
       },
 
       deleteDoc: (id) => {
@@ -579,6 +609,7 @@ export const useStore = create<LanghuanState>()(
               d.id === id ? { ...d, content: next, updatedAt: Date.now() } : d
             ),
           }));
+          scheduleWriteThrough(get, set, get().documents.find((d) => d.id === id));
         }
       },
 
@@ -614,6 +645,24 @@ export const useStore = create<LanghuanState>()(
       },
       setBackupDialogOpen: (v) => set({ backupDialogOpen: v }),
       setVersionDialogOpen: (v) => set({ versionDialogOpen: v }),
+      setFsSyncDialogOpen: (v) => set({ fsSyncDialogOpen: v }),
+      setFsBoundName: (name) => set({ fsBoundName: name }),
+      setFsLastSyncAt: (t) => set({ fsLastSyncAt: t }),
+
+      applySyncedDocuments: (docs) => {
+        const prevDrafts = get().drafts;
+        const nextIds = new Set(docs.map((d) => d.id));
+        const drafts = Object.fromEntries(
+          Object.entries(prevDrafts).filter(([id]) => nextIds.has(id))
+        );
+        const activeId = get().activeId;
+        set({
+          documents: docs,
+          drafts,
+          activeId: activeId && nextIds.has(activeId) ? activeId : activeId,
+        });
+        void get().refreshStorageUsage();
+      },
 
       exportPayload: () => ({
         documents: get().documents,
@@ -690,8 +739,10 @@ export const useStore = create<LanghuanState>()(
         htmlPreviewPrefs: s.htmlPreviewPrefs,
         lastBackupAt: s.lastBackupAt,
         autosaveEnabled: s.autosaveEnabled,
+        fsBoundName: s.fsBoundName,
+        fsLastSyncAt: s.fsLastSyncAt,
       }),
-      version: 2,
+      version: 3,
       migrate: (persisted, fromVersion) => {
         const p = (persisted || {}) as Record<string, unknown>;
         if (Array.isArray(p.tagFilters)) {
@@ -705,6 +756,10 @@ export const useStore = create<LanghuanState>()(
         if (!Array.isArray(p.trash)) p.trash = [];
         if (typeof p.autosaveEnabled !== "boolean") p.autosaveEnabled = true;
         if (p.lastBackupAt != null && typeof p.lastBackupAt !== "number") p.lastBackupAt = null;
+        if (p.fsBoundName != null && typeof p.fsBoundName !== "string") p.fsBoundName = null;
+        if (p.fsLastSyncAt != null && typeof p.fsLastSyncAt !== "number") p.fsLastSyncAt = null;
+        if (!("fsBoundName" in p)) p.fsBoundName = null;
+        if (!("fsLastSyncAt" in p)) p.fsLastSyncAt = null;
         void fromVersion;
         return p as typeof persisted;
       },

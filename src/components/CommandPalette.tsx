@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Archive, ClipboardPaste, FilePlus2, FileText, Globe, History, Home, Moon, Search, Sun, Trash2 } from "lucide-react";
+import { Archive, ClipboardPaste, FilePlus2, FileText, FolderSync, Globe, History, Home, Moon, Search, Sun, Trash2 } from "lucide-react";
 import { Dialog } from "./ui/dialog";
 import { useStore } from "@/lib/store";
 import { searchDocuments } from "@/lib/search";
@@ -19,6 +19,8 @@ export function CommandPalette() {
   const toggleTheme = useStore((s) => s.toggleTheme);
   const theme = useStore((s) => s.theme);
   const setBackupDialogOpen = useStore((s) => s.setBackupDialogOpen);
+  const setFsSyncDialogOpen = useStore((s) => s.setFsSyncDialogOpen);
+  const fsBoundName = useStore((s) => s.fsBoundName);
   const setVersionDialogOpen = useStore((s) => s.setVersionDialogOpen);
   const setSidebarPanel = useStore((s) => s.setSidebarPanel);
   const autosaveEnabled = useStore((s) => s.autosaveEnabled);
@@ -125,6 +127,13 @@ export function CommandPalette() {
         hint: "导出 / 导入全库 zip",
         icon: <Archive className="h-4 w-4 text-[var(--accent)]" />,
         run: () => setBackupDialogOpen(true),
+      },
+      {
+        key: "cmd-fs-sync",
+        label: "本地文件夹同步",
+        hint: fsBoundName ? `已绑定 ${fsBoundName}` : "File System Access",
+        icon: <FolderSync className="h-4 w-4 text-[var(--teal)]" />,
+        run: () => setFsSyncDialogOpen(true),
       },
       {
         key: "cmd-trash",
