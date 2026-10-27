@@ -50,7 +50,13 @@ import {
   type StorageUsage,
 } from "./storage/usage";
 import type { BackupPayload } from "./storage/backup";
-import { writeThroughDoc } from "./storage/fsSync";
+import { ensureLibraryDir, writeThroughDoc } from "./storage/fsSync";
+import {
+  joinFolderPath,
+  normalizeFolderPath,
+  pruneEmptyFolders,
+  sanitizeFolderSegment,
+} from "./folders";
 import { BUILTIN_TEMPLATES, applyTemplate, dailyNoteSpec } from "./templates";
 
 export type PendingReveal = {
@@ -102,6 +108,8 @@ type LanghuanState = {
   documents: Document[];
   drafts: Record<string, string>;
   trash: TrashItem[];
+  /** Empty folder paths kept visible in the tree (persisted). */
+  emptyFolders: string[];
   activeId: string | null;
   viewMode: ViewMode;
   theme: ThemeMode;
@@ -233,6 +241,8 @@ type LanghuanState = {
     content?: string;
     open?: boolean;
   }) => Document;
+  /** Create an empty folder under parent (default root). Returns path or null if rejected. */
+  createFolder: (name: string, parentPath?: string) => string | null;
   importFiles: (files: { path: string; content: string }[]) => number;
   renameDoc: (id: string, newPath: string) => void;
   /** Soft-delete → recycle bin. */
@@ -361,6 +371,7 @@ export const useStore = create<LanghuanState>()(
       documents: createSeedDocuments(),
       drafts: {},
       trash: [],
+      emptyFolders: [],
       activeId: null,
       viewMode: "preview",
       theme: "paper",
@@ -726,8 +737,13 @@ export const useStore = create<LanghuanState>()(
             open && !s.openTabs.includes(doc.id)
               ? [...s.openTabs, doc.id]
               : s.openTabs;
+          const documents = [...s.documents, doc];
           return {
-            documents: [...s.documents, doc],
+            documents,
+            emptyFolders: pruneEmptyFolders(
+              s.emptyFolders,
+              documents.map((d) => d.path)
+            ),
             activeId: open ? doc.id : s.activeId,
             openTabs,
             viewMode: open ? "source" : s.viewMode,
@@ -737,6 +753,44 @@ export const useStore = create<LanghuanState>()(
         void get().refreshStorageUsage();
         scheduleWriteThrough(get, set, doc);
         return doc;
+      },
+
+      createFolder: (name, parentPath = "") => {
+        const segment = sanitizeFolderSegment(name);
+        if (!segment) {
+          get().setStatus("文件夹名无效（不能为空、. / ..，也不能含 / \\ 或控制字符）");
+          return null;
+        }
+        const parent = normalizeFolderPath(parentPath || "");
+        const full = joinFolderPath(parent, segment);
+        if (!full) {
+          get().setStatus("文件夹名无效");
+          return null;
+        }
+        const docs = get().documents;
+        const prefix = full + "/";
+        const coveredByDoc = docs.some((d) => d.path.replace(/\\/g, "/").startsWith(prefix));
+        const alreadyEmpty = get().emptyFolders.some(
+          (f) => normalizeFolderPath(f) === full
+        );
+        if (coveredByDoc || alreadyEmpty) {
+          get().setStatus(`文件夹已存在 ${full}`);
+          return full;
+        }
+        set((s) => ({
+          emptyFolders: pruneEmptyFolders(
+            [...s.emptyFolders, full],
+            s.documents.map((d) => d.path)
+          ),
+          sidebarPanel: "docs",
+        }));
+        get().setStatus(`已新建文件夹 ${full}`);
+        if (get().fsBoundName) {
+          void ensureLibraryDir(full).catch(() => {
+            /* best-effort */
+          });
+        }
+        return full;
       },
 
       importFiles: (files) => {
@@ -759,7 +813,13 @@ export const useStore = create<LanghuanState>()(
           docs.push(doc);
           n += 1;
         }
-        set({ documents: docs });
+        set((s) => ({
+          documents: docs,
+          emptyFolders: pruneEmptyFolders(
+            s.emptyFolders,
+            docs.map((d) => d.path)
+          ),
+        }));
         if (n) get().setStatus(`已导入 ${n} 个文件`);
         void get().refreshStorageUsage();
         return n;
@@ -804,7 +864,14 @@ export const useStore = create<LanghuanState>()(
             linkUpdates += count;
           }
         }
-        set({ documents, drafts });
+        set((s) => ({
+          documents,
+          drafts,
+          emptyFolders: pruneEmptyFolders(
+            s.emptyFolders,
+            documents.map((d) => d.path)
+          ),
+        }));
         const msg =
           linkUpdates > 0
             ? `已重命名为 ${basename(path)}，并更新 ${linkUpdates} 处双链`
@@ -1397,6 +1464,7 @@ export const useStore = create<LanghuanState>()(
         documents: s.documents,
         drafts: s.drafts,
         trash: s.trash,
+        emptyFolders: s.emptyFolders,
         theme: s.theme,
         viewMode: s.viewMode,
         activeId: s.activeId,
@@ -1424,7 +1492,7 @@ export const useStore = create<LanghuanState>()(
         docSplitRatio: s.docSplitRatio,
         customShortcuts: s.customShortcuts,
       }),
-      version: 6,
+      version: 7,
       migrate: (persisted, fromVersion) => {
         const p = (persisted || {}) as Record<string, unknown>;
         if (Array.isArray(p.tagFilters)) {
@@ -1436,6 +1504,15 @@ export const useStore = create<LanghuanState>()(
         }
         delete p.tagFilter;
         if (!Array.isArray(p.trash)) p.trash = [];
+        if (!Array.isArray(p.emptyFolders)) p.emptyFolders = [];
+        else {
+          p.emptyFolders = pruneEmptyFolders(
+            (p.emptyFolders as string[]).map(String),
+            Array.isArray(p.documents)
+              ? (p.documents as { path?: string }[]).map((d) => String(d?.path || ""))
+              : []
+          );
+        }
         if (typeof p.autosaveEnabled !== "boolean") p.autosaveEnabled = true;
         if (p.lastBackupAt != null && typeof p.lastBackupAt !== "number") p.lastBackupAt = null;
         if (p.fsBoundName != null && typeof p.fsBoundName !== "string") p.fsBoundName = null;

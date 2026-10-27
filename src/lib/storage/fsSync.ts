@@ -125,6 +125,18 @@ async function ensureDir(
   return cur;
 }
 
+/** Ensure a relative library folder exists on the bound local directory (best-effort). */
+export async function ensureLibraryDir(relDir: string): Promise<boolean> {
+  const handle = await getStoredHandle();
+  if (!handle) return false;
+  const ok = await ensurePermission(handle, "readwrite");
+  if (!ok) return false;
+  const path = safeRelPath(relDir);
+  if (!path) return false;
+  await ensureDir(handle, path);
+  return true;
+}
+
 export async function writeTextFile(
   root: FileSystemDirectoryHandle,
   relPath: string,

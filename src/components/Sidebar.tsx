@@ -9,6 +9,7 @@ import {
   ChevronDown,
   FileText,
   FolderOpen,
+  FolderPlus,
   Globe,
   Home,
   LayoutTemplate,
@@ -33,6 +34,7 @@ import { Dropdown, DropdownItem } from "./ui/dropdown";
 import { useStore, filteredDocuments } from "@/lib/store";
 import { collectTagCounts } from "@/lib/tags";
 import { dirname, titleOf, cn, relativeTime, basename } from "@/lib/utils";
+import { buildTree, parentFolderForNew, type FolderTreeNode } from "@/lib/folders";
 import { formatBytes } from "@/lib/storage/usage";
 import { ImportFolderDialog } from "./ImportFolderDialog";
 import { importClipboardAs } from "@/lib/clipboardImport";
@@ -41,37 +43,7 @@ import { ResizeGutter } from "./ui/ResizeGutter";
 import { PreviewContextMenu, type ContextMenuItem } from "./locate/PreviewContextMenu";
 import { useMediaQuery } from "@/lib/useMediaQuery";
 
-type TreeNode = {
-  name: string;
-  path: string;
-  docs: { id: string; name: string; type: string; starred?: boolean }[];
-  children: Map<string, TreeNode>;
-};
-
-function buildTree(
-  docs: { id: string; path: string; type: string; starred?: boolean }[]
-) {
-  const root: TreeNode = { name: "", path: "", docs: [], children: new Map() };
-  for (const d of docs) {
-    const parts = d.path.replace(/\\/g, "/").split("/");
-    let node = root;
-    for (let i = 0; i < parts.length - 1; i++) {
-      const name = parts[i];
-      const p = parts.slice(0, i + 1).join("/");
-      if (!node.children.has(name)) {
-        node.children.set(name, { name, path: p, docs: [], children: new Map() });
-      }
-      node = node.children.get(name)!;
-    }
-    node.docs.push({
-      id: d.id,
-      name: parts[parts.length - 1],
-      type: d.type,
-      starred: d.starred,
-    });
-  }
-  return root;
-}
+type TreeNode = FolderTreeNode;
 
 function countDocs(node: TreeNode): number {
   let n = node.docs.length;
@@ -320,6 +292,8 @@ export function Sidebar() {
   const openHome = useStore((s) => s.requestOpenHome);
   const activeId = useStore((s) => s.activeId);
   const createDoc = useStore((s) => s.createDoc);
+  const createFolder = useStore((s) => s.createFolder);
+  const emptyFolders = useStore((s) => s.emptyFolders);
   const setStatus = useStore((s) => s.setStatus);
   const setCommandOpen = useStore((s) => s.setCommandOpen);
   const theme = useStore((s) => s.theme);
@@ -387,7 +361,8 @@ export function Sidebar() {
       path: d.path,
       type: d.type,
       starred: d.starred,
-    }))
+    })),
+    emptyFolders
   );
   const bytes = storageUsage?.usedBytes ?? useStore.getState().storageBytes();
   const activeDoc = documents.find((d) => d.id === activeId) || null;
@@ -489,10 +464,44 @@ export function Sidebar() {
     [createDoc]
   );
 
+  const onCreateFolder = React.useCallback(
+    (parentOverride?: string) => {
+      const parent =
+        parentOverride !== undefined
+          ? parentOverride
+          : parentFolderForNew(activeDoc?.path);
+      const raw = window.prompt(
+        parent ? `在「${parent}」下新建文件夹` : "新建文件夹（位于库根目录）",
+        "新建文件夹"
+      );
+      if (raw == null) return;
+      const full = createFolder(raw, parent);
+      if (!full) return;
+      setExpanded((prev) => {
+        const next = new Set(prev);
+        next.add(full);
+        // expand ancestors
+        const parts = full.split("/");
+        for (let i = 1; i < parts.length; i++) {
+          next.add(parts.slice(0, i).join("/"));
+        }
+        if (parent) next.add(parent);
+        return next;
+      });
+      setSidebarPanel("docs");
+    },
+    [activeDoc?.path, createFolder, setSidebarPanel]
+  );
+
   const folderMenuItems: ContextMenuItem[] = React.useMemo(() => {
     if (!folderMenu) return [];
     const folderPath = folderMenu.folderPath;
     return [
+      {
+        id: "new-folder",
+        label: "新建文件夹",
+        onSelect: () => onCreateFolder(folderPath),
+      },
       {
         id: "new-md",
         label: "新建 Markdown 笔记",
@@ -509,7 +518,7 @@ export function Sidebar() {
         onSelect: () => setTemplateDialogOpen(true),
       },
     ];
-  }, [folderMenu, createInFolder, setTemplateDialogOpen]);
+  }, [folderMenu, createInFolder, onCreateFolder, setTemplateDialogOpen]);
 
   const onPasteSource = () => {
     const text = window.prompt("粘贴 Markdown 或 HTML 源码：");
@@ -694,6 +703,9 @@ export function Sidebar() {
           >
             <DropdownItem onClick={() => createDoc({ type: "md" })}>Markdown 笔记</DropdownItem>
             <DropdownItem onClick={() => createDoc({ type: "html" })}>HTML 页面</DropdownItem>
+            <DropdownItem onClick={() => onCreateFolder()}>
+              <FolderPlus className="h-3.5 w-3.5" /> 新建文件夹
+            </DropdownItem>
             <DropdownItem onClick={() => openDailyNote()}>
               <CalendarDays className="h-3.5 w-3.5" /> 今日笔记
             </DropdownItem>
@@ -1223,6 +1235,7 @@ export function Sidebar() {
       >
         <DropdownItem onClick={() => createDoc({ type: "md" })}>Markdown 笔记</DropdownItem>
         <DropdownItem onClick={() => createDoc({ type: "html" })}>HTML 页面</DropdownItem>
+        <DropdownItem onClick={() => onCreateFolder()}>新建文件夹</DropdownItem>
         <DropdownItem onClick={() => openDailyNote()}>今日笔记</DropdownItem>
         <DropdownItem onClick={() => setTemplateDialogOpen(true)}>从模板新建</DropdownItem>
         <DropdownItem onClick={onPasteSource}>粘贴源码</DropdownItem>
