@@ -28,7 +28,8 @@ export type PendingNav =
   | { kind: "home" }
   | null;
 
-export type ViewMode = "preview" | "split" | "source";
+/** preview | split | source | mixed (Typora-like block edit for MD) */
+export type ViewMode = "preview" | "split" | "source" | "mixed";
 
 export type ThemeMode = "paper" | "ink";
 
@@ -36,3 +37,15 @@ export type StatusFeedback = {
   message: string;
   at: number;
 } | null;
+
+/** Binary attachment stored outside Document.content (IndexedDB blob). */
+export type AssetMeta = {
+  id: string;
+  /** Vault-relative path, e.g. 笔记/assets/abc-shot.png */
+  path: string;
+  mime: string;
+  size: number;
+  createdAt: number;
+  /** Optional owning doc id (hint only). */
+  docId?: string;
+};

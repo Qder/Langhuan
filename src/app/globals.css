@@ -566,3 +566,86 @@ html[data-lh-resizing="row"] * {
 .dark .lh-ide-editor {
   background: #12110f;
 }
+
+
+/* —— Tier 3: reading / annotations / CM6 / footnotes —— */
+.md-focus-mode main {
+  background: var(--bg);
+}
+.lh-annot {
+  border-radius: 0.2em;
+  padding: 0 0.15em;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+.lh-annot-cinnabar {
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+  box-shadow: inset 0 -0.12em 0 color-mix(in srgb, var(--accent) 55%, transparent);
+}
+.lh-annot-gold {
+  background: color-mix(in srgb, var(--gold) 32%, transparent);
+  box-shadow: inset 0 -0.12em 0 color-mix(in srgb, var(--gold) 60%, transparent);
+}
+.lh-annot-teal {
+  background: color-mix(in srgb, var(--teal, #2a9d8f) 30%, transparent);
+  box-shadow: inset 0 -0.12em 0 color-mix(in srgb, var(--teal, #2a9d8f) 55%, transparent);
+}
+
+.prose-langhuan .footnotes {
+  margin-top: 2.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.9em;
+  color: var(--muted);
+}
+.prose-langhuan .footnotes ol {
+  padding-left: 1.25rem;
+}
+.prose-langhuan .footnote-ref,
+.prose-langhuan .footnote-backref {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.cm-editor {
+  height: 100%;
+  font-size: 13.5px;
+  background: transparent;
+}
+.cm-editor .cm-scroller {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
+  line-height: 1.55;
+}
+.cm-editor.cm-focused {
+  outline: none;
+}
+.cm-gutters {
+  background: transparent !important;
+  border-right: 1px solid var(--border) !important;
+  color: var(--muted) !important;
+}
+.cm-activeLineGutter,
+.cm-activeLine {
+  background: color-mix(in srgb, var(--accent) 6%, transparent) !important;
+}
+.cm-selectionBackground,
+.cm-editor ::selection {
+  background: color-mix(in srgb, var(--accent) 28%, transparent) !important;
+}
+.cm-content {
+  caret-color: var(--accent);
+}
+.cm-tooltip {
+  border: 1px solid var(--border) !important;
+  background: var(--menu) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 12px 40px color-mix(in srgb, #000 18%, transparent);
+}
+.cm-search.cm-panel {
+  background: var(--card) !important;
+  border-bottom: 1px solid var(--border);
+  color: var(--fg);
+  font-family: inherit;
+}

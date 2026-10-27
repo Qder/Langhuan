@@ -1,9 +1,7 @@
 /**
  * Resolve relative media/attachment URLs against a document path in the in-app library.
  *
- * Limitation: documents are text (MD/HTML) in localStorage — binary image imports are not
- * stored. Relative image refs resolve only when a library doc holds a data: URL or SVG markup;
- * otherwise the UI shows a broken-image placeholder with the resolved path.
+ * Resolution order: absolute URL → library doc (data:/SVG) → binary AssetMeta path → missing.
  */
 
 import type { Document } from "./types";
@@ -65,7 +63,10 @@ function titleOfPath(path: string): string {
 export type ResolvedMedia =
   | { kind: "external"; src: string }
   | { kind: "data"; src: string; path: string; docId?: string }
+  | { kind: "asset"; path: string; assetId: string }
   | { kind: "missing"; path: string; reason: string };
+
+export type AssetPathRef = { id: string; path: string };
 
 /** Turn library doc content into an img src when possible. */
 export function mediaSrcFromDocContent(content: string): string | null {
@@ -87,7 +88,8 @@ export function mediaSrcFromDocContent(content: string): string | null {
 export function resolveMediaSrc(
   href: string | undefined | null,
   currentDocPath: string,
-  docs: Document[]
+  docs: Document[],
+  assets: AssetPathRef[] = []
 ): ResolvedMedia {
   const src = (href || "").trim();
   if (!src) return { kind: "missing", path: "", reason: "空路径" };
@@ -98,6 +100,15 @@ export function resolveMediaSrc(
   if (doc) {
     const data = mediaSrcFromDocContent(doc.content);
     if (data) return { kind: "data", src: data, path: doc.path, docId: doc.id };
+    // fall through — may still be an asset at same path
+  }
+
+  const asset =
+    assets.find((a) => a.path === path) ||
+    assets.find((a) => a.path.toLowerCase() === path.toLowerCase());
+  if (asset) return { kind: "asset", path: asset.path, assetId: asset.id };
+
+  if (doc) {
     return {
       kind: "missing",
       path: doc.path,
@@ -107,7 +118,7 @@ export function resolveMediaSrc(
 
   const ext = extOf(path);
   const hint = IMAGE_EXT.has(ext)
-    ? "图片文件未入库（库只存 MD/HTML 文本）"
+    ? "图片未入库（可粘贴/拖入图片到编辑器）"
     : "未找到对应文档";
   return { kind: "missing", path, reason: hint };
 }

@@ -13,6 +13,7 @@ import {
 import { cn, titleOf } from "@/lib/utils";
 import { extractOutline } from "@/lib/outline";
 import { getDocMeta } from "@/lib/docMeta";
+import { MdCodeMirror } from "./editor/MdCodeMirror";
 
 hljs.registerLanguage("xml", xml);
 
@@ -92,6 +93,10 @@ export function SourceEditor({
   const content = getContent(doc.id);
   const isHtml = doc.type === "html";
   const ide = isHtml;
+
+  if (!isHtml) {
+    return <MdCodeMirror doc={doc} className={className} />;
+  }
   const lines = Math.max(1, content.split("\n").length);
   const taRef = React.useRef<HTMLTextAreaElement>(null);
   const gutterRef = React.useRef<HTMLDivElement>(null);

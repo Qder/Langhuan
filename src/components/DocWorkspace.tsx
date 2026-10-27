@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { MarkdownReader } from "./MarkdownReader";
 import { HtmlReader } from "./HtmlReader";
 import { SourceEditor } from "./SourceEditor";
+import { MixedMdView } from "./editor/MixedMdView";
 import { ResizeGutter } from "./ui/ResizeGutter";
 
 /**
@@ -55,6 +56,10 @@ export function DocWorkspace() {
 
   if (viewMode === "source") {
     return <SourceEditor doc={active} />;
+  }
+
+  if (viewMode === "mixed" && active.type === "md") {
+    return <MixedMdView doc={active} />;
   }
 
   const isSplit = viewMode === "split";

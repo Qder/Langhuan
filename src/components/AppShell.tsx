@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { useStore } from "@/lib/store";
+import { cn } from "@/lib/utils";
 import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
 import { StatusBar } from "./StatusBar";
@@ -31,6 +32,8 @@ export function AppShell() {
   const setViewMode = useStore((s) => s.setViewMode);
   const htmlImmersive = useStore((s) => s.htmlImmersive);
   const setHtmlImmersive = useStore((s) => s.setHtmlImmersive);
+  const mdFocusMode = useStore((s) => s.mdFocusMode);
+  const setMdFocusMode = useStore((s) => s.setMdFocusMode);
   const setStatus = useStore((s) => s.setStatus);
   const viewMode = useStore((s) => s.viewMode);
   const anyDirty = useStore((s) => s.anyDirty);
@@ -120,6 +123,20 @@ export function AppShell() {
           setStatus(next ? "已进入沉浸模式" : "已退出沉浸模式");
         }
       }
+      if (active?.type === "md" && !typing) {
+        if (e.key === "Escape" && mdFocusMode) {
+          e.preventDefault();
+          setMdFocusMode(false);
+          setStatus("已退出专注模式");
+          return;
+        }
+        if ((e.key === "f" || e.key === "F") && !meta) {
+          e.preventDefault();
+          const next = !mdFocusMode;
+          setMdFocusMode(next);
+          setStatus(next ? "已进入专注模式" : "已退出专注模式");
+        }
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -130,6 +147,8 @@ export function AppShell() {
     setViewMode,
     htmlImmersive,
     setHtmlImmersive,
+    mdFocusMode,
+    setMdFocusMode,
     setStatus,
     viewMode,
   ]);
@@ -154,17 +173,19 @@ export function AppShell() {
 
   const active = getActive();
   const immersiveHtml = htmlImmersive && active?.type === "html";
+  const focusMd = mdFocusMode && active?.type === "md";
+  const chromeHidden = immersiveHtml || focusMd;
 
   return (
-    <div className="h-dvh flex overflow-hidden text-[var(--fg)] relative">
-      {!immersiveHtml && <Sidebar />}
+    <div className={cn("h-dvh flex overflow-hidden text-[var(--fg)] relative", focusMd && "md-focus-mode")}>
+      {!chromeHidden && <Sidebar />}
       <div className="flex-1 flex flex-col min-w-0 relative">
-        {activeId && !immersiveHtml && <ReadingProgress />}
-        {!immersiveHtml && <TopBar />}
+        {activeId && !chromeHidden && <ReadingProgress />}
+        {!chromeHidden && <TopBar />}
         <main className="flex-1 min-h-0 overflow-hidden">
           {activeId ? <DocWorkspace /> : <HomeView />}
         </main>
-        {!immersiveHtml && <StatusBar />}
+        {!chromeHidden && <StatusBar />}
       </div>
       <CommandPalette />
       <BackupDialog />

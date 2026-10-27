@@ -1,9 +1,10 @@
 "use client";
 
 import { get, set, del } from "idb-keyval";
-import type { Document } from "../types";
+import type { AssetMeta, Document } from "../types";
 import { libraryDocTypeFromPath } from "../importable";
 import { FS_HANDLE_KEY, FS_INDEX_DIR, FS_INDEX_FILE } from "./constants";
+import { getAssetBlob } from "../assets/store";
 
 export type FsIndexEntry = {
   id: string;
@@ -287,7 +288,8 @@ export async function writeThroughDoc(doc: Document): Promise<boolean> {
 /** Dump entire library to the bound folder (library → disk). */
 export async function syncOutAll(
   root: FileSystemDirectoryHandle,
-  documents: Document[]
+  documents: Document[],
+  assets: AssetMeta[] = []
 ): Promise<SyncOutResult> {
   const errors: string[] = [];
   let written = 0;
@@ -298,6 +300,19 @@ export async function syncOutAll(
       written += 1;
     } catch (e) {
       errors.push(`${doc.path}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+  for (const a of assets) {
+    try {
+      const blob = await getAssetBlob(a.id);
+      if (!blob) {
+        errors.push(`${a.path}: 附件二进制缺失`);
+        continue;
+      }
+      await writeBinaryFile(root, a.path, blob);
+      written += 1;
+    } catch (e) {
+      errors.push(`${a.path}: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
   try {
@@ -418,7 +433,8 @@ export function planSyncIn(
  */
 export async function syncBidirectional(
   root: FileSystemDirectoryHandle,
-  library: Document[]
+  library: Document[],
+  assets: AssetMeta[] = []
 ): Promise<{ documents: Document[]; result: BidirectionalSyncResult }> {
   const index = await readIndex(root);
   let disk: DiskDoc[] = [];
@@ -431,9 +447,50 @@ export async function syncBidirectional(
   const planned = planSyncIn(library, disk, index);
   planned.result.errors.push(...innErrors);
 
-  const out = await syncOutAll(root, planned.next);
+  const out = await syncOutAll(root, planned.next, assets);
   return {
     documents: planned.next,
     result: { out, inn: planned.result },
   };
+}
+
+
+/** Write a binary file under the bound folder (attachments). */
+export async function writeBinaryFile(
+  root: FileSystemDirectoryHandle,
+  relPath: string,
+  data: Blob | ArrayBuffer | Uint8Array
+): Promise<void> {
+  const path = safeRelPath(relPath);
+  if (!path) throw new Error("路径无效");
+  const parts = path.split("/").filter(Boolean);
+  let dir: FileSystemDirectoryHandle = root;
+  for (let i = 0; i < parts.length - 1; i++) {
+    dir = await dir.getDirectoryHandle(parts[i], { create: true });
+  }
+  const fileName = parts[parts.length - 1];
+  const handle = await dir.getFileHandle(fileName, { create: true });
+  const writable = await handle.createWritable();
+  let chunk: Blob;
+  if (data instanceof Blob) {
+    chunk = data;
+  } else if (data instanceof ArrayBuffer) {
+    chunk = new Blob([data]);
+  } else {
+    chunk = new Blob([new Uint8Array(data)]);
+  }
+  await writable.write(chunk);
+  await writable.close();
+}
+
+export async function writeThroughAssetBinary(
+  relPath: string,
+  data: Blob | ArrayBuffer | Uint8Array
+): Promise<boolean> {
+  const handle = await getStoredHandle();
+  if (!handle) return false;
+  const ok = await ensurePermission(handle, "readwrite");
+  if (!ok) return false;
+  await writeBinaryFile(handle, relPath, data);
+  return true;
 }

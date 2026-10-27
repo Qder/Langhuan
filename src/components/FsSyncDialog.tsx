@@ -78,7 +78,8 @@ export function FsSyncDialog() {
       await storeHandle(handle);
       setFsBoundName(handle.name);
       if (writeAll) {
-        const out = await syncOutAll(handle, useStore.getState().documents);
+        const st = useStore.getState();
+        const out = await syncOutAll(handle, st.documents, st.assets);
         const now = Date.now();
         setFsLastSyncAt(now);
         setStatus(`已绑定「${handle.name}」并写出 ${out.written} 篇`);
@@ -118,9 +119,11 @@ export function FsSyncDialog() {
         setError("未获得文件夹读写权限，请重新授权或重新绑定");
         return;
       }
+      const st = useStore.getState();
       const { documents: next, result } = await syncBidirectional(
         handle,
-        useStore.getState().documents
+        st.documents,
+        st.assets
       );
       applySyncedDocuments(next);
       const now = Date.now();

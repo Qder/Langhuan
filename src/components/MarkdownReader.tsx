@@ -36,6 +36,7 @@ import {
 import { rehypeSrcPositions } from "@/lib/locate/rehypeSrcPositions";
 import { PreviewContextMenu, type ContextMenuItem } from "./locate/PreviewContextMenu";
 import { SelectionFloatBar } from "./locate/SelectionFloatBar";
+import { AssetImage } from "./editor/AssetImage";
 import "highlight.js/styles/github-dark.css";
 import "katex/dist/katex.min.css";
 
@@ -181,6 +182,15 @@ export function MarkdownReader({ doc }: { doc: Document }) {
   const clearPendingPreviewLocate = useStore((s) => s.clearPendingPreviewLocate);
   const setStatus = useStore((s) => s.setStatus);
   const outlineRailOpen = useStore((s) => s.outlineRailOpen);
+  const readingPrefs = useStore((s) => s.readingPrefs);
+  const mdFocusMode = useStore((s) => s.mdFocusMode);
+  const assets = useStore((s) => s.assets);
+  const assetsForDoc = useStore((s) => s.assetsForDoc);
+  const annotations = useStore((s) => s.annotations);
+  const addAnnotation = useStore((s) => s.addAnnotation);
+  const ingestImageFile = useStore((s) => s.ingestImageFile);
+  const setDraft = useStore((s) => s.setDraft);
+  const saveDoc = useStore((s) => s.saveDoc);
   const wide = useMediaQuery("(min-width: 1280px)");
   const content = getContent(doc.id);
   const fmOffset = frontmatterOffset(content);
@@ -404,8 +414,64 @@ export function MarkdownReader({ doc }: { doc: Document }) {
     }).length;
   }, [doc, documents, content]);
 
+  const annotationCount = React.useMemo(
+    () => annotations.filter((a) => a.docId === doc.id).length,
+    [annotations, doc.id]
+  );
+  const assetCount = assetsForDoc(doc.id).length;
+
+
+
+  // Soft-highlight annotation quotes in preview (does not mutate markdown body).
+  React.useEffect(() => {
+    const root = articleRef.current;
+    if (!root) return;
+    // clear previous
+    root.querySelectorAll("mark.lh-annot-live").forEach((el) => {
+      const parent = el.parentNode;
+      if (!parent) return;
+      while (el.firstChild) parent.insertBefore(el.firstChild, el);
+      parent.removeChild(el);
+      parent.normalize();
+    });
+    const anns = annotations.filter((a) => a.docId === doc.id && a.quote.trim());
+    if (!anns.length) return;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const textNodes: Text[] = [];
+    let n: Node | null;
+    while ((n = walker.nextNode())) {
+      const tnode = n as Text;
+      if (!tnode.nodeValue || !tnode.nodeValue.trim()) continue;
+      if (tnode.parentElement?.closest("mark.lh-annot-live")) continue;
+      textNodes.push(tnode);
+    }
+    for (const ann of anns) {
+      const q = ann.quote.trim();
+      for (const tn of textNodes) {
+        const val = tn.nodeValue || "";
+        const idx = val.indexOf(q);
+        if (idx < 0) continue;
+        try {
+          const range = document.createRange();
+          range.setStart(tn, idx);
+          range.setEnd(tn, idx + q.length);
+          const mark = document.createElement("mark");
+          mark.className = `lh-annot lh-annot-live lh-annot-${ann.color}`;
+          mark.title = ann.note || "划线";
+          range.surroundContents(mark);
+        } catch {
+          /* cross-node — skip */
+        }
+        break;
+      }
+    }
+  }, [annotations, doc.id, body]);
+
   const showRail =
-    outlineRailOpen && wide && hasDocAsideContent(outline, backlinks, mentionCount);
+    outlineRailOpen &&
+    wide &&
+    !mdFocusMode &&
+    hasDocAsideContent(outline, backlinks, mentionCount, annotationCount, assetCount);
 
   return (
     <div className="h-full flex min-h-0">
@@ -419,9 +485,34 @@ export function MarkdownReader({ doc }: { doc: Document }) {
         >
         <article
           ref={articleRef}
-          className="prose-langhuan w-full max-w-[740px] min-w-0 animate-enter"
+          className="prose-langhuan w-full min-w-0 animate-enter"
+          style={{
+            maxWidth: readingPrefs.lineWidth,
+            fontSize: readingPrefs.fontSize,
+          }}
           onContextMenu={onContextMenu}
+          onDragOver={(e) => {
+            if ([...e.dataTransfer.types].includes("Files")) e.preventDefault();
+          }}
+          onDrop={async (e) => {
+            const files = [...e.dataTransfer.files].filter((f) =>
+              f.type.startsWith("image/")
+            );
+            if (!files.length) return;
+            e.preventDefault();
+            let next = getContent(doc.id);
+            for (const f of files) {
+              const res = await ingestImageFile(doc.id, f, f.name);
+              if (res) {
+                next = next.replace(/\s*$/, "") + `\n\n![${f.name}](${res.href})\n`;
+              }
+            }
+            setDraft(doc.id, next);
+            saveDoc(doc.id);
+            setStatus(`已导入 ${files.length} 张图片`);
+          }}
         >
+          {!mdFocusMode && (
           <header className="mb-8 space-y-3 font-ui not-serif">
             <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--muted)]">
               <span className="rounded-full border border-[var(--border)] px-2 py-0.5 text-[var(--accent)]">
@@ -473,6 +564,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
               </form>
             </div>
           </header>
+          )}
 
           <ReactMarkdown
             remarkPlugins={[remarkGfm, remarkMath]}
@@ -580,13 +672,24 @@ export function MarkdownReader({ doc }: { doc: Document }) {
                 const resolved = resolveMediaSrc(
                   typeof src === "string" ? src : undefined,
                   doc.path,
-                  documents
+                  documents,
+                  assets
                 );
                 if (resolved.kind === "external" || resolved.kind === "data") {
                   return (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={resolved.src}
+                      alt={alt || ""}
+                      title={title}
+                      className="lh-md-img"
+                    />
+                  );
+                }
+                if (resolved.kind === "asset") {
+                  return (
+                    <AssetImage
+                      assetId={resolved.assetId}
                       alt={alt || ""}
                       title={title}
                       className="lh-md-img"
@@ -702,7 +805,38 @@ export function MarkdownReader({ doc }: { doc: Document }) {
       {menu && (
         <PreviewContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={() => setMenu(null)} />
       )}
-      {floatRect && !menu && <SelectionFloatBar rect={floatRect} onLocate={runLocate} />}
+      {floatRect && !menu && (
+        <SelectionFloatBar
+          rect={floatRect}
+          onLocate={runLocate}
+          onAnnotate={() => {
+            const root = articleRef.current;
+            if (!root) return;
+            const info = getPreviewSelectionInfo(root);
+            if (!info || isTrivialSelection(info.text)) {
+              setStatus("请先选中一段文字");
+              return;
+            }
+            const result = locateInMarkdown({
+              source: content,
+              selectedText: info.text,
+              startBlock: info.startBlock,
+              endBlock: info.endBlock,
+              anchorPlainOffset: info.anchorPlainOffset,
+            });
+            addAnnotation({
+              docId: doc.id,
+              quote: info.text,
+              start: result.start,
+              end: result.end,
+              note: "",
+            });
+            setStatus("已添加划线批注");
+            setFloatRect(null);
+            window.getSelection()?.removeAllRanges();
+          }}
+        />
+      )}
     </div>
   );
 }

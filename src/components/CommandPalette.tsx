@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Archive, BookmarkPlus, CalendarDays, ClipboardPaste, FilePlus2, FileText, FolderSync, Globe, History, Home, LayoutTemplate, Moon, Network, Search, SlidersHorizontal, Sun, Trash2 } from "lucide-react";
+import { Archive, BookmarkPlus, CalendarDays, ClipboardPaste, FilePlus2, FileText, FolderSync, Globe, History, Home, LayoutTemplate, Moon, Network, Search, SlidersHorizontal, Sun, Trash2, Maximize2, Blend, Type} from "lucide-react";
 import { Dialog } from "./ui/dialog";
 import { useStore } from "@/lib/store";
 import { searchDocuments } from "@/lib/search";
@@ -25,6 +25,13 @@ export function CommandPalette() {
   const setSidebarPanel = useStore((s) => s.setSidebarPanel);
   const autosaveEnabled = useStore((s) => s.autosaveEnabled);
   const setAutosaveEnabled = useStore((s) => s.setAutosaveEnabled);
+  const setViewMode = useStore((s) => s.setViewMode);
+  const mdFocusMode = useStore((s) => s.mdFocusMode);
+  const setMdFocusMode = useStore((s) => s.setMdFocusMode);
+  const setReadingPrefs = useStore((s) => s.setReadingPrefs);
+  const readingPrefs = useStore((s) => s.readingPrefs);
+  const getActive = useStore((s) => s.getActive);
+
   const activeId = useStore((s) => s.activeId);
   const openDailyNote = useStore((s) => s.openDailyNote);
   const setTemplateDialogOpen = useStore((s) => s.setTemplateDialogOpen);
@@ -196,6 +203,55 @@ export function CommandPalette() {
           if (activeId) setPropsDialogOpen(true);
           else setStatus("请先打开一篇文档");
         },
+      },
+      {
+        key: "cmd-view-mixed",
+        label: "混合编辑模式",
+        hint: "块级所见即所得（Markdown）",
+        icon: <Blend className="h-4 w-4 text-[var(--accent)]" />,
+        run: () => {
+          const a = getActive();
+          if (!a || a.type !== "md") {
+            setStatus("混合模式仅支持 Markdown");
+            return;
+          }
+          setViewMode("mixed");
+          setStatus("已切换到混合模式");
+        },
+      },
+      {
+        key: "cmd-md-focus",
+        label: mdFocusMode ? "退出专注模式" : "专注模式",
+        hint: "隐藏侧栏与顶栏（F）",
+        icon: <Maximize2 className="h-4 w-4" />,
+        run: () => {
+          const a = getActive();
+          if (!a || a.type !== "md") {
+            setStatus("专注模式仅支持 Markdown");
+            return;
+          }
+          setMdFocusMode(!mdFocusMode);
+        },
+      },
+      {
+        key: "cmd-font-larger",
+        label: "增大阅读字号",
+        hint: `当前 ${readingPrefs.fontSize}px`,
+        icon: <Type className="h-4 w-4" />,
+        run: () =>
+          setReadingPrefs({
+            fontSize: Math.min(24, readingPrefs.fontSize + 2),
+          }),
+      },
+      {
+        key: "cmd-font-smaller",
+        label: "减小阅读字号",
+        hint: `当前 ${readingPrefs.fontSize}px`,
+        icon: <Type className="h-4 w-4" />,
+        run: () =>
+          setReadingPrefs({
+            fontSize: Math.max(13, readingPrefs.fontSize - 2),
+          }),
       },
       {
         key: "cmd-autosave",

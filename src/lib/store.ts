@@ -3,6 +3,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type {
+  AssetMeta,
   Document,
   PendingNav,
   StatusFeedback,
@@ -10,6 +11,22 @@ import type {
   TrashItem,
   ViewMode,
 } from "./types";
+import type { Annotation, AnnotationInput } from "./annotations";
+import { createAnnotation, updateAnnotationNote } from "./annotations";
+import type { ReadingPrefs } from "./readingPrefs";
+import { DEFAULT_READING_PREFS, normalizeReadingPrefs } from "./readingPrefs";
+import {
+  deleteAssetBlob,
+  putAssetBlob,
+  saveAssetMetaList,
+} from "./assets/store";
+import {
+  markdownImageSnippet,
+  relativeAssetHref,
+  suggestAssetPath,
+  extFromMime,
+  sanitizeAssetFilename,
+} from "./assets/paths";
 import type { DocMeta, DocStatus } from "./docMeta";
 import { applyDocMeta, getDocMeta, matchesStatusFilter } from "./docMeta";
 import type { SavedSearch } from "./searchQuery";
@@ -113,6 +130,15 @@ type LanghuanState = {
   /** Template picker dialog. */
   templateDialogOpen: boolean;
 
+  /** Binary attachments meta (blobs in IndexedDB). */
+  assets: AssetMeta[];
+  /** Side annotations keyed by list (not mutating body). */
+  annotations: Annotation[];
+  /** MD reading prefs (font / width / focus). */
+  readingPrefs: ReadingPrefs;
+  /** MD focus/zen (mirrors readingPrefs.focusMode for quick toggle). */
+  mdFocusMode: boolean;
+
   setHydrated: (v: boolean) => void;
   setTheme: (t: ThemeMode) => void;
   toggleTheme: () => void;
@@ -199,6 +225,20 @@ type LanghuanState = {
   /** Open or create today's daily note. */
   openDailyNote: () => Document;
   createFromTemplate: (templateId: string, title?: string) => Document | null;
+  setReadingPrefs: (patch: Partial<ReadingPrefs>) => void;
+  setMdFocusMode: (v: boolean) => void;
+  toggleMdFocusMode: () => void;
+  addAnnotation: (input: AnnotationInput) => Annotation;
+  updateAnnotation: (id: string, patch: { note?: string; color?: Annotation["color"] }) => void;
+  removeAnnotation: (id: string) => void;
+  /** Persist a pasted/dropped image; returns markdown snippet to insert. */
+  ingestImageFile: (
+    docId: string,
+    file: File | Blob,
+    filename?: string
+  ) => Promise<{ href: string; snippet: string; asset: AssetMeta } | null>;
+  removeAsset: (id: string) => void;
+  assetsForDoc: (docId: string) => AssetMeta[];
 };
 
 function scheduleWriteThrough(get: () => LanghuanState, set: (p: Partial<LanghuanState>) => void, doc: Document | undefined) {
@@ -271,6 +311,10 @@ export const useStore = create<LanghuanState>()(
       propsDialogOpen: false,
       clipUrlDialogOpen: false,
       templateDialogOpen: false,
+      assets: [],
+      annotations: [],
+      readingPrefs: { ...DEFAULT_READING_PREFS },
+      mdFocusMode: false,
 
       setHydrated: (v) => set({ hydrated: v }),
       setTheme: (t) => {
@@ -795,17 +839,27 @@ export const useStore = create<LanghuanState>()(
       exportPayload: () => ({
         documents: get().documents,
         trash: get().trash,
+        assets: get().assets,
+        annotations: get().annotations,
+        readingPrefs: get().readingPrefs,
       }),
 
       importLibrary: (payload, mode) => {
         if (mode === "replace") {
           const oldIds = get().documents.map((d) => d.id);
+          const assets = payload.assets || [];
           set({
             documents: payload.documents,
             trash: payload.trash || [],
             drafts: {},
             activeId: null,
+            assets,
+            annotations: payload.annotations || [],
+            readingPrefs: payload.readingPrefs
+              ? normalizeReadingPrefs(payload.readingPrefs)
+              : get().readingPrefs,
           });
+          void saveAssetMetaList(assets);
           for (const id of oldIds) void clearVersions(id);
           get().setStatus(`已替换导入 ${payload.documents.length} 篇文档`);
           void get().refreshStorageUsage();
@@ -842,10 +896,145 @@ export const useStore = create<LanghuanState>()(
             n += 1;
           }
         }
-        set({ documents: nextDocs });
+        let nextAssets = [...get().assets];
+        if (payload.assets?.length) {
+          const byPath = new Map(nextAssets.map((a) => [a.path, a]));
+          for (const a of payload.assets) {
+            const ex = byPath.get(a.path);
+            if (ex) {
+              nextAssets = nextAssets.map((x) => (x.id === ex.id ? { ...a, id: ex.id } : x));
+            } else {
+              nextAssets.push(a);
+              byPath.set(a.path, a);
+            }
+          }
+        }
+        let nextAnn = get().annotations;
+        if (payload.annotations?.length) {
+          const ids = new Set(nextAnn.map((a) => a.id));
+          nextAnn = [
+            ...nextAnn,
+            ...payload.annotations.filter((a) => !ids.has(a.id)),
+          ];
+        }
+        set({
+          documents: nextDocs,
+          assets: nextAssets,
+          annotations: nextAnn,
+        });
+        void saveAssetMetaList(nextAssets);
         get().setStatus(`已合并导入 ${n} 篇文档`);
         void get().refreshStorageUsage();
         return n;
+      },
+
+      setReadingPrefs: (patch) => {
+        const next = normalizeReadingPrefs({ ...get().readingPrefs, ...patch });
+        set({
+          readingPrefs: next,
+          mdFocusMode: next.focusMode,
+        });
+      },
+      setMdFocusMode: (v) => {
+        set({
+          mdFocusMode: v,
+          readingPrefs: { ...get().readingPrefs, focusMode: v },
+        });
+      },
+      toggleMdFocusMode: () => {
+        const next = !get().mdFocusMode;
+        get().setMdFocusMode(next);
+        get().setStatus(next ? "已进入专注模式" : "已退出专注模式");
+      },
+
+      addAnnotation: (input) => {
+        const ann = createAnnotation(input);
+        set((s) => ({ annotations: [...s.annotations, ann] }));
+        get().setStatus("已添加划线批注");
+        return ann;
+      },
+      updateAnnotation: (id, patch) => {
+        set((s) => ({
+          annotations: s.annotations.map((a) => {
+            if (a.id !== id) return a;
+            let next = a;
+            if (patch.note != null) next = updateAnnotationNote(next, patch.note);
+            if (patch.color) next = { ...next, color: patch.color, updatedAt: Date.now() };
+            return next;
+          }),
+        }));
+      },
+      removeAnnotation: (id) => {
+        set((s) => ({ annotations: s.annotations.filter((a) => a.id !== id) }));
+        get().setStatus("已删除批注");
+      },
+
+      ingestImageFile: async (docId, file, filename) => {
+        const doc = get().documents.find((d) => d.id === docId);
+        if (!doc) return null;
+        const mime = (file as File).type || "image/png";
+        if (!mime.startsWith("image/")) {
+          get().setStatus("仅支持图片附件");
+          return null;
+        }
+        const name =
+          filename ||
+          (file as File).name ||
+          `image.${extFromMime(mime)}`;
+        const existing = [
+          ...get().documents.map((d) => d.path),
+          ...get().assets.map((a) => a.path),
+        ];
+        const path = suggestAssetPath(doc.path, sanitizeAssetFilename(name), existing);
+        const id = uid("asset");
+        const blob =
+          file instanceof Blob ? file : new Blob([file], { type: mime });
+        await putAssetBlob(id, blob);
+        const meta: AssetMeta = {
+          id,
+          path,
+          mime,
+          size: blob.size,
+          createdAt: Date.now(),
+          docId,
+        };
+        const assets = [...get().assets, meta];
+        set({ assets });
+        void saveAssetMetaList(assets);
+        const href = relativeAssetHref(doc.path, path);
+        const snippet = markdownImageSnippet(href, sanitizeAssetFilename(name).replace(/\.[^.]+$/, ""));
+        get().setStatus(`已入库图片 ${basename(path)}`);
+        void get().refreshStorageUsage();
+        // best-effort FS write-through for binary
+        try {
+          const { writeThroughAssetBinary } = await import("./storage/fsSync");
+          void writeThroughAssetBinary(path, blob);
+        } catch {
+          /* optional */
+        }
+        return { href, snippet, asset: meta };
+      },
+
+      removeAsset: (id) => {
+        void deleteAssetBlob(id);
+        const assets = get().assets.filter((a) => a.id !== id);
+        set({ assets });
+        void saveAssetMetaList(assets);
+        get().setStatus("已删除附件");
+        void get().refreshStorageUsage();
+      },
+
+      assetsForDoc: (docId) => {
+        const doc = get().documents.find((d) => d.id === docId);
+        const all = get().assets;
+        if (!doc) return all.filter((a) => a.docId === docId);
+        const dir = doc.path.replace(/\\/g, "/").split("/").slice(0, -1).join("/");
+        return all.filter(
+          (a) =>
+            a.docId === docId ||
+            a.path.startsWith(dir ? dir + "/assets/" : "assets/") ||
+            a.path.includes("/assets/")
+        );
       },
     }),
     {
@@ -871,8 +1060,12 @@ export const useStore = create<LanghuanState>()(
         fsLastSyncAt: s.fsLastSyncAt,
         savedSearches: s.savedSearches,
         statusFilter: s.statusFilter,
+        assets: s.assets,
+        annotations: s.annotations,
+        readingPrefs: s.readingPrefs,
+        mdFocusMode: s.mdFocusMode,
       }),
-      version: 4,
+      version: 5,
       migrate: (persisted, fromVersion) => {
         const p = (persisted || {}) as Record<string, unknown>;
         if (Array.isArray(p.tagFilters)) {
@@ -892,6 +1085,14 @@ export const useStore = create<LanghuanState>()(
         if (!("fsLastSyncAt" in p)) p.fsLastSyncAt = null;
         if (!Array.isArray(p.savedSearches)) p.savedSearches = [];
         if (!("statusFilter" in p)) p.statusFilter = null;
+        if (!Array.isArray(p.assets)) p.assets = [];
+        if (!Array.isArray(p.annotations)) p.annotations = [];
+        p.readingPrefs = normalizeReadingPrefs(
+          (p.readingPrefs as Partial<ReadingPrefs>) || DEFAULT_READING_PREFS
+        );
+        if (typeof p.mdFocusMode !== "boolean") {
+          p.mdFocusMode = !!(p.readingPrefs as ReadingPrefs).focusMode;
+        }
         void fromVersion;
         return p as typeof persisted;
       },

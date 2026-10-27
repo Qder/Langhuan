@@ -1,10 +1,13 @@
 "use client";
 
 import JSZip from "jszip";
-import type { Document, TrashItem } from "../types";
+import type { AssetMeta, Document, TrashItem } from "../types";
+import type { Annotation } from "../annotations";
+import type { ReadingPrefs } from "../readingPrefs";
 import { getTags } from "../tags";
+import { getAssetBlob, putAssetBlob, base64ToBlob, blobToBase64 } from "../assets/store";
 
-export const BACKUP_MANIFEST_VERSION = 1;
+export const BACKUP_MANIFEST_VERSION = 2;
 
 export type BackupManifest = {
   format: "langhuan-backup";
@@ -24,11 +27,17 @@ export type BackupManifest = {
     deletedAt: number;
     doc: BackupManifest["documents"][number];
   }>;
+  assets?: AssetMeta[];
+  annotations?: Annotation[];
+  readingPrefs?: ReadingPrefs;
 };
 
 export type BackupPayload = {
   documents: Document[];
   trash: TrashItem[];
+  assets?: AssetMeta[];
+  annotations?: Annotation[];
+  readingPrefs?: ReadingPrefs;
 };
 
 function safeZipPath(path: string): string {
@@ -73,6 +82,18 @@ export async function buildLibraryZip(payload: BackupPayload): Promise<Blob> {
     });
   }
 
+  const assets = payload.assets || [];
+  for (const a of assets) {
+    const blob = await getAssetBlob(a.id);
+    if (!blob) continue;
+    const rel = safeZipPath(a.path);
+    folder.file(`files/${rel}`, blob);
+  }
+
+  if (payload.annotations?.length) {
+    folder.file("annotations.json", JSON.stringify(payload.annotations, null, 2));
+  }
+
   const manifest: BackupManifest = {
     format: "langhuan-backup",
     version: BACKUP_MANIFEST_VERSION,
@@ -80,6 +101,9 @@ export async function buildLibraryZip(payload: BackupPayload): Promise<Blob> {
     app: "琅嬛 Langhuan",
     documents: docsMeta,
     trash: trashMeta,
+    assets,
+    annotations: payload.annotations,
+    readingPrefs: payload.readingPrefs,
   };
   folder.file("manifest.json", JSON.stringify(manifest, null, 2));
 
@@ -108,8 +132,13 @@ function looksLikeDocPath(p: string): boolean {
   return /\.(md|html|htm|txt)$/i.test(p);
 }
 
+function looksLikeAssetPath(p: string): boolean {
+  return /\.(png|jpe?g|gif|webp|svg|avif|bmp|ico)$/i.test(p);
+}
+
 /**
  * Parse a Langhuan backup zip (or a plain folder of .md/.html).
+ * Restores binary assets into IndexedDB when present.
  */
 export async function parseLibraryZip(file: Blob): Promise<BackupPayload> {
   const zip = await JSZip.loadAsync(file);
@@ -182,30 +211,84 @@ export async function parseLibraryZip(file: Blob): Promise<BackupPayload> {
       });
     }
 
-    return { documents, trash };
+    const assets: AssetMeta[] = [];
+    for (const a of manifest.assets || []) {
+      const candidates = [
+        `${root}files/${safeZipPath(a.path)}`,
+        `files/${safeZipPath(a.path)}`,
+      ];
+      for (const c of candidates) {
+        if (zip.files[c]) {
+          const blob = await zip.files[c].async("blob");
+          const typed = blob.type ? blob : new Blob([blob], { type: a.mime });
+          await putAssetBlob(a.id, typed);
+          assets.push({ ...a, size: typed.size || a.size });
+          break;
+        }
+      }
+    }
+
+    let annotations: Annotation[] | undefined = manifest.annotations;
+    const annName = names.find(
+      (n) => n === "annotations.json" || n.endsWith("/annotations.json")
+    );
+    if (annName) {
+      try {
+        annotations = JSON.parse(await zip.files[annName].async("string")) as Annotation[];
+      } catch {
+        /* keep manifest copy */
+      }
+    }
+
+    return {
+      documents,
+      trash,
+      assets,
+      annotations,
+      readingPrefs: manifest.readingPrefs,
+    };
   }
 
-  // Fallback: treat zip as a loose tree of markdown/html
+  // Fallback: treat zip as a loose tree of markdown/html (+ images)
   const documents: Document[] = [];
+  const assets: AssetMeta[] = [];
   for (const name of names) {
     const entry = zip.files[name];
     if (entry.dir) continue;
-    const rel = name.replace(/^[^/]+\//, ""); // strip top folder if any
-    if (!looksLikeDocPath(rel)) continue;
+    const rel = name.replace(/^[^/]+\//, "");
     if (rel.startsWith("_trash/")) continue;
-    const content = await entry.async("string");
-    const type = /\.html?$/i.test(rel) ? "html" : "md";
-    const path = rel.replace(/\.txt$/i, ".md");
-    documents.push({
-      id: `import_${Math.random().toString(36).slice(2, 10)}`,
-      path,
-      type,
-      content,
-      starred: false,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    });
+    if (looksLikeDocPath(rel)) {
+      const content = await entry.async("string");
+      const type = /\.html?$/i.test(rel) ? "html" : "md";
+      const path = rel.replace(/\.txt$/i, ".md");
+      documents.push({
+        id: `import_${Math.random().toString(36).slice(2, 10)}`,
+        path,
+        type,
+        content,
+        starred: false,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    } else if (looksLikeAssetPath(rel)) {
+      const blob = await entry.async("blob");
+      const id = `asset_${Math.random().toString(36).slice(2, 10)}`;
+      const mime = blob.type || "application/octet-stream";
+      await putAssetBlob(id, blob);
+      assets.push({
+        id,
+        path: rel,
+        mime,
+        size: blob.size,
+        createdAt: Date.now(),
+      });
+    }
   }
-  if (!documents.length) throw new Error("压缩包中没有可导入的 .md / .html 文件");
-  return { documents, trash: [] };
+  if (!documents.length && !assets.length) {
+    throw new Error("压缩包中没有可导入的 .md / .html / 图片文件");
+  }
+  return { documents, trash: [], assets };
 }
+
+// re-export helpers used by tests / tooling
+export { blobToBase64, base64ToBlob };

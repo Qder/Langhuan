@@ -98,10 +98,16 @@ export function TopBar() {
   const setHtmlPreviewPrefs = useStore((s) => s.setHtmlPreviewPrefs);
   const htmlPreviewPrefs = useStore((s) => s.htmlPreviewPrefs);
   const bumpHtmlReload = useStore((s) => s.bumpHtmlReload);
+  const readingPrefs = useStore((s) => s.readingPrefs);
+  const setReadingPrefs = useStore((s) => s.setReadingPrefs);
+  const mdFocusMode = useStore((s) => s.mdFocusMode);
+  const setMdFocusMode = useStore((s) => s.setMdFocusMode);
   const setDocTags = useStore((s) => s.setDocTags);
   const setVersionDialogOpen = useStore((s) => s.setVersionDialogOpen);
   const setPropsDialogOpen = useStore((s) => s.setPropsDialogOpen);
   const setGraphDialogOpen = useStore((s) => s.setGraphDialogOpen);
+  const annotations = useStore((s) => s.annotations);
+  const assetsForDoc = useStore((s) => s.assetsForDoc);
   const [renameOpen, setRenameOpen] = React.useState(false);
   const [renameVal, setRenameVal] = React.useState("");
   const [deleteOpen, setDeleteOpen] = React.useState(false);
@@ -149,7 +155,11 @@ export function TopBar() {
           }
         ).length
       : 0;
-  const asideAvailable = hasDocAsideContent(outline, backlinks, mentionCount);
+  const annotationCount = active
+    ? annotations.filter((a) => a.docId === active.id).length
+    : 0;
+  const assetCount = active ? assetsForDoc(active.id).length : 0;
+  const asideAvailable = hasDocAsideContent(outline, backlinks, mentionCount, annotationCount, assetCount);
 
   // Track active heading for popover (same scroll root as reader)
   React.useEffect(() => {
@@ -211,6 +221,7 @@ export function TopBar() {
     { id: "preview", label: "预览" },
     { id: "split", label: "分栏" },
     { id: "source", label: "源码" },
+    ...(isHtml ? [] : [{ id: "mixed" as const, label: "混合" }]),
   ];
 
   const exportDoc = () => {
@@ -427,6 +438,73 @@ export function TopBar() {
                 >
                   <Maximize2 className="h-3.5 w-3.5" />
                   沉浸
+                </Button>
+              </div>
+            )}
+
+            {/* MD reading tools */}
+            {!isHtml && viewMode !== "source" && (
+              <div className="flex items-center gap-1">
+                <div
+                  className="hidden md:inline-flex rounded-xl border border-[var(--border)] p-0.5 bg-[var(--card)]"
+                  role="group"
+                  aria-label="字号"
+                >
+                  {[15, 17, 19, 21].map((sz) => (
+                    <button
+                      key={sz}
+                      type="button"
+                      onClick={() => setReadingPrefs({ fontSize: sz })}
+                      className={cn(
+                        "px-2 py-1 text-[11px] rounded-[10px] font-ui tabular-nums",
+                        readingPrefs.fontSize === sz
+                          ? "bg-[var(--accent)] text-white"
+                          : "hover:bg-[var(--hover)] text-[var(--muted)]"
+                      )}
+                      title={`字号 ${sz}px`}
+                    >
+                      {sz}
+                    </button>
+                  ))}
+                </div>
+                <div
+                  className="hidden lg:inline-flex rounded-xl border border-[var(--border)] p-0.5 bg-[var(--card)]"
+                  role="group"
+                  aria-label="行宽"
+                >
+                  {(
+                    [
+                      [560, "窄"],
+                      [680, "适中"],
+                      [740, "默认"],
+                      [900, "宽"],
+                    ] as [number, string][]
+                  ).map(([w, label]) => (
+                    <button
+                      key={w}
+                      type="button"
+                      onClick={() => setReadingPrefs({ lineWidth: w })}
+                      className={cn(
+                        "px-2 py-1 text-[11px] rounded-[10px] font-ui",
+                        readingPrefs.lineWidth === w
+                          ? "bg-[var(--accent)] text-white"
+                          : "hover:bg-[var(--hover)] text-[var(--muted)]"
+                      )}
+                      title={`行宽 ${w}px`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <Button
+                  variant={mdFocusMode ? "secondary" : "ghost"}
+                  size="sm"
+                  aria-label="专注模式"
+                  title="专注模式 (F)"
+                  onClick={() => setMdFocusMode(!mdFocusMode)}
+                >
+                  <Maximize2 className="h-3.5 w-3.5" />
+                  专注
                 </Button>
               </div>
             )}
