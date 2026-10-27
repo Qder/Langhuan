@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Document } from "./types";
 import {
+  decodeLibraryPath,
   findDocByLibraryPath,
   mediaSrcFromDocContent,
   resolveAgainstDocPath,
@@ -92,5 +93,56 @@ describe("mediaSrcFromDocContent", () => {
     expect(mediaSrcFromDocContent("data:image/gif;base64,qq")).toBe("data:image/gif;base64,qq");
     expect(mediaSrcFromDocContent("<svg></svg>")?.startsWith("data:image/svg+xml")).toBe(true);
     expect(mediaSrcFromDocContent("# not image")).toBeNull();
+  });
+});
+
+describe("percent-encoded relative media paths", () => {
+  const encodedName =
+    "01-%E6%A0%91%E7%9A%84%E5%9F%BA%E6%9C%AC%E5%BD%A2%E6%80%81.png";
+  const unicodeName = "01-树的基本形态.png";
+  const assets = [{ id: "asset-1", path: `页面/figs/${unicodeName}` }];
+
+  it("decodes percent-encoded segments when resolving against doc path", () => {
+    expect(resolveAgainstDocPath("页面/第5章-树-笔记.md", `figs/${encodedName}`)).toBe(
+      `页面/figs/${unicodeName}`
+    );
+  });
+
+  it("resolves encoded relative png href to asset with decoded path", () => {
+    const resolved = resolveMediaSrc(
+      `figs/${encodedName}`,
+      "页面/第5章-树-笔记.md",
+      docs,
+      assets
+    );
+    expect(resolved).toEqual({
+      kind: "asset",
+      path: `页面/figs/${unicodeName}`,
+      assetId: "asset-1",
+    });
+  });
+
+  it("still resolves plain Unicode href to the same asset", () => {
+    const resolved = resolveMediaSrc(
+      `figs/${unicodeName}`,
+      "页面/第5章-树-笔记.md",
+      docs,
+      assets
+    );
+    expect(resolved.kind).toBe("asset");
+    if (resolved.kind === "asset") expect(resolved.assetId).toBe("asset-1");
+  });
+
+  it("does not throw on invalid percent sequences", () => {
+    expect(() => decodeLibraryPath("figs/bad%zz.png")).not.toThrow();
+    expect(decodeLibraryPath("figs/bad%zz.png")).toBe("figs/bad%zz.png");
+    expect(() =>
+      resolveAgainstDocPath("页面/a.md", "figs/bad%zz.png")
+    ).not.toThrow();
+    expect(resolveAgainstDocPath("页面/a.md", "figs/bad%zz.png")).toBe(
+      "页面/figs/bad%zz.png"
+    );
+    const miss = resolveMediaSrc("figs/bad%zz.png", "页面/a.md", docs, assets);
+    expect(miss.kind).toBe("missing");
   });
 });

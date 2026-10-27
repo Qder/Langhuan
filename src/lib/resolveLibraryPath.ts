@@ -14,11 +14,37 @@ export function isAbsoluteUrl(href: string): boolean {
   return ABSOLUTE_RE.test(href.trim());
 }
 
+/** Safely percent-decode library path segments. Invalid % sequences left as-is. */
+export function decodeLibraryPath(path: string): string {
+  return path
+    .replace(/\\/g, "/")
+    .split("/")
+    .map((seg) => {
+      if (!seg.includes("%")) return seg;
+      try {
+        return decodeURIComponent(seg);
+      } catch {
+        return seg;
+      }
+    })
+    .join("/");
+}
+
+/** Lookup keys: decoded first (matches Unicode AssetMeta/Document paths), then original if different. */
+export function libraryPathCandidates(path: string): string[] {
+  const normalized = path.replace(/\\/g, "/").replace(/^\/+/, "");
+  if (!normalized) return [];
+  const decoded = decodeLibraryPath(normalized);
+  return decoded === normalized ? [normalized] : [decoded, normalized];
+}
+
 /** Join base dir + relative href, normalize `.` / `..`. */
 export function resolveAgainstDocPath(docPath: string, href: string): string {
   const raw = href.trim().split(/[?#]/)[0] || "";
   if (!raw || isAbsoluteUrl(raw)) return raw;
   const baseDir = dirname(docPath.replace(/\\/g, "/"));
+  // Decode percent-encoded segments (common in MD links with CJK filenames) so the
+  // resolved path matches Unicode AssetMeta.path / Document.path from folder import.
   const joined = raw.startsWith("/")
     ? raw.replace(/^\/+/, "")
     : [baseDir, raw].filter(Boolean).join("/");
@@ -29,7 +55,7 @@ export function resolveAgainstDocPath(docPath: string, href: string): string {
       parts.pop();
       continue;
     }
-    parts.push(seg);
+    parts.push(decodeLibraryPath(seg));
   }
   return parts.join("/");
 }
@@ -38,14 +64,17 @@ export function findDocByLibraryPath(
   docs: Document[],
   resolvedPath: string
 ): Document | undefined {
-  const p = resolvedPath.replace(/\\/g, "/").replace(/^\/+/, "");
-  if (!p) return undefined;
-  const exact = docs.find((d) => d.path === p);
-  if (exact) return exact;
-  const lower = p.toLowerCase();
-  const byLower = docs.find((d) => d.path.toLowerCase() === lower);
-  if (byLower) return byLower;
-  // bare name without extension → try .md / .html
+  const candidates = libraryPathCandidates(resolvedPath);
+  if (!candidates.length) return undefined;
+  for (const p of candidates) {
+    const exact = docs.find((d) => d.path === p);
+    if (exact) return exact;
+    const lower = p.toLowerCase();
+    const byLower = docs.find((d) => d.path.toLowerCase() === lower);
+    if (byLower) return byLower;
+  }
+  // bare name without extension → try .md / .html (prefer decoded candidate)
+  const p = candidates[0];
   if (!extOf(p)) {
     return (
       docs.find((d) => d.path === `${p}.md`) ||
@@ -103,9 +132,13 @@ export function resolveMediaSrc(
     // fall through — may still be an asset at same path
   }
 
-  const asset =
-    assets.find((a) => a.path === path) ||
-    assets.find((a) => a.path.toLowerCase() === path.toLowerCase());
+  let asset: AssetPathRef | undefined;
+  for (const candidate of libraryPathCandidates(path)) {
+    asset =
+      assets.find((a) => a.path === candidate) ||
+      assets.find((a) => a.path.toLowerCase() === candidate.toLowerCase());
+    if (asset) break;
+  }
   if (asset) return { kind: "asset", path: asset.path, assetId: asset.id };
 
   if (doc) {
@@ -116,11 +149,12 @@ export function resolveMediaSrc(
     };
   }
 
-  const ext = extOf(path);
+  const displayPath = libraryPathCandidates(path)[0] || path;
+  const ext = extOf(displayPath);
   const hint = IMAGE_EXT.has(ext)
     ? "图片未入库（可粘贴/拖入图片到编辑器）"
     : "未找到对应文档";
-  return { kind: "missing", path, reason: hint };
+  return { kind: "missing", path: displayPath, reason: hint };
 }
 
 export type ResolvedLink =
