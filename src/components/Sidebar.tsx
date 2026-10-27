@@ -38,6 +38,7 @@ import { ImportFolderDialog } from "./ImportFolderDialog";
 import { importClipboardAs } from "@/lib/clipboardImport";
 import { IMPORTABLE_ACCEPT, isImportableLibraryPath } from "@/lib/importable";
 import { ResizeGutter } from "./ui/ResizeGutter";
+import { PreviewContextMenu, type ContextMenuItem } from "./locate/PreviewContextMenu";
 import { useMediaQuery } from "@/lib/useMediaQuery";
 
 type TreeNode = {
@@ -96,6 +97,7 @@ function FileTree({
   compact,
   activeId,
   rowH,
+  onFolderContextMenu,
 }: {
   node: TreeNode;
   depth?: number;
@@ -104,6 +106,7 @@ function FileTree({
   compact: boolean;
   activeId: string | null;
   rowH: string;
+  onFolderContextMenu: (folderPath: string, e: React.MouseEvent) => void;
 }) {
   const openDoc = useStore((s) => s.requestOpenDoc);
   const isDirty = useStore((s) => s.isDirty);
@@ -164,7 +167,13 @@ function FileTree({
           <div key={f.path} className="mb-0.5">
             <button
               type="button"
+              data-tree-folder={f.path}
               onClick={() => onToggle(f.path)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onFolderContextMenu(f.path, e);
+              }}
               onDragOver={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -197,6 +206,7 @@ function FileTree({
                 compact={compact}
                 activeId={activeId}
                 rowH={rowH}
+                onFolderContextMenu={onFolderContextMenu}
               />
             )}
           </div>
@@ -350,6 +360,11 @@ export function Sidebar() {
     { path: string; content: string }[] | null
   >(null);
   const [expanded, setExpanded] = React.useState<Set<string>>(() => new Set());
+  const [folderMenu, setFolderMenu] = React.useState<{
+    x: number;
+    y: number;
+    folderPath: string;
+  } | null>(null);
 
   const compact = useMediaQuery("(max-height: 699px)");
   const rowH = compact ? "h-7" : "h-8"; // 28 / 32
@@ -450,6 +465,51 @@ export function Sidebar() {
       return next;
     });
   };
+
+  const openFolderContextMenu = React.useCallback(
+    (folderPath: string, e: React.MouseEvent | { clientX: number; clientY: number }) => {
+      setFolderMenu({ x: e.clientX, y: e.clientY, folderPath });
+    },
+    []
+  );
+
+  const createInFolder = React.useCallback(
+    (folderPath: string, type: "md" | "html") => {
+      const name = type === "md" ? "未命名笔记.md" : "未命名页面.html";
+      const path = folderPath ? `${folderPath}/${name}` : name;
+      if (folderPath) {
+        setExpanded((prev) => {
+          const next = new Set(prev);
+          next.add(folderPath);
+          return next;
+        });
+      }
+      createDoc({ type, path, open: true });
+    },
+    [createDoc]
+  );
+
+  const folderMenuItems: ContextMenuItem[] = React.useMemo(() => {
+    if (!folderMenu) return [];
+    const folderPath = folderMenu.folderPath;
+    return [
+      {
+        id: "new-md",
+        label: "新建 Markdown 笔记",
+        onSelect: () => createInFolder(folderPath, "md"),
+      },
+      {
+        id: "new-html",
+        label: "新建 HTML 页面",
+        onSelect: () => createInFolder(folderPath, "html"),
+      },
+      {
+        id: "new-template",
+        label: "从模板新建",
+        onSelect: () => setTemplateDialogOpen(true),
+      },
+    ];
+  }, [folderMenu, createInFolder, setTemplateDialogOpen]);
 
   const onPasteSource = () => {
     const text = window.prompt("粘贴 Markdown 或 HTML 源码：");
@@ -869,14 +929,25 @@ export function Sidebar() {
                   </button>
                 </div>
               )}
-              <FileTree
-                node={tree}
-                expanded={expanded}
-                onToggle={onToggleFolder}
-                compact={compact}
-                activeId={activeId}
-                rowH={rowH}
-              />
+              <div
+                className="min-h-[120px]"
+                onContextMenu={(e) => {
+                  const t = e.target as HTMLElement;
+                  if (t.closest("[data-tree-folder]") || t.closest("[data-tree-id]")) return;
+                  e.preventDefault();
+                  openFolderContextMenu("", e);
+                }}
+              >
+                <FileTree
+                  node={tree}
+                  expanded={expanded}
+                  onToggle={onToggleFolder}
+                  compact={compact}
+                  activeId={activeId}
+                  rowH={rowH}
+                  onFolderContextMenu={openFolderContextMenu}
+                />
+              </div>
             </div>
           )}
 
@@ -1230,6 +1301,15 @@ export function Sidebar() {
         files={pendingImport}
         onClose={() => setPendingImport(null)}
       />
+      {folderMenu && (
+        <PreviewContextMenu
+          x={folderMenu.x}
+          y={folderMenu.y}
+          items={folderMenuItems}
+          onClose={() => setFolderMenu(null)}
+          ariaLabel={folderMenu.folderPath ? `文件夹「${folderMenu.folderPath}」菜单` : "文档树菜单"}
+        />
+      )}
     </>
   );
 }

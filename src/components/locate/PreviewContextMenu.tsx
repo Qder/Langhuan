@@ -16,11 +16,13 @@ export function PreviewContextMenu({
   y,
   items,
   onClose,
+  ariaLabel = "上下文菜单",
 }: {
   x: number;
   y: number;
   items: ContextMenuItem[];
   onClose: () => void;
+  ariaLabel?: string;
 }) {
   const ref = React.useRef<HTMLDivElement>(null);
   const [focusIdx, setFocusIdx] = React.useState(0);
@@ -71,7 +73,7 @@ export function PreviewContextMenu({
     <div
       ref={ref}
       role="menu"
-      aria-label="预览选区菜单"
+      aria-label={ariaLabel}
       style={style}
       className="min-w-[200px] rounded-2xl border border-[var(--border)] bg-[var(--menu)] p-1.5 shadow-xl animate-enter font-ui"
     >
