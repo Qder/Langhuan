@@ -14,9 +14,13 @@ import {
   titleOf,
   cn,
 } from "@/lib/utils";
-import { ImportFolderDialog } from "./ImportFolderDialog";
+import { ImportFolderDialog, type PendingImportAsset, type PendingImportDoc } from "./ImportFolderDialog";
 import { importClipboardAs } from "@/lib/clipboardImport";
-import { isImportableLibraryPath } from "@/lib/importable";
+import {
+  isImportableImagePath,
+  isImportableLibraryPath,
+  mimeForImportableImage,
+} from "@/lib/importable";
 
 export function HomeView() {
   const documents = useStore((s) => s.documents);
@@ -28,7 +32,10 @@ export function HomeView() {
   const setSidebarPanel = useStore((s) => s.setSidebarPanel);
   const resetSeed = useStore((s) => s.resetSeed);
   const folderRef = React.useRef<HTMLInputElement>(null);
-  const [pendingImport, setPendingImport] = React.useState<{ path: string; content: string }[] | null>(null);
+  const [pendingImport, setPendingImport] = React.useState<{
+    docs: PendingImportDoc[];
+    assets: PendingImportAsset[];
+  } | null>(null);
 
   const tags = collectTagCounts(documents);
   const words = documents.reduce((n, d) => n + countWords(d.type === "html" ? stripHtml(d.content) : d.content), 0);
@@ -113,13 +120,21 @@ export function HomeView() {
           webkitdirectory=""
           onChange={async (e) => {
             if (!e.target.files) return;
-            const files: { path: string; content: string }[] = [];
+            const files: PendingImportDoc[] = [];
+            const assets: PendingImportAsset[] = [];
             for (const f of Array.from(e.target.files)) {
               const path = (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name;
-              if (!isImportableLibraryPath(path)) continue;
-              files.push({ path, content: await f.text() });
+              if (isImportableLibraryPath(path)) {
+                files.push({ path, content: await f.text() });
+              } else if (isImportableImagePath(path)) {
+                assets.push({
+                  path,
+                  blob: f,
+                  mime: mimeForImportableImage(path, f.type),
+                });
+              }
             }
-            if (files.length) setPendingImport(files);
+            if (files.length || assets.length) setPendingImport({ docs: files, assets });
             e.target.value = "";
           }}
         />
@@ -247,8 +262,9 @@ export function HomeView() {
         )}
       </div>
       <ImportFolderDialog
-        open={!!pendingImport?.length}
-        files={pendingImport}
+        open={!!(pendingImport && (pendingImport.docs.length || pendingImport.assets.length))}
+        files={pendingImport?.docs ?? null}
+        assets={pendingImport?.assets ?? null}
         onClose={() => setPendingImport(null)}
       />
     </div>

@@ -37,9 +37,15 @@ import { collectTagCounts } from "@/lib/tags";
 import { dirname, titleOf, cn, relativeTime, basename } from "@/lib/utils";
 import { buildTree, isPathUnderFolder, parentFolderForNew, type FolderTreeNode } from "@/lib/folders";
 import { formatBytes } from "@/lib/storage/usage";
-import { ImportFolderDialog } from "./ImportFolderDialog";
+import { ImportFolderDialog, type PendingImportAsset, type PendingImportDoc } from "./ImportFolderDialog";
 import { importClipboardAs } from "@/lib/clipboardImport";
-import { IMPORTABLE_ACCEPT, isImportableLibraryPath } from "@/lib/importable";
+import {
+  IMPORTABLE_ACCEPT,
+  isImportableImagePath,
+  isImportableLibraryPath,
+  mimeForImportableImage,
+} from "@/lib/importable";
+import { formatImportStatus } from "@/lib/importPaths";
 import { ResizeGutter } from "./ui/ResizeGutter";
 import { PreviewContextMenu, type ContextMenuItem } from "./locate/PreviewContextMenu";
 import { useMediaQuery } from "@/lib/useMediaQuery";
@@ -113,14 +119,30 @@ function FileTree({
     }
     if (e.dataTransfer.files?.length) {
       const collected: { path: string; content: string }[] = [];
+      const collectedAssets: PendingImportAsset[] = [];
       for (const file of Array.from(e.dataTransfer.files)) {
-        if (!isImportableLibraryPath(file.name)) continue;
-        const base = folderPath ? `${folderPath}/${file.name}` : file.name;
-        collected.push({ path: base, content: await file.text() });
+        const rel =
+          (file as File & { webkitRelativePath?: string }).webkitRelativePath ||
+          file.name;
+        const base = folderPath ? `${folderPath}/${rel}` : rel;
+        if (isImportableLibraryPath(rel)) {
+          collected.push({ path: base, content: await file.text() });
+        } else if (isImportableImagePath(rel)) {
+          collectedAssets.push({
+            path: base,
+            blob: file,
+            mime: mimeForImportableImage(rel, file.type),
+          });
+        }
       }
-      if (collected.length) {
-        const n = importFiles(collected);
-        setStatus(n ? `已导入 ${n} 个文件到 ${folderPath || "根目录"}` : "没有可导入的文件");
+      if (collected.length || collectedAssets.length) {
+        const n = importFiles(collected, { quiet: true });
+        const m = await useStore.getState().importAssets(collectedAssets, {
+          quiet: true,
+        });
+        const where = folderPath || "根目录";
+        const msg = formatImportStatus(n, m);
+        setStatus(msg === "没有可导入的文件" ? msg : `${msg}到 ${where}`);
       }
     }
   };
@@ -341,9 +363,10 @@ export function Sidebar() {
   const fileRef = React.useRef<HTMLInputElement>(null);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const [tagQuery, setTagQuery] = React.useState("");
-  const [pendingImport, setPendingImport] = React.useState<
-    { path: string; content: string }[] | null
-  >(null);
+  const [pendingImport, setPendingImport] = React.useState<{
+    docs: PendingImportDoc[];
+    assets: PendingImportAsset[];
+  } | null>(null);
   const [expanded, setExpanded] = React.useState<Set<string>>(() => new Set());
   const [folderMenu, setFolderMenu] = React.useState<{
     x: number;
@@ -647,15 +670,24 @@ export function Sidebar() {
   };
 
   const handleImportList = async (list: FileList | File[], keepDir: boolean) => {
-    const files: { path: string; content: string }[] = [];
+    const files: PendingImportDoc[] = [];
+    const assets: PendingImportAsset[] = [];
     for (const file of Array.from(list)) {
       const path = keepDir
         ? (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name
         : file.name;
-      if (!isImportableLibraryPath(path)) continue;
-      files.push({ path, content: await readFileAsText(file) });
+      if (isImportableLibraryPath(path)) {
+        files.push({ path, content: await readFileAsText(file) });
+      } else if (keepDir && isImportableImagePath(path)) {
+        // Folder / multi-file batches keep relative image paths; single-file pick stays text-only.
+        assets.push({
+          path,
+          blob: file,
+          mime: mimeForImportableImage(path, file.type),
+        });
+      }
     }
-    if (files.length) setPendingImport(files);
+    if (files.length || assets.length) setPendingImport({ docs: files, assets });
   };
 
   const openLocalFolder = async () => {
@@ -668,25 +700,33 @@ export function Sidebar() {
     }
     try {
       const dir = await w.showDirectoryPicker();
-      const collected: { path: string; content: string }[] = [];
+      const collected: PendingImportDoc[] = [];
+      const collectedAssets: PendingImportAsset[] = [];
       const walk = async (handle: FileSystemDirectoryHandle, prefix: string) => {
         for await (const [name, entry] of handle.entries()) {
+          const rel = prefix ? `${prefix}/${name}` : name;
           if (entry.kind === "file" && isImportableLibraryPath(name)) {
             const file = await (entry as FileSystemFileHandle).getFile();
             collected.push({
-              path: prefix ? `${prefix}/${name}` : name,
+              path: rel,
               content: await file.text(),
             });
+          } else if (entry.kind === "file" && isImportableImagePath(name)) {
+            const file = await (entry as FileSystemFileHandle).getFile();
+            collectedAssets.push({
+              path: rel,
+              blob: file,
+              mime: mimeForImportableImage(name, file.type),
+            });
           } else if (entry.kind === "directory") {
-            await walk(
-              entry as FileSystemDirectoryHandle,
-              prefix ? `${prefix}/${name}` : name
-            );
+            await walk(entry as FileSystemDirectoryHandle, rel);
           }
         }
       };
       await walk(dir, "");
-      if (collected.length) setPendingImport(collected);
+      if (collected.length || collectedAssets.length) {
+        setPendingImport({ docs: collected, assets: collectedAssets });
+      }
     } catch {
       /* cancelled */
     }
@@ -1400,8 +1440,9 @@ export function Sidebar() {
         </div>
       )}
       <ImportFolderDialog
-        open={!!pendingImport?.length}
-        files={pendingImport}
+        open={!!(pendingImport && (pendingImport.docs.length || pendingImport.assets.length))}
+        files={pendingImport?.docs ?? null}
+        assets={pendingImport?.assets ?? null}
         onClose={() => setPendingImport(null)}
       />
       {folderMenu && (

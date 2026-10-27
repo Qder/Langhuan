@@ -6,11 +6,16 @@ import { Dialog } from "./ui/dialog";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { useStore } from "@/lib/store";
-import { importPreviewLabel, rewriteImportPaths } from "@/lib/importPaths";
+import {
+  formatImportStatus,
+  importPreviewLabel,
+  rewriteImportPaths,
+} from "@/lib/importPaths";
 import { buildTree, type FolderTreeNode } from "@/lib/folders";
 import { cn } from "@/lib/utils";
 
-type Pending = { path: string; content: string }[];
+export type PendingImportDoc = { path: string; content: string };
+export type PendingImportAsset = { path: string; blob: Blob; mime: string };
 
 function FolderPickNode({
   node,
@@ -101,15 +106,19 @@ function FolderPickNode({
 export function ImportFolderDialog({
   open,
   files,
+  assets = null,
   onClose,
 }: {
   open: boolean;
-  files: Pending | null;
+  files: PendingImportDoc[] | null;
+  assets?: PendingImportAsset[] | null;
   onClose: () => void;
 }) {
   const documents = useStore((s) => s.documents);
   const emptyFolders = useStore((s) => s.emptyFolders);
   const importFiles = useStore((s) => s.importFiles);
+  const importAssets = useStore((s) => s.importAssets);
+  const setStatus = useStore((s) => s.setStatus);
   const tree = React.useMemo(
     () =>
       buildTree(
@@ -126,18 +135,22 @@ export function ImportFolderDialog({
   const [selected, setSelected] = React.useState<string>(""); // "" = 库根目录
   const [custom, setCustom] = React.useState("");
   const [expanded, setExpanded] = React.useState<Set<string>>(() => new Set());
+  const [busy, setBusy] = React.useState(false);
 
   React.useEffect(() => {
     if (open) {
       setSelected("");
       setCustom("");
       setExpanded(new Set());
+      setBusy(false);
     }
   }, [open]);
 
   const customActive = !!custom.trim();
   const target = custom.trim() || selected;
   const list = files || [];
+  const assetList = assets || [];
+  const canImport = list.length > 0 || assetList.length > 0;
 
   const onSelectFolder = (path: string) => {
     setSelected(path);
@@ -153,14 +166,22 @@ export function ImportFolderDialog({
     });
   };
 
-  const confirm = () => {
-    if (!list.length) {
+  const confirm = async () => {
+    if (!canImport) {
       onClose();
       return;
     }
-    const rewritten = rewriteImportPaths(list, target || undefined);
-    importFiles(rewritten);
-    onClose();
+    setBusy(true);
+    try {
+      const rewrittenDocs = rewriteImportPaths(list, target || undefined);
+      const rewrittenAssets = rewriteImportPaths(assetList, target || undefined);
+      const n = importFiles(rewrittenDocs, { quiet: true });
+      const m = await importAssets(rewrittenAssets, { quiet: true });
+      setStatus(formatImportStatus(n, m));
+      onClose();
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -170,7 +191,9 @@ export function ImportFolderDialog({
           <h2 id="import-folder-title" className="font-serif text-lg font-semibold">
             导入到…
           </h2>
-          <p className="mt-1 text-sm text-[var(--muted)]">{importPreviewLabel(list)}</p>
+          <p className="mt-1 text-sm text-[var(--muted)]">
+            {importPreviewLabel(list, assetList.length)}
+          </p>
         </div>
 
         <div
@@ -217,7 +240,7 @@ export function ImportFolderDialog({
             onKeyDown={(e) => {
               if (e.key === "Enter") {
                 e.preventDefault();
-                confirm();
+                void confirm();
               }
             }}
           />
@@ -232,10 +255,14 @@ export function ImportFolderDialog({
         )}
 
         <div className="flex justify-end gap-2 pt-1">
-          <Button variant="outline" onClick={onClose}>
+          <Button variant="outline" onClick={onClose} disabled={busy}>
             取消
           </Button>
-          <Button variant="accent" onClick={confirm} disabled={!list.length}>
+          <Button
+            variant="accent"
+            onClick={() => void confirm()}
+            disabled={!canImport || busy}
+          >
             导入
           </Button>
         </div>

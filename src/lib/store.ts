@@ -38,9 +38,9 @@ import type { HtmlDocPreviewPrefs } from "./htmlPreviewPrefs";
 import { DEFAULT_HTML_PREVIEW_PREFS, normalizeHtmlPrefs } from "./htmlPreviewPrefs";
 import type { LocateResult } from "./locate/types";
 import { createSeedDocuments } from "./seed";
-import { isImportableLibraryPath, libraryDocTypeFromPath, normalizeImportedPath } from "./importable";
+import { isImportableImagePath, isImportableLibraryPath, libraryDocTypeFromPath, mimeForImportableImage, normalizeImportedPath } from "./importable";
 import { getTags, setHtmlTags, setMdTags } from "./tags";
-import { basename, titleOf, uniquePath, uid } from "./utils";
+import { basename, dirname, titleOf, uniquePath, uid } from "./utils";
 import { idbJSONStorage, STORE_KEY } from "./storage/idbPersist";
 import { pushVersion, clearVersions } from "./storage/versions";
 import { TRASH_RETENTION_DAYS } from "./storage/constants";
@@ -256,7 +256,15 @@ type LanghuanState = {
   }) => Document;
   /** Create an empty folder under parent (default root). Returns path or null if rejected. */
   createFolder: (name: string, parentPath?: string) => string | null;
-  importFiles: (files: { path: string; content: string }[]) => number;
+  importFiles: (
+    files: { path: string; content: string }[],
+    opts?: { quiet?: boolean }
+  ) => number;
+  /** Import binary images as AssetMeta, preserving vault-relative paths (no suggestAssetPath). */
+  importAssets: (
+    files: { path: string; blob: Blob; mime?: string }[],
+    opts?: { quiet?: boolean }
+  ) => Promise<number>;
   renameDoc: (id: string, newPath: string) => void;
   /** Soft-delete → recycle bin. */
   deleteDoc: (id: string) => void;
@@ -823,7 +831,7 @@ export const useStore = create<LanghuanState>()(
         return full;
       },
 
-      importFiles: (files) => {
+      importFiles: (files, opts) => {
         let n = 0;
         const docs = [...get().documents];
         for (const f of files) {
@@ -850,9 +858,65 @@ export const useStore = create<LanghuanState>()(
             docs.map((d) => d.path)
           ),
         }));
-        if (n) get().setStatus(`已导入 ${n} 个文件`);
+        if (n && !opts?.quiet) get().setStatus(`已导入 ${n} 篇文档`);
         void get().refreshStorageUsage();
         return n;
+      },
+
+      importAssets: async (files, opts) => {
+        let m = 0;
+        const docs = get().documents;
+        const nextAssets = [...get().assets];
+        const pathSet = new Set<string>([
+          ...docs.map((d) => d.path),
+          ...nextAssets.map((a) => a.path),
+        ]);
+
+        for (const f of files) {
+          let path = f.path.replace(/\\/g, "/").replace(/^\/+/, "");
+          if (!isImportableImagePath(path)) continue;
+          path = uniquePath(path, pathSet);
+          pathSet.add(path);
+
+          const mime = mimeForImportableImage(path, f.mime);
+          const blob =
+            f.blob instanceof Blob ? f.blob : new Blob([f.blob], { type: mime });
+          const id = uid("asset");
+          await putAssetBlob(id, blob);
+
+          const dir = dirname(path);
+          const sameDir = docs.filter((d) => dirname(d.path) === dir);
+          const nearest =
+            sameDir.find((d) => d.type === "md") ||
+            sameDir.find((d) => /\.(html|svg)$/i.test(d.path)) ||
+            undefined;
+
+          const meta: AssetMeta = {
+            id,
+            path,
+            mime,
+            size: blob.size,
+            createdAt: Date.now(),
+            docId: nearest?.id,
+          };
+          nextAssets.push(meta);
+          m += 1;
+
+          try {
+            const { writeThroughAssetBinary } = await import("./storage/fsSync");
+            void writeThroughAssetBinary(path, blob);
+          } catch {
+            /* optional */
+          }
+        }
+
+        if (m) {
+          set({ assets: nextAssets });
+          void saveAssetMetaList(nextAssets);
+          void get().refreshStorageUsage();
+          if (!opts?.quiet) get().setStatus(`已导入 ${m} 张图片`);
+        }
+        return m;
       },
 
       renameDoc: (id, newPath) => {
