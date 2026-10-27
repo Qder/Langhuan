@@ -16,6 +16,7 @@ export type PendingPreviewLocate = {
   nonce: number;
 };
 import { createSeedDocuments } from "./seed";
+import { isImportableLibraryPath, libraryDocTypeFromPath, normalizeImportedPath } from "./importable";
 import { getTags, setHtmlTags, setMdTags } from "./tags";
 import { basename, uniquePath, uid } from "./utils";
 
@@ -243,11 +244,9 @@ export const useStore = create<LanghuanState>()(
         let n = 0;
         const docs = [...get().documents];
         for (const f of files) {
-          const lower = f.path.toLowerCase();
-          if (!/\.(md|html|txt)$/.test(lower)) continue;
-          const type: Document["type"] = lower.endsWith(".html") ? "html" : "md";
-          let path = f.path.replace(/\\/g, "/");
-          if (path.toLowerCase().endsWith(".txt")) path = path.replace(/\.txt$/i, ".md");
+          if (!isImportableLibraryPath(f.path)) continue;
+          const type = libraryDocTypeFromPath(f.path);
+          let path = normalizeImportedPath(f.path);
           path = ensureUniquePath(path, docs);
           const doc: Document = {
             id: uid(),

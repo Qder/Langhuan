@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="keywords" content="验收, 安全, HTML" />
+  <title>HTML 快照 · 沙盒对照</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body {
+      margin: 0; min-height: 100vh; display: grid; place-items: center;
+      font-family: "Noto Sans SC", system-ui, sans-serif;
+      background: linear-gradient(160deg, #f5efe2, #e4d8c0);
+      color: #2b261f;
+    }
+    .card {
+      width: min(440px, 92vw); padding: 28px; border-radius: 16px;
+      background: rgba(255,252,245,.92); border: 1px solid rgba(43,38,31,.12);
+      box-shadow: 0 12px 40px rgba(43,38,31,.08);
+    }
+    h1 { font-family: "Noto Serif SC", serif; font-size: 1.4rem; margin: 0 0 8px; }
+    p { margin: 0 0 12px; line-height: 1.7; opacity: .88; }
+    #tick { font-family: "Noto Serif SC", serif; font-size: 2rem; color: #2f5d57; }
+    .hint { font-size: 0.85rem; opacity: .75; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>沙盒对照页</h1>
+    <p>页内脚本只应影响本 iframe：外层琅嬛 UI 的背景、侧栏不应被改掉。</p>
+    <div id="tick">沙盒内计数：0</div>
+    <p class="hint">若外层页面也弹窗或变黑，说明隔离失败（不应发生）。</p>
+  </div>
+  <script>
+    // Gentle demo: local counter only. No network, no parent access.
+    let n = 0;
+    const el = document.getElementById("tick");
+    setInterval(function () {
+      n += 1;
+      if (el) el.textContent = "沙盒内计数：" + n;
+    }, 1000);
+    // Attempting to style the parent should throw / no-op without allow-same-origin.
+    try {
+      if (window.parent && window.parent.document) {
+        window.parent.document.body.style.background = "black";
+      }
+    } catch (e) {
+      /* expected: cross-origin / sandbox blocked */
+    }
+  </script>
+</body>
+</html>

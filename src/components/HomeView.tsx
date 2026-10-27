@@ -16,6 +16,7 @@ import {
 } from "@/lib/utils";
 import { ImportFolderDialog } from "./ImportFolderDialog";
 import { importClipboardAs } from "@/lib/clipboardImport";
+import { isImportableLibraryPath } from "@/lib/importable";
 
 export function HomeView() {
   const documents = useStore((s) => s.documents);
@@ -114,7 +115,7 @@ export function HomeView() {
             const files: { path: string; content: string }[] = [];
             for (const f of Array.from(e.target.files)) {
               const path = (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name;
-              if (!/\.(md|html|txt)$/i.test(path)) continue;
+              if (!isImportableLibraryPath(path)) continue;
               files.push({ path, content: await f.text() });
             }
             if (files.length) setPendingImport(files);

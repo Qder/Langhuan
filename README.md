@@ -42,6 +42,10 @@ npm start
 - 源码 / 分栏编辑，草稿机制，`⌘S` 保存，`⌘K` 命令面板
 - 导入文件夹 / 文件；支持 File System Access 的浏览器可打开本地文件夹
 
+## 功能验收示例
+
+仓库内 `examples/功能验收/` 可整包 **导入文件夹**，用于核对相对图片、双链 Peek、代码行号、Mermaid、MD 白名单、HTML 沙盒与剪贴板粘贴。已有知识库请用导入；种子文档仅首次初始化写入。
+
 ## 技术栈
 
 Next.js（App Router）· TypeScript · Tailwind CSS · Zustand · react-markdown · lucide-react

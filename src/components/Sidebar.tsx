@@ -21,6 +21,7 @@ import { titleOf } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import { ImportFolderDialog } from "./ImportFolderDialog";
 import { importClipboardAs } from "@/lib/clipboardImport";
+import { IMPORTABLE_ACCEPT, isImportableLibraryPath } from "@/lib/importable";
 import { ResizeGutter } from "./ui/ResizeGutter";
 
 function Brand() {
@@ -209,7 +210,7 @@ export function Sidebar() {
     const files: { path: string; content: string }[] = [];
     for (const file of Array.from(list)) {
       const path = keepDir ? (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name : file.name;
-      if (!/\.(md|html|txt)$/i.test(path)) continue;
+      if (!isImportableLibraryPath(path)) continue;
       files.push({ path, content: await readFileAsText(file) });
     }
     if (files.length) setPendingImport(files);
@@ -229,7 +230,7 @@ export function Sidebar() {
       const walk = async (handle: FileSystemDirectoryHandle, prefix: string) => {
         // @ts-expect-error async iterator
         for await (const [name, entry] of handle.entries()) {
-          if (entry.kind === "file" && /\.(md|html|txt)$/i.test(name)) {
+          if (entry.kind === "file" && isImportableLibraryPath(name)) {
             const file = await (entry as FileSystemFileHandle).getFile();
             collected.push({ path: prefix ? `${prefix}/${name}` : name, content: await file.text() });
           } else if (entry.kind === "directory") {
@@ -306,7 +307,7 @@ export function Sidebar() {
           type="file"
           className="hidden"
           multiple
-          accept=".md,.html,.txt,text/markdown,text/html"
+          accept={IMPORTABLE_ACCEPT}
           onChange={(e) => {
             if (e.target.files) void handleImportList(e.target.files, false);
             e.target.value = "";
