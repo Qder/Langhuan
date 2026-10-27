@@ -37,6 +37,7 @@ import { getTags } from "@/lib/tags";
 import {
   HTML_WIDTH_PX,
   HTML_ZOOM_OPTIONS,
+  normalizeHtmlPrefs,
   type HtmlWidthMode,
 } from "@/lib/htmlPreviewPrefs";
 import { openHtmlInNewTab } from "./HtmlReader";
@@ -89,8 +90,8 @@ export function TopBar() {
   const setOutlineRailOpen = useStore((s) => s.setOutlineRailOpen);
   const htmlImmersive = useStore((s) => s.htmlImmersive);
   const setHtmlImmersive = useStore((s) => s.setHtmlImmersive);
-  const getHtmlPreviewPrefs = useStore((s) => s.getHtmlPreviewPrefs);
   const setHtmlPreviewPrefs = useStore((s) => s.setHtmlPreviewPrefs);
+  const htmlPreviewPrefs = useStore((s) => s.htmlPreviewPrefs);
   const bumpHtmlReload = useStore((s) => s.bumpHtmlReload);
   const setDocTags = useStore((s) => s.setDocTags);
   const [renameOpen, setRenameOpen] = React.useState(false);
@@ -108,7 +109,10 @@ export function TopBar() {
   const wide = useMediaQuery("(min-width: 1280px)");
   const dirty = active ? isDirty(active.id) : false;
   const isHtml = active?.type === "html";
-  const htmlPrefs = active && isHtml ? getHtmlPreviewPrefs(active.id) : null;
+  const htmlPrefs =
+    active && isHtml
+      ? normalizeHtmlPrefs(htmlPreviewPrefs[active.id])
+      : null;
   const docTags =
     active ? getTags({ ...active, content: getContent(active.id) }) : [];
 

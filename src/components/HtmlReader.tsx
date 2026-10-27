@@ -18,8 +18,8 @@ import {
 import type { HtmlLocatePayload } from "@/lib/locate";
 import { prepareHtmlPreview } from "@/lib/fixHtmlPreview";
 import {
-  HTML_WIDTH_PX,
-  type HtmlWidthMode,
+  computeHtmlPreviewFrameLayout,
+  normalizeHtmlPrefs,
 } from "@/lib/htmlPreviewPrefs";
 import { PreviewContextMenu, type ContextMenuItem } from "./locate/PreviewContextMenu";
 import { SelectionFloatBar } from "./locate/SelectionFloatBar";
@@ -34,13 +34,14 @@ export function HtmlReader({ doc }: { doc: Document }) {
   const htmlImmersive = useStore((s) => s.htmlImmersive);
   const setHtmlImmersive = useStore((s) => s.setHtmlImmersive);
   const setHtmlScrollPercent = useStore((s) => s.setHtmlScrollPercent);
-  const getHtmlPreviewPrefs = useStore((s) => s.getHtmlPreviewPrefs);
   const setViewMode = useStore((s) => s.setViewMode);
   const openHome = useStore((s) => s.openHome);
   const setCommandOpen = useStore((s) => s.setCommandOpen);
   const htmlReloadToken = useStore((s) => s.htmlReloadToken);
   const theme = useStore((s) => s.theme);
-  const prefs = getHtmlPreviewPrefs(doc.id);
+  // Subscribe to the prefs record entry so width/zoom clicks re-render.
+  const prefsRaw = useStore((s) => s.htmlPreviewPrefs[doc.id]);
+  const prefs = normalizeHtmlPrefs(prefsRaw);
 
   const content = getContent(doc.id);
   const iframeRef = React.useRef<HTMLIFrameElement>(null);
@@ -257,16 +258,12 @@ export function HtmlReader({ doc }: { doc: Document }) {
     ];
   }, [menu, runLocate, setStatus]);
 
-  const widthMode: HtmlWidthMode = prefs.widthMode;
-  const zoom = prefs.zoom;
-  const fixedWidth =
-    widthMode === "fluid" ? null : HTML_WIDTH_PX[widthMode];
-
-  let fitScale = 1;
-  if (fixedWidth && stageSize.w > 0) {
-    fitScale = Math.min(1, stageSize.w / (fixedWidth * zoom));
-  }
-  const totalScale = fitScale * zoom;
+  const layout = computeHtmlPreviewFrameLayout(
+    prefs.widthMode,
+    prefs.zoom,
+    stageSize
+  );
+  const { fixedWidth, frameStyle, badgeLabel, showGutters } = layout;
 
   const pageDark = isDarkCssColor(pageBg);
   const showGradient = pageDark && theme === "paper" && !htmlImmersive;
@@ -309,7 +306,7 @@ export function HtmlReader({ doc }: { doc: Document }) {
             fixedWidth ? "items-start" : "items-stretch"
           )}
           style={
-            fixedWidth
+            showGutters
               ? {
                   background:
                     "color-mix(in srgb, var(--fg) 4%, var(--bg))",
@@ -317,26 +314,10 @@ export function HtmlReader({ doc }: { doc: Document }) {
               : undefined
           }
         >
-          <div
-            className="relative h-full"
-            style={
-              fixedWidth
-                ? {
-                    width: fixedWidth,
-                    maxWidth: "100%",
-                    transform: `scale(${totalScale})`,
-                    transformOrigin: "top center",
-                    height:
-                      totalScale > 0
-                        ? `${100 / totalScale}%`
-                        : "100%",
-                  }
-                : { width: "100%", height: "100%" }
-            }
-          >
-            {fixedWidth && (
+          <div className="relative h-full" style={frameStyle}>
+            {badgeLabel && (
               <div className="pointer-events-none absolute -top-0 left-1/2 z-20 -translate-x-1/2 rounded-b-md bg-black/45 px-2 py-0.5 text-[10px] font-mono text-white/90">
-                {fixedWidth}px · {Math.round(zoom * 100)}%
+                {badgeLabel}
               </div>
             )}
             <iframe
