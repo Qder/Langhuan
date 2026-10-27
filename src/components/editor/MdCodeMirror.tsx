@@ -22,13 +22,13 @@ import {
 } from "@/lib/slashCommands";
 import {
   SOURCE_SCROLL_UNFOLLOW_MS,
-  shouldUpdateScrollTop,
 } from "@/lib/locate/scrollSync";
 import {
   clearRevealInView,
   locateHighlightExtensions,
   revealRangeInView,
 } from "./locateHighlight";
+import { safeCoordsAtPos, scrollEditorToSourceOffset } from "./safeCoords";
 
 function offsetToLineCol(text: string, offset: number): { line: number; col: number } {
   const o = Math.max(0, Math.min(offset, text.length));
@@ -102,7 +102,7 @@ export function MdCodeMirror({
       const text = view.state.doc.toString();
       const slashMatch = matchSlashCommand(text, caret);
       if (slashMatch && slashMatch.items.length) {
-        const coords = view.coordsAtPos(slashMatch.start);
+        const coords = safeCoordsAtPos(view, slashMatch.start);
         setSlash({
           top: coords ? coords.bottom + 4 : 40,
           left: coords ? coords.left : 40,
@@ -154,7 +154,7 @@ export function MdCodeMirror({
           items.push({ label: title, insert: title });
         }
       }
-      const coords = view.coordsAtPos(start);
+      const coords = safeCoordsAtPos(view, start);
       setWiki({
         top: coords ? coords.bottom + 4 : 40,
         left: coords ? coords.left : 40,
@@ -554,16 +554,8 @@ export function MdCodeMirror({
     machineDrive.current = "preview";
     ignoreScrollUntil.current = Date.now() + 100;
     if (scrollSyncEvent.sourceOffset == null || !Number.isFinite(scrollSyncEvent.sourceOffset)) return;
-    const o = Math.max(0, Math.min(scrollSyncEvent.sourceOffset, view.state.doc.length));
-    const coords = view.coordsAtPos(o);
-    const scroll = view.scrollDOM;
-    if (coords) {
-      const rect = scroll.getBoundingClientRect();
-      const next = scroll.scrollTop + (coords.top - rect.top) - 8;
-      if (shouldUpdateScrollTop(scroll.scrollTop, next)) scroll.scrollTop = next;
-    } else {
-      view.dispatch({ effects: EditorView.scrollIntoView(o, { y: "start" }) });
-    }
+    // coordsAtPos can throw RangeError even after clamp (DocView race / EOF side).
+    scrollEditorToSourceOffset(view, scrollSyncEvent.sourceOffset);
     if (resetTimer.current) window.clearTimeout(resetTimer.current);
     resetTimer.current = window.setTimeout(() => {
       machineDrive.current = null;

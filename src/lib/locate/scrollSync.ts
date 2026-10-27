@@ -275,3 +275,13 @@ export function anchorsCoverViewport(
   if (min > viewportTop + slack) return false;
   return true;
 }
+
+/**
+ * Clamp a document offset into [0, docLength].
+ * Non-finite values become 0. docLength < 0 is treated as 0.
+ */
+export function clampDocPos(pos: number, docLength: number): number {
+  const len = Number.isFinite(docLength) && docLength > 0 ? Math.floor(docLength) : 0;
+  if (!Number.isFinite(pos)) return 0;
+  return Math.max(0, Math.min(Math.floor(pos), len));
+}

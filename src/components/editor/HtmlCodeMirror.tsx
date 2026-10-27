@@ -35,6 +35,7 @@ import {
   locateHighlightExtensions,
   revealRangeInView,
 } from "./locateHighlight";
+import { scrollEditorToSourceOffset } from "./safeCoords";
 
 function offsetToLineCol(text: string, offset: number): { line: number; col: number } {
   const o = Math.max(0, Math.min(offset, text.length));
@@ -58,22 +59,6 @@ function topLineOffset(view: EditorView): number {
   }
 }
 
-function scrollEditorToOffset(view: EditorView, offset: number) {
-  const docLen = view.state.doc.length;
-  const o = Math.max(0, Math.min(offset, docLen));
-  const coords = view.coordsAtPos(o);
-  const scroll = view.scrollDOM;
-  if (!coords) {
-    view.dispatch({ effects: EditorView.scrollIntoView(o, { y: "start" }) });
-    return;
-  }
-  const rect = scroll.getBoundingClientRect();
-  const delta = coords.top - rect.top;
-  const next = scroll.scrollTop + delta - 8;
-  if (shouldUpdateScrollTop(scroll.scrollTop, next)) {
-    scroll.scrollTop = next;
-  }
-}
 
 export function HtmlCodeMirror({
   doc,
@@ -268,7 +253,7 @@ export function HtmlCodeMirror({
 
     const offset = scrollSyncEvent.sourceOffset;
     if (typeof offset === "number" && Number.isFinite(offset)) {
-      scrollEditorToOffset(view, offset);
+      scrollEditorToSourceOffset(view, offset);
       return;
     }
 

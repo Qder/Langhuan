@@ -10,6 +10,8 @@ import {
   EditorView,
   type DecorationSet,
 } from "@codemirror/view";
+import { clampDocPos } from "@/lib/locate/scrollSync";
+import { safeCoordsAtPos } from "./safeCoords";
 
 export type LocateHighlightSpec = {
   from: number;
@@ -39,8 +41,8 @@ export const locateHighlightField = StateField.define<DecorationSet>({
       if (e.is(setLocateHighlight) && e.value) {
         const { from, to } = e.value;
         const doc = tr.state.doc;
-        const f = Math.max(0, Math.min(from, doc.length));
-        const t = Math.max(f, Math.min(to, doc.length));
+        const f = clampDocPos(from, doc.length);
+        const t = Math.max(f, clampDocPos(to, doc.length));
         const ranges = [];
         // Line highlights covering the range
         const startLine = doc.lineAt(f);
@@ -90,16 +92,16 @@ export function revealRangeInView(
     focus = false,
   } = opts;
   const docLen = view.state.doc.length;
-  const f = Math.max(0, Math.min(from, docLen));
-  const t = Math.max(f, Math.min(to, docLen));
+  const f = clampDocPos(from, docLen);
+  const t = Math.max(f, clampDocPos(to, docLen));
 
   const effects = [];
   if (highlight) {
     effects.push(setLocateHighlight.of({ from: f, to: t }));
   }
   if (center) {
-    // Only scroll if not already reasonably in view
-    const coords = view.coordsAtPos(f);
+    // Only scroll if not already reasonably in view (safeCoords never throws)
+    const coords = safeCoordsAtPos(view, f);
     const rect = view.scrollDOM.getBoundingClientRect();
     let needScroll = true;
     if (coords) {
@@ -109,7 +111,11 @@ export function revealRangeInView(
       }
     }
     if (needScroll) {
-      effects.push(EditorView.scrollIntoView(f, { y: "center" }));
+      try {
+        effects.push(EditorView.scrollIntoView(f, { y: "center" }));
+      } catch {
+        // ignore invalid scroll target during view/doc race
+      }
     }
   }
 

@@ -14,6 +14,7 @@ import {
   shouldAcceptDrive,
   shouldUpdateScrollTop,
   sourceOffsetToPreviewTop,
+  clampDocPos,
   ACTIVE_RESET_MS,
   IGNORE_WINDOW_MS,
 } from "./scrollSync";
@@ -162,5 +163,22 @@ describe("anchorsCoverViewport", () => {
     expect(
       anchorsCoverViewport(10, [{ previewTop: 0 }, { previewTop: 100 }])
     ).toBe(true);
+  });
+});
+
+describe("clampDocPos", () => {
+  it("clamps into [0, docLength]", () => {
+    expect(clampDocPos(50, 100)).toBe(50);
+    expect(clampDocPos(-1, 100)).toBe(0);
+    expect(clampDocPos(999, 100)).toBe(100);
+    expect(clampDocPos(100, 100)).toBe(100);
+  });
+
+  it("handles empty doc and non-finite", () => {
+    expect(clampDocPos(5, 0)).toBe(0);
+    expect(clampDocPos(5, -3)).toBe(0);
+    expect(clampDocPos(NaN, 100)).toBe(0);
+    expect(clampDocPos(Infinity, 100)).toBe(0);
+    expect(clampDocPos(12.9, 100)).toBe(12);
   });
 });
