@@ -47,7 +47,7 @@ import type { LocateResult } from "./locate/types";
 import { createSeedDocuments } from "./seed";
 import { isImportableImagePath, isImportableLibraryPath, libraryDocTypeFromPath, mimeForImportableImage, normalizeImportedPath } from "./importable";
 import { getTags, setHtmlTags, setMdTags } from "./tags";
-import { basename, dirname, titleOf, uniquePath, uid } from "./utils";
+import { basename, dirname, titleOf, uniquePath, uid, normalizeNewlines } from "./utils";
 import { idbJSONStorage, STORE_KEY } from "./storage/idbPersist";
 import { pushVersion, clearVersions } from "./storage/versions";
 import { TRASH_RETENTION_DAYS } from "./storage/constants";
@@ -739,8 +739,8 @@ export const useStore = create<LanghuanState>()(
 
       getContent: (id) => {
         const { drafts, documents } = get();
-        if (id in drafts) return drafts[id];
-        return documents.find((d) => d.id === id)?.content ?? "";
+        const raw = id in drafts ? drafts[id] : documents.find((d) => d.id === id)?.content ?? "";
+        return normalizeNewlines(raw);
       },
 
       isDirty: (id) => {

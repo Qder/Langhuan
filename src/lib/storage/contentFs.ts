@@ -8,6 +8,7 @@ import type { AssetMeta, Document, TrashItem } from "../types";
 import { libraryDocTypeFromPath, normalizeImportedPath } from "../importable";
 import { FS_INDEX_DIR, FS_INDEX_FILE } from "./constants";
 import { safeRelPath } from "./pathSanitize";
+import { normalizeNewlines } from "../utils";
 
 export { safeRelPath };
 
@@ -197,7 +198,7 @@ export async function scanLibrary(): Promise<LibrarySnapshot> {
     if (!rel) continue;
     if (isTextDocPath(rel)) {
       const abs = absFromRel(rel);
-      const content = await fs.readFile(abs, "utf8");
+      const content = normalizeNewlines(await fs.readFile(abs, "utf8"));
       const st = await fs.stat(abs);
       const normalized = normalizeImportedPath(rel);
       const meta = index.documents[normalized] || index.documents[rel];
@@ -361,7 +362,7 @@ export async function softDeleteDoc(relPath: string): Promise<TrashItem | null> 
   const meta = index.documents[rel];
   let content = "";
   try {
-    content = await fs.readFile(absFromRel(rel), "utf8");
+    content = normalizeNewlines(await fs.readFile(absFromRel(rel), "utf8"));
   } catch {
     return null;
   }

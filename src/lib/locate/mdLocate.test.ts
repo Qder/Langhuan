@@ -3,6 +3,7 @@ import { buildMdPlainMap } from "./mdPlainMap";
 import { locateInMarkdown, isTrivialSelection } from "./mdLocate";
 import { frontmatterOffset, lineAtOffset } from "./frontmatter";
 import { locateInHtml, buildHtmlVisibleMap } from "./htmlLocate";
+import { normalizeNewlines } from "../utils";
 
 describe("frontmatterOffset", () => {
   it("adds stripped length", () => {
@@ -221,6 +222,55 @@ const el = { "desc": "六级章节标题（六个级别中最低）。" };
     });
     expect(["script", "fuzzy"]).toContain(result.precision);
     expect(page.slice(result.start, result.end)).toContain("六级章节标题");
+  });
+
+
+  it("6e. stem selection hits stem JSON field, not adjacent answer (quiz card)", () => {
+    const stem = "某勘探队有 3 名队员，取得一块矿样。三人的判断如下：";
+    const page = `<!DOCTYPE html><html><body><div id="q"></div><script>
+const QUIZ = [{
+  "id": "hw2-1-15",
+  "stem": "${stem}\\n- 甲：这不是铁，也不是铜",
+  "answer": "**结论：矿样是铁**\\nT=1, F=1 → 两个都对 **全对**\\n丙全对"
+}];
+</script></body></html>`;
+    const result = locateInHtml({ source: page, text: stem, before: "", after: "" });
+    expect(result.precision).toBe("script");
+    const hit = page.slice(result.start, result.end);
+    expect(hit).toBe(stem);
+    expect(hit).not.toContain("全对");
+    // stem field comes before answer on the next object lines
+    expect(result.start).toBeLessThan(page.indexOf('"answer"'));
+  });
+
+  it("6f. CRLF source offsets match LF doc (CodeMirror)", () => {
+    const stem = "某勘探队有 3 名队员，取得一块矿样。三人的判断如下：";
+    // Simulate a Windows-saved homework file: many CRLF lines then stem/answer adjacency.
+    const lfBody = `<!DOCTYPE html>
+<html><body>
+<div id="main"></div>
+<script>
+const QUIZ = [
+  {
+    "id": "hw2-1-15",
+    "stem": "${stem}\\n- 甲：这不是铁",
+    "answer": "**结论**\\nT=1, F=1 → 两个都对 **全对**"
+  }
+];
+</script>
+</body></html>`;
+    const crlf = lfBody.replace(/\n/g, "\r\n");
+    const result = locateInHtml({ source: crlf, text: stem, before: "", after: "" });
+    const lf = normalizeNewlines(crlf);
+    expect(result.precision).toBe("script");
+    expect(lf.slice(result.start, result.end)).toBe(stem);
+    // Applying CRLF-naive offsets to LF doc must NOT be required anymore:
+    // wrong end would land inside the answer "全对" fragment.
+    const naiveEnd = crlf.indexOf(stem) + stem.length;
+    expect(lf.slice(Math.min(naiveEnd, lf.length - 20), Math.min(naiveEnd, lf.length - 20) + 20)).not.toBe(
+      lf.slice(result.end, result.end + 20)
+    );
+    expect(lf.slice(result.start, result.end)).not.toContain("全对");
   });
 
   it("visible map skips style/script", () => {

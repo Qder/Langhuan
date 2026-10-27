@@ -1,4 +1,5 @@
 import { lineAtOffset } from "./frontmatter";
+import { normalizeNewlines } from "../utils";
 import { isTrivialSelection } from "./mdLocate";
 import type { LocateResult } from "./types";
 
@@ -118,7 +119,8 @@ export function locateInHtml(opts: {
   before?: string;
   after?: string;
 }): LocateResult {
-  const { source, text, before = "", after = "" } = opts;
+  const { source: rawSource, text, before = "", after = "" } = opts;
+  const source = normalizeNewlines(rawSource);
   const sel = text.replace(/\u00a0/g, " ");
 
   if (isTrivialSelection(sel)) {
@@ -385,7 +387,8 @@ export function locateDynamicHtml(opts: {
   text: string;
   container: { start: number; end: number } | null;
 }): LocateResult {
-  const { source, text, container } = opts;
+  const { source: rawSource, text, container } = opts;
+  const source = normalizeNewlines(rawSource);
   const candidates = buildSearchCandidates(text || "");
   const needles = candidates.length
     ? candidates

@@ -5,6 +5,7 @@ import type { AssetMeta, Document } from "../types";
 import { libraryDocTypeFromPath } from "../importable";
 import { FS_HANDLE_KEY, FS_INDEX_DIR, FS_INDEX_FILE } from "./constants";
 import { safeRelPath } from "./pathSanitize";
+import { normalizeNewlines } from "../utils";
 export { safeRelPath } from "./pathSanitize";
 import { getAssetBlob } from "../assets/store";
 
@@ -163,7 +164,7 @@ export async function readTextFile(
     }
     const fileHandle = await dir.getFileHandle(name);
     const file = await fileHandle.getFile();
-    return { content: await file.text(), mtime: file.lastModified };
+    return { content: normalizeNewlines(await file.text()), mtime: file.lastModified };
   } catch {
     return null;
   }
@@ -187,7 +188,7 @@ export async function scanDiskDocs(root: FileSystemDirectoryHandle): Promise<Dis
         }
         out.push({
           path: rel,
-          content: await file.text(),
+          content: normalizeNewlines(await file.text()),
           mtime: file.lastModified,
         });
       } else if (entry.kind === "directory") {

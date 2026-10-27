@@ -5,6 +5,13 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+/** Normalize CRLF/CR to LF so locate offsets match CodeMirror (LF-only docs). */
+export function normalizeNewlines(text: string): string {
+  if (!text) return text;
+  if (!text.includes("\r")) return text;
+  return text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+}
+
 export function uid(prefix = "doc"): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}_${Date.now().toString(36)}`;
 }
