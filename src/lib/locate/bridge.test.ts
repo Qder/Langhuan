@@ -84,8 +84,9 @@ const DATA = {
     expect(HTML_LOCATE_BRIDGE).toContain("data-lh");
     expect(HTML_LOCATE_BRIDGE).toContain('addEventListener("click"');
     expect(HTML_LOCATE_BRIDGE).toContain('type: "lh-locate"');
-    expect(HTML_LOCATE_BRIDGE).toContain('type: "lh-edit-selection"');
-    expect(HTML_LOCATE_BRIDGE).toContain('addEventListener("mouseup"');
+    expect(HTML_LOCATE_BRIDGE).toContain('type: "lh-contextmenu"');
+    // 框选 alone must not auto-edit; locate is via context menu.
+    expect(HTML_LOCATE_BRIDGE).not.toContain('type: "lh-edit-selection"');
     expect(HTML_LOCATE_BRIDGE).toContain('tag === "button"');
     expect(HTML_LOCATE_BRIDGE).toContain("lh-scroll-anchors");
     expect(HTML_LOCATE_BRIDGE).toContain("spanBottom");

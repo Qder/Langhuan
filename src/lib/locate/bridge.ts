@@ -410,19 +410,43 @@ export const HTML_LOCATE_BRIDGE = `
 
   document.addEventListener("contextmenu", function (e) {
     var p = selPayload();
-    if (!p) return;
+    if (p) {
+      e.preventDefault();
+      parent.postMessage({
+        type: "lh-contextmenu",
+        text: p.text,
+        textSnippet: p.text,
+        before: p.before,
+        after: p.after,
+        tagPath: p.tagPath,
+        x: e.clientX,
+        y: e.clientY,
+        rect: p.rect,
+        range: p.range,
+        tag: p.tag,
+        annotatedSelf: p.annotatedSelf
+      }, "*");
+      return;
+    }
+    // No text selection: still offer locate when right-clicking a data-lh node.
+    var lhEl = closestLh(e.target);
+    var lh = parseLh(lhEl);
+    if (!lh) return;
     e.preventDefault();
+    var snippet = textSnippetOf(e.target && e.target.nodeType === 1 ? e.target : (e.target && e.target.parentElement) || lhEl);
+    var selfAnnotated = !!(lhEl && lhEl.getAttribute && lhEl.getAttribute("data-lh"));
     parent.postMessage({
       type: "lh-contextmenu",
-      text: p.text,
-      before: p.before,
-      after: p.after,
-      tagPath: p.tagPath,
+      text: "",
+      textSnippet: snippet,
+      before: "",
+      after: "",
+      tagPath: "",
       x: e.clientX,
       y: e.clientY,
-      rect: p.rect,
-      range: p.range,
-      tag: p.tag
+      range: lh,
+      tag: lhEl && lhEl.tagName ? lhEl.tagName.toLowerCase() : "",
+      annotatedSelf: selfAnnotated
     }, "*");
   }, true);
 
@@ -483,31 +507,9 @@ export const HTML_LOCATE_BRIDGE = `
   }, true);
 
   /**
-   * Drag-select (or any non-empty selection finalized on mouseup) → parent
-   * focuses source CM6 and selects the matched range for immediate edit.
-   * Plain click with collapsed selection does nothing here (click handler locates).
+   * Selection alone does NOT auto-locate. User right-clicks → parent shows
+   * 「定位源码」 in the context menu. Keep mousedown tracking for click-vs-drag.
    */
-  document.addEventListener("mouseup", function (e) {
-    if (downBtn !== 0 || e.button !== 0) return;
-    if (isTypingTarget(e.target)) return;
-    var p = selPayload();
-    if (!p) return;
-    parent.postMessage({
-      type: "lh-edit-selection",
-      text: p.text,
-      textSnippet: p.text,
-      before: p.before,
-      after: p.after,
-      tagPath: p.tagPath,
-      rect: p.rect,
-      range: p.range,
-      tag: p.tag,
-      annotatedSelf: p.annotatedSelf,
-      metaKey: !!e.metaKey,
-      ctrlKey: !!e.ctrlKey,
-      detail: e.detail || 1
-    }, "*");
-  }, true);
 
   function closestAnchor(node) {
     var el = node && node.nodeType === 3 ? node.parentElement : node;

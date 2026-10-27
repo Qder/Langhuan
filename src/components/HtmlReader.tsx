@@ -26,7 +26,6 @@ import {
   normalizeHtmlPrefs,
 } from "@/lib/htmlPreviewPrefs";
 import { PreviewContextMenu, type ContextMenuItem } from "./locate/PreviewContextMenu";
-import { SelectionFloatBar } from "./locate/SelectionFloatBar";
 import { cn } from "@/lib/utils";
 
 
@@ -66,10 +65,6 @@ export function HtmlReader({ doc }: { doc: Document }) {
   const [menu, setMenu] = React.useState<{
     x: number;
     y: number;
-    payload: HtmlLocatePayload;
-  } | null>(null);
-  const [float, setFloat] = React.useState<{
-    rect: { top: number; left: number; bottom: number; right: number };
     payload: HtmlLocatePayload;
   } | null>(null);
   const [pageBg, setPageBg] = React.useState<string>("transparent");
@@ -151,12 +146,11 @@ export function HtmlReader({ doc }: { doc: Document }) {
       }
       applyLocateResult(result, { select, focus: select, highlight: true });
       setMenu(null);
-      setFloat(null);
     },
     [content, applyLocateResult, setStatus, setHtmlImmersive]
   );
 
-  /** Preview text drag-select → locate matching source and focus CM6 for edit. */
+  /** Context-menu 「定位源码」 (after 框选/右键): remember or select source for edit. */
   const runEditSelection = React.useCallback(
     (payload: HtmlLocatePayload) => {
       const text = payload.text || payload.textSnippet || "";
@@ -201,7 +195,6 @@ export function HtmlReader({ doc }: { doc: Document }) {
       }
       applyLocateResult(result, { select: true, focus: true, highlight: true });
       setMenu(null);
-      setFloat(null);
     },
     [content, applyLocateResult, setStatus, setHtmlImmersive]
   );
@@ -317,13 +310,20 @@ export function HtmlReader({ doc }: { doc: Document }) {
       }
 
       if (data.type === "lh-locate") {
+        // Click outside the context menu (inside iframe) dismisses it.
+        setMenu(null);
         if (!data.range && isTrivialSelection(data.text || "")) return;
+        // Preview-only: plain click must NOT remember locate — only 「定位源码」 via context menu.
+        // Split: keep highlight-only (select/focus only on ⌘/Ctrl or double-click).
+        if (useStore.getState().viewMode === "preview") return;
         runLocate(data);
         return;
       }
 
       if (data.type === "lh-contextmenu") {
-        if (isTrivialSelection(data.text || "")) return;
+        const hasText = !isTrivialSelection(data.text || "");
+        const hasRange = !!(data.range && Number.isFinite(data.range.start));
+        if (!hasText && !hasRange) return;
         setMenu({
           x: iframeRect.left + (data.x ?? 0),
           y: iframeRect.top + (data.y ?? 0),
@@ -332,31 +332,12 @@ export function HtmlReader({ doc }: { doc: Document }) {
         return;
       }
 
-      if (data.type === "lh-edit-selection") {
-        if (!data.text || isTrivialSelection(data.text)) return;
-        runEditSelection(data);
-        return;
-      }
-
-      if (data.type === "lh-selection") {
-        if (!data.text || isTrivialSelection(data.text) || !data.rect) {
-          setFloat(null);
-          return;
-        }
-        setFloat({
-          payload: data,
-          rect: {
-            top: iframeRect.top + data.rect.top,
-            left: iframeRect.left + data.rect.left,
-            bottom: iframeRect.top + data.rect.bottom,
-            right: iframeRect.left + data.rect.right,
-          },
-        });
-      }
+      // lh-selection / lh-edit-selection: keep selection for context menu only;
+      // do not auto-locate or show float bar on 框选 alone.
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [runLocate, runEditSelection, handleBridgeKey, setHtmlScrollPercent, getSyncScrollEnabled, publishScrollSync, doc.id]);
+  }, [runLocate, handleBridgeKey, setHtmlScrollPercent, getSyncScrollEnabled, publishScrollSync, doc.id]);
 
   // Source → Preview highlight via range (data-lh).
   // Caret follow: highlight only (no scroll) — scrolling preview would emit
@@ -423,9 +404,17 @@ export function HtmlReader({ doc }: { doc: Document }) {
     return [
       {
         id: "locate",
-        label: "在源码中定位",
+        label: "定位源码",
         shortcut: "⌘↵",
-        onSelect: () => payload && runLocate(payload),
+        onSelect: () => {
+          if (!payload) return;
+          // 框选后右键：选中源码范围，便于打开「源码/分栏」后直接改。
+          if (!isTrivialSelection(payload.text || payload.textSnippet || "")) {
+            runEditSelection(payload);
+          } else {
+            runLocate(payload, { select: true, focus: true });
+          }
+        },
       },
       {
         id: "copy",
@@ -452,7 +441,7 @@ export function HtmlReader({ doc }: { doc: Document }) {
         },
       },
     ];
-  }, [menu, runLocate, setStatus]);
+  }, [menu, runLocate, runEditSelection, setStatus]);
 
   const layout = computeHtmlPreviewFrameLayout(
     prefs.widthMode,
@@ -477,7 +466,7 @@ export function HtmlReader({ doc }: { doc: Document }) {
       if (typeof localStorage === "undefined") return;
       if (localStorage.getItem("langhuan-hint-preview-edit")) return;
       localStorage.setItem("langhuan-hint-preview-edit", "1");
-      setStatus("在预览中拖选文字可直接改源码");
+      setStatus("框选后右键「定位源码」，再开源码/分栏可编辑");
     } catch {
       /* ignore */
     }
@@ -595,9 +584,6 @@ export function HtmlReader({ doc }: { doc: Document }) {
           items={menuItems}
           onClose={() => setMenu(null)}
         />
-      )}
-      {float && !menu && (
-        <SelectionFloatBar rect={float.rect} onLocate={() => runEditSelection(float.payload)} />
       )}
     </div>
   );

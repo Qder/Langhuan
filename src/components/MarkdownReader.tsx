@@ -41,7 +41,6 @@ import {
 import type { LocateResult } from "@/lib/locate";
 import { rehypeSrcPositions } from "@/lib/locate/rehypeSrcPositions";
 import { PreviewContextMenu, type ContextMenuItem } from "./locate/PreviewContextMenu";
-import { SelectionFloatBar } from "./locate/SelectionFloatBar";
 import { AssetImage } from "./editor/AssetImage";
 import "highlight.js/styles/github-dark.css";
 import "katex/dist/katex.min.css";
@@ -216,12 +215,12 @@ export function MarkdownReader({ doc }: { doc: Document }) {
   const machineDrive = React.useRef<"preview" | "editor" | null>(null);
   const resetTimer = React.useRef<number | null>(null);
   const [previewFlash, setPreviewFlash] = React.useState<HTMLElement | null>(null);
-  const [menu, setMenu] = React.useState<{ x: number; y: number } | null>(null);
-  const [floatRect, setFloatRect] = React.useState<{
-    top: number;
-    left: number;
-    bottom: number;
-    right: number;
+  const [menu, setMenu] = React.useState<{
+    x: number;
+    y: number;
+    srcStart?: number;
+    srcEnd?: number;
+    srcLine?: number;
   } | null>(null);
 
   React.useEffect(() => {
@@ -272,7 +271,6 @@ export function MarkdownReader({ doc }: { doc: Document }) {
     }
     applyLocateResult(result, { select, focus, highlight: true });
     setMenu(null);
-    setFloatRect(null);
   }, [content, applyLocateResult, setStatus]);
 
   const measureMdAnchors = React.useCallback(() => {
@@ -361,7 +359,8 @@ export function MarkdownReader({ doc }: { doc: Document }) {
     }, 150);
   }, [scrollSyncEvent, doc.id, getSyncScrollEnabled, viewMode, measureMdAnchors]);
 
-  // Click preview block → locate source (capture)
+  // Click preview block → locate source only in split (highlight).
+  // Preview-only: plain click must NOT remember locate — use右键「定位源码」。
   React.useEffect(() => {
     const root = articleRef.current;
     if (!root) return;
@@ -370,6 +369,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
       const t = e.target as HTMLElement | null;
       if (!t) return;
       if (t.closest("a, button, input, textarea, summary")) return;
+      if (useStore.getState().viewMode === "preview") return;
       const el = t.closest<HTMLElement>("[data-src-start]");
       if (!el) return;
       // Ignore pure text-selection clicks
@@ -399,42 +399,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
     return () => root.removeEventListener("click", onClick);
   }, [content, applyLocateResult, body]);
 
-  // Drag-select in MD preview → focus source for edit (same as HTML)
-  React.useEffect(() => {
-    const root = articleRef.current;
-    if (!root) return;
-    const onUp = (e: MouseEvent) => {
-      if (e.button !== 0) return;
-      const t = e.target as HTMLElement | null;
-      if (t?.closest("a, button, input, textarea, summary")) return;
-      const info = getPreviewSelectionInfo(root);
-      if (!info || isTrivialSelection(info.text)) return;
-      runLocate({ select: true, focus: true });
-    };
-    root.addEventListener("mouseup", onUp);
-    return () => root.removeEventListener("mouseup", onUp);
-  }, [runLocate, body]);
-
-  // selection float bar
-  React.useEffect(() => {
-    const onSel = () => {
-      const root = articleRef.current;
-      if (!root) return;
-      const info = getPreviewSelectionInfo(root);
-      if (!info || isTrivialSelection(info.text) || !info.rect || info.rect.width === 0) {
-        setFloatRect(null);
-        return;
-      }
-      setFloatRect({
-        top: info.rect.top,
-        left: info.rect.left,
-        bottom: info.rect.bottom,
-        right: info.rect.right,
-      });
-    };
-    document.addEventListener("selectionchange", onSel);
-    return () => document.removeEventListener("selectionchange", onSel);
-  }, []);
+  // 框选 alone does NOT auto-locate. User right-clicks → 「定位源码」 in context menu.
 
   // ⌘/Ctrl+Enter
   React.useEffect(() => {
@@ -506,12 +471,24 @@ export function MarkdownReader({ doc }: { doc: Document }) {
     const root = articleRef.current;
     if (!root) return;
     const info = getPreviewSelectionInfo(root);
-    if (!info || isTrivialSelection(info.text)) {
+    const hasSel = !!(info && !isTrivialSelection(info.text));
+    const target = e.target as HTMLElement | null;
+    const srcEl = target?.closest?.<HTMLElement>("[data-src-start]");
+    if (!hasSel && !srcEl) {
       // allow default menu
       return;
     }
     e.preventDefault();
-    setMenu({ x: e.clientX, y: e.clientY });
+    const srcStart = srcEl ? Number(srcEl.getAttribute("data-src-start")) : undefined;
+    const srcEnd = srcEl ? Number(srcEl.getAttribute("data-src-end") || srcStart) : undefined;
+    const srcLine = srcEl ? Number(srcEl.getAttribute("data-src-line") || 1) : undefined;
+    setMenu({
+      x: e.clientX,
+      y: e.clientY,
+      srcStart: Number.isFinite(srcStart) ? srcStart : undefined,
+      srcEnd: Number.isFinite(srcEnd) ? srcEnd : undefined,
+      srcLine: Number.isFinite(srcLine) ? srcLine : undefined,
+    });
   };
 
   const menuItems = React.useMemo((): ContextMenuItem[] => {
@@ -521,9 +498,34 @@ export function MarkdownReader({ doc }: { doc: Document }) {
     return [
       {
         id: "locate",
-        label: "在源码中定位",
+        label: "定位源码",
         shortcut: "⌘↵",
-        onSelect: () => runLocate(),
+        onSelect: () => {
+          const root = articleRef.current;
+          const info = root ? getPreviewSelectionInfo(root) : null;
+          if (info && !isTrivialSelection(info.text)) {
+            runLocate({ select: true, focus: true });
+            return;
+          }
+          if (menu && menu.srcStart != null && Number.isFinite(menu.srcStart)) {
+            const start = menu.srcStart;
+            const end = menu.srcEnd ?? start;
+            const line = menu.srcLine ?? content.slice(0, start).split("\n").length;
+            applyLocateResult(
+              {
+                start,
+                end,
+                precision: "block",
+                line,
+                message: `已定位到所在段落（第 ${line} 行）`,
+              },
+              { select: true, focus: true, highlight: true }
+            );
+            setMenu(null);
+            return;
+          }
+          setStatus("请先选中一段文字");
+        },
       },
       {
         id: "copy",
@@ -569,8 +571,37 @@ export function MarkdownReader({ doc }: { doc: Document }) {
           setStatus("已复制双链语法");
         },
       },
+      {
+        id: "annotate",
+        label: "划线批注",
+        onSelect: () => {
+          const root = articleRef.current;
+          if (!root) return;
+          const info = getPreviewSelectionInfo(root);
+          if (!info || isTrivialSelection(info.text)) {
+            setStatus("请先选中一段文字");
+            return;
+          }
+          const result = locateInMarkdown({
+            source: content,
+            selectedText: info.text,
+            startBlock: info.startBlock,
+            endBlock: info.endBlock,
+            anchorPlainOffset: info.anchorPlainOffset,
+          });
+          addAnnotation({
+            docId: doc.id,
+            quote: info.text,
+            start: result.start,
+            end: result.end,
+            note: "",
+          });
+          setStatus("已添加划线批注");
+          window.getSelection()?.removeAllRanges();
+        },
+      },
     ];
-  }, [runLocate, content, setStatus, menu]);
+  }, [runLocate, content, setStatus, menu, addAnnotation, doc.id, applyLocateResult]);
 
   const withSrc = (
     Tag: keyof React.JSX.IntrinsicElements,
@@ -988,38 +1019,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
       {menu && (
         <PreviewContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={() => setMenu(null)} />
       )}
-      {floatRect && !menu && (
-        <SelectionFloatBar
-          rect={floatRect}
-          onLocate={runLocate}
-          onAnnotate={() => {
-            const root = articleRef.current;
-            if (!root) return;
-            const info = getPreviewSelectionInfo(root);
-            if (!info || isTrivialSelection(info.text)) {
-              setStatus("请先选中一段文字");
-              return;
-            }
-            const result = locateInMarkdown({
-              source: content,
-              selectedText: info.text,
-              startBlock: info.startBlock,
-              endBlock: info.endBlock,
-              anchorPlainOffset: info.anchorPlainOffset,
-            });
-            addAnnotation({
-              docId: doc.id,
-              quote: info.text,
-              start: result.start,
-              end: result.end,
-              note: "",
-            });
-            setStatus("已添加划线批注");
-            setFloatRect(null);
-            window.getSelection()?.removeAllRanges();
-          }}
-        />
-      )}
+
     </div>
   );
 }
