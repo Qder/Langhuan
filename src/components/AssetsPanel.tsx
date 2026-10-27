@@ -35,7 +35,7 @@ export function AssetsPanel({ docId }: { docId: string }) {
               )}
             >
               <div className="h-9 w-9 shrink-0 overflow-hidden rounded-md bg-[var(--hover)]">
-                <AssetImage assetId={a.id} className="h-full w-full object-cover" alt="" />
+                <AssetImage assetId={a.id} path={a.path} className="h-full w-full object-cover" alt="" />
               </div>
               <div className="min-w-0 flex-1">
                 <div className="truncate text-xs font-medium">{basename(a.path)}</div>

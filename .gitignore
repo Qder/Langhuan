@@ -40,3 +40,10 @@ next-env.d.ts
 
 # tauri (legacy)
 /src-tauri/target
+
+# Local library (source of truth on disk; do not commit user notes)
+/content/**
+!/content/.gitkeep
+!/content/.langhuan/
+/content/.langhuan/**
+!/content/.langhuan/.gitkeep

@@ -904,6 +904,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
                   return (
                     <AssetImage
                       assetId={resolved.assetId}
+                      path={resolved.path}
                       alt={alt || ""}
                       title={title}
                       className="lh-md-img"

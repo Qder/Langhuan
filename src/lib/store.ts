@@ -59,6 +59,19 @@ import {
 import type { BackupPayload } from "./storage/backup";
 import { ensureLibraryDir, writeThroughDoc } from "./storage/fsSync";
 import {
+  blobToBase64,
+  bulkWriteLibrary,
+  deleteLibraryAsset,
+  deleteLibraryDoc,
+  ensureContentFolder,
+  fetchLibrary,
+  putLibraryAsset,
+  putLibraryDoc,
+  purgeLibraryTrash,
+  restoreLibraryTrash,
+} from "./storage/contentApi";
+import { stashIdbLibrary, takeIdbLibrary } from "./storage/contentMigration";
+import {
   isPathUnderFolder,
   joinFolderPath,
   normalizeFolderPath,
@@ -371,6 +384,8 @@ type LanghuanState = {
   setExportDialogOpen: (v: boolean) => void;
   setShortcutsDialogOpen: (v: boolean) => void;
   assetsForDoc: (docId: string) => AssetMeta[];
+  /** Load library from content/ API (and one-shot IDB→content migrate / seed). */
+  hydrateFromContent: () => Promise<void>;
 };
 
 function scheduleWriteThrough(get: () => LanghuanState, set: (p: Partial<LanghuanState>) => void, doc: Document | undefined) {
@@ -380,8 +395,27 @@ function scheduleWriteThrough(get: () => LanghuanState, set: (p: Partial<Langhua
       if (ok) set({ fsLastSyncAt: Date.now() });
     })
     .catch(() => {
-      /* best-effort */
+      /* best-effort optional mirror */
     });
+}
+
+/** Primary persist: write doc into repo content/ via API; optionally mirror to bound FS folder. */
+function scheduleContentPersist(
+  get: () => LanghuanState,
+  set: (p: Partial<LanghuanState>) => void,
+  doc: Document | undefined,
+  previousPath?: string
+) {
+  if (!doc) return;
+  void putLibraryDoc(doc, previousPath)
+    .then(() => {
+      /* content/ is source of truth */
+    })
+    .catch((e) => {
+      const msg = e instanceof Error ? e.message : String(e);
+      get().setStatus(`写入 content/ 失败：${msg}`);
+    });
+  scheduleWriteThrough(get, set, doc);
 }
 
 function ensureUniquePath(path: string, docs: Document[], exceptId?: string): string {
@@ -404,7 +438,7 @@ export const useStore = create<LanghuanState>()(
   persist(
     (set, get) => ({
       hydrated: false,
-      documents: createSeedDocuments(),
+      documents: [],
       drafts: {},
       trash: [],
       emptyFolders: [],
@@ -746,7 +780,7 @@ export const useStore = create<LanghuanState>()(
         const doc = get().documents.find((d) => d.id === target);
         get().setStatus(`已保存 ${doc ? basename(doc.path) : ""}`);
         void get().refreshStorageUsage();
-        scheduleWriteThrough(get, set, doc);
+        scheduleContentPersist(get, set, doc);
       },
 
       discardDraft: (id) => {
@@ -795,7 +829,7 @@ export const useStore = create<LanghuanState>()(
         });
         get().setStatus(`已新建 ${basename(doc.path)}`);
         void get().refreshStorageUsage();
-        scheduleWriteThrough(get, set, doc);
+        scheduleContentPersist(get, set, doc);
         return doc;
       },
 
@@ -829,6 +863,9 @@ export const useStore = create<LanghuanState>()(
           sidebarPanel: "docs",
         }));
         get().setStatus(`已新建文件夹 ${full}`);
+        void ensureContentFolder(full).catch(() => {
+          /* best-effort */
+        });
         if (get().fsBoundName) {
           void ensureLibraryDir(full).catch(() => {
             /* best-effort */
@@ -840,6 +877,7 @@ export const useStore = create<LanghuanState>()(
       importFiles: (files, opts) => {
         let n = 0;
         const docs = [...get().documents];
+        const created: Document[] = [];
         for (const f of files) {
           if (!isImportableLibraryPath(f.path)) continue;
           const type = libraryDocTypeFromPath(f.path);
@@ -855,6 +893,7 @@ export const useStore = create<LanghuanState>()(
             updatedAt: Date.now(),
           };
           docs.push(doc);
+          created.push(doc);
           n += 1;
         }
         set((s) => ({
@@ -864,6 +903,7 @@ export const useStore = create<LanghuanState>()(
             docs.map((d) => d.path)
           ),
         }));
+        for (const doc of created) scheduleContentPersist(get, set, doc);
         if (n && !opts?.quiet) get().setStatus(`已导入 ${n} 篇文档`);
         void get().refreshStorageUsage();
         return n;
@@ -888,7 +928,12 @@ export const useStore = create<LanghuanState>()(
           const blob =
             f.blob instanceof Blob ? f.blob : new Blob([f.blob], { type: mime });
           const id = uid("asset");
-          await putAssetBlob(id, blob);
+          // Prefer content/ on disk; IDB blob kept as offline cache fallback only.
+          try {
+            await putAssetBlob(id, blob);
+          } catch {
+            /* optional cache */
+          }
 
           const dir = dirname(path);
           const sameDir = docs.filter((d) => dirname(d.path) === dir);
@@ -909,10 +954,25 @@ export const useStore = create<LanghuanState>()(
           m += 1;
 
           try {
+            const b64 = await blobToBase64(blob);
+            await putLibraryAsset({
+              path,
+              base64: b64,
+              mime,
+              id,
+              docId: nearest?.id,
+              createdAt: meta.createdAt,
+            });
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            get().setStatus(`附件写入 content/ 失败：${msg}`);
+          }
+
+          try {
             const { writeThroughAssetBinary } = await import("./storage/fsSync");
             void writeThroughAssetBinary(path, blob);
           } catch {
-            /* optional */
+            /* optional mirror */
           }
         }
 
@@ -978,10 +1038,10 @@ export const useStore = create<LanghuanState>()(
             : `已重命名为 ${basename(path)}`;
         get().setStatus(msg);
         const renamed = get().documents.find((d) => d.id === id);
-        scheduleWriteThrough(get, set, renamed);
+        scheduleContentPersist(get, set, renamed, prev.path !== path ? prev.path : undefined);
         if (linkUpdates > 0) {
           for (const d of get().documents) {
-            if (d.id !== id && d.type === "md") scheduleWriteThrough(get, set, d);
+            if (d.id !== id && d.type === "md") scheduleContentPersist(get, set, d);
           }
         }
       },
@@ -1012,6 +1072,10 @@ export const useStore = create<LanghuanState>()(
           };
         });
         get().setStatus(`已移入回收站 ${basename(doc.path)}`);
+        void deleteLibraryDoc(doc.path, "trash").catch((e) => {
+          const msg = e instanceof Error ? e.message : String(e);
+          get().setStatus(`回收站同步失败：${msg}`);
+        });
         void get().refreshStorageUsage();
       },
 
@@ -1072,6 +1136,11 @@ export const useStore = create<LanghuanState>()(
             ? `已删除文件夹 ${folder}（${n} 篇移入回收站）`
             : `已删除空文件夹 ${folder}`
         );
+        for (const v of victims) {
+          void deleteLibraryDoc(v.path, "trash").catch(() => {
+            /* best-effort */
+          });
+        }
         void get().refreshStorageUsage();
         return n;
       },
@@ -1091,6 +1160,18 @@ export const useStore = create<LanghuanState>()(
           documents: [...s.documents, restored],
         }));
         get().setStatus(`已恢复 ${basename(restored.path)}`);
+        void restoreLibraryTrash(id)
+          .then((doc) => {
+            if (doc.path !== restored.path) {
+              set((s) => ({
+                documents: s.documents.map((d) => (d.id === id ? { ...d, path: doc.path } : d)),
+              }));
+            }
+          })
+          .catch(() => {
+            // Fallback: write restored doc directly
+            scheduleContentPersist(get, set, restored);
+          });
         void get().refreshStorageUsage();
       },
 
@@ -1099,13 +1180,21 @@ export const useStore = create<LanghuanState>()(
         set((s) => ({ trash: s.trash.filter((t) => t.doc.id !== id) }));
         if (item) void clearVersions(item.doc.id);
         get().setStatus(item ? `已彻底删除 ${basename(item.doc.path)}` : "已彻底删除");
+        void purgeLibraryTrash(id).catch(() => {
+          /* best-effort */
+        });
         void get().refreshStorageUsage();
       },
 
       emptyTrash: () => {
         const ids = get().trash.map((t) => t.doc.id);
         set({ trash: [] });
-        for (const id of ids) void clearVersions(id);
+        for (const id of ids) {
+          void clearVersions(id);
+          void purgeLibraryTrash(id).catch(() => {
+            /* best-effort */
+          });
+        }
         get().setStatus("回收站已清空");
         void get().refreshStorageUsage();
       },
@@ -1116,7 +1205,12 @@ export const useStore = create<LanghuanState>()(
         if (!expired.length) return 0;
         const keep = get().trash.filter((t) => t.deletedAt >= cutoff);
         set({ trash: keep });
-        for (const t of expired) void clearVersions(t.doc.id);
+        for (const t of expired) {
+          void clearVersions(t.doc.id);
+          void purgeLibraryTrash(t.doc.id).catch(() => {
+            /* best-effort */
+          });
+        }
         void get().refreshStorageUsage();
         return expired.length;
       },
@@ -1125,6 +1219,8 @@ export const useStore = create<LanghuanState>()(
         set((s) => ({
           documents: s.documents.map((d) => (d.id === id ? { ...d, starred: !d.starred } : d)),
         }));
+        const doc = get().documents.find((d) => d.id === id);
+        scheduleContentPersist(get, set, doc);
       },
 
       setDocTags: (id, tags) => {
@@ -1141,17 +1237,23 @@ export const useStore = create<LanghuanState>()(
               d.id === id ? { ...d, content: next, updatedAt: Date.now() } : d
             ),
           }));
-          scheduleWriteThrough(get, set, get().documents.find((d) => d.id === id));
+          scheduleContentPersist(get, set, get().documents.find((d) => d.id === id));
         }
       },
 
       resetSeed: () => {
+        const seeds = createSeedDocuments();
         set({
-          documents: createSeedDocuments(),
+          documents: seeds,
           drafts: {},
           activeId: null,
         });
-        get().setStatus("已恢复示例文档");
+        void bulkWriteLibrary({ documents: seeds, seed: true })
+          .then(() => get().setStatus("已恢复示例文档到 content/"))
+          .catch((e) => {
+            const msg = e instanceof Error ? e.message : String(e);
+            get().setStatus(`示例写入失败：${msg}`);
+          });
         void get().refreshStorageUsage();
       },
 
@@ -1195,7 +1297,7 @@ export const useStore = create<LanghuanState>()(
               d.id === id ? { ...d, content: next, updatedAt: Date.now() } : d
             ),
           }));
-          scheduleWriteThrough(get, set, get().documents.find((d) => d.id === id));
+          scheduleContentPersist(get, set, get().documents.find((d) => d.id === id));
         }
       },
 
@@ -1255,6 +1357,8 @@ export const useStore = create<LanghuanState>()(
           drafts,
           activeId: activeId && nextIds.has(activeId) ? activeId : activeId,
         });
+        // Mirror optional FS-Access sync result into primary content/
+        void bulkWriteLibrary({ documents: docs, assets: get().assets }).catch(() => {});
         void get().refreshStorageUsage();
       },
 
@@ -1283,6 +1387,10 @@ export const useStore = create<LanghuanState>()(
           });
           void saveAssetMetaList(assets);
           for (const id of oldIds) void clearVersions(id);
+          void bulkWriteLibrary({
+            documents: payload.documents,
+            trash: payload.trash || [],
+          }).catch(() => {});
           get().setStatus(`已替换导入 ${payload.documents.length} 篇文档`);
           void get().refreshStorageUsage();
           return payload.documents.length;
@@ -1345,6 +1453,7 @@ export const useStore = create<LanghuanState>()(
           annotations: nextAnn,
         });
         void saveAssetMetaList(nextAssets);
+        void bulkWriteLibrary({ documents: nextDocs }).catch(() => {});
         get().setStatus(`已合并导入 ${n} 篇文档`);
         void get().refreshStorageUsage();
         return n;
@@ -1411,7 +1520,11 @@ export const useStore = create<LanghuanState>()(
         const id = uid("asset");
         const blob =
           file instanceof Blob ? file : new Blob([file], { type: mime });
-        await putAssetBlob(id, blob);
+        try {
+          await putAssetBlob(id, blob);
+        } catch {
+          /* optional IDB cache */
+        }
         const meta: AssetMeta = {
           id,
           path,
@@ -1423,25 +1536,42 @@ export const useStore = create<LanghuanState>()(
         const assets = [...get().assets, meta];
         set({ assets });
         void saveAssetMetaList(assets);
+        try {
+          const b64 = await blobToBase64(blob);
+          await putLibraryAsset({
+            path,
+            base64: b64,
+            mime,
+            id,
+            docId,
+            createdAt: meta.createdAt,
+          });
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          get().setStatus(`附件写入 content/ 失败：${msg}`);
+        }
         const href = relativeAssetHref(doc.path, path);
         const snippet = markdownImageSnippet(href, sanitizeAssetFilename(name).replace(/\.[^.]+$/, ""));
         get().setStatus(`已入库图片 ${basename(path)}`);
         void get().refreshStorageUsage();
-        // best-effort FS write-through for binary
         try {
           const { writeThroughAssetBinary } = await import("./storage/fsSync");
           void writeThroughAssetBinary(path, blob);
         } catch {
-          /* optional */
+          /* optional mirror */
         }
         return { href, snippet, asset: meta };
       },
 
       removeAsset: (id) => {
+        const victim = get().assets.find((a) => a.id === id);
         void deleteAssetBlob(id);
         const assets = get().assets.filter((a) => a.id !== id);
         set({ assets });
         void saveAssetMetaList(assets);
+        if (victim) {
+          void deleteLibraryAsset(victim.path).catch(() => {});
+        }
         get().setStatus("已删除附件");
         void get().refreshStorageUsage();
       },
@@ -1632,14 +1762,89 @@ export const useStore = create<LanghuanState>()(
             a.path.includes("/assets/")
         );
       },
+
+      hydrateFromContent: async () => {
+        try {
+          const snap = await fetchLibrary();
+          const pending = takeIdbLibrary();
+          if (snap.documents.length || snap.assets.length || snap.trash.length) {
+            set({
+              documents: snap.documents,
+              assets: snap.assets,
+              trash: snap.trash,
+            });
+            void saveAssetMetaList(snap.assets);
+            get().setStatus(`已从 content/ 载入 ${snap.documents.length} 篇`);
+            void get().refreshStorageUsage();
+            return;
+          }
+          if (pending && (pending.documents.length || pending.assets.length)) {
+            // One-shot migrate IDB library → content/
+            const assetPayload = [];
+            for (const a of pending.assets) {
+              try {
+                const { getAssetBlob } = await import("./assets/store");
+                const blob = await getAssetBlob(a.id);
+                if (blob) {
+                  const b64 = await blobToBase64(blob);
+                  assetPayload.push({ ...a, base64: b64 });
+                } else {
+                  assetPayload.push(a);
+                }
+              } catch {
+                assetPayload.push(a);
+              }
+            }
+            const written = await bulkWriteLibrary({
+              documents: pending.documents,
+              assets: assetPayload,
+              trash: pending.trash,
+            });
+            set({
+              documents: written.documents,
+              assets: written.assets,
+              trash: written.trash,
+            });
+            void saveAssetMetaList(written.assets);
+            get().setStatus(`已将浏览器旧库迁移到 content/（${written.documents.length} 篇）`);
+            void get().refreshStorageUsage();
+            return;
+          }
+          // Empty content/ — seed once
+          const seeds = createSeedDocuments();
+          const written = await bulkWriteLibrary({ documents: seeds, seed: true });
+          set({
+            documents: written.documents.length ? written.documents : seeds,
+            assets: written.assets,
+            trash: written.trash,
+          });
+          get().setStatus("已初始化示例文档到 content/");
+          void get().refreshStorageUsage();
+        } catch (e) {
+          const pending = takeIdbLibrary();
+          if (pending && pending.documents.length) {
+            set({
+              documents: pending.documents,
+              assets: pending.assets,
+              trash: pending.trash,
+            });
+            get().setStatus("content/ API 不可用，暂用浏览器旧数据");
+          } else if (!get().documents.length) {
+            set({ documents: createSeedDocuments() });
+            get().setStatus("content/ API 不可用，使用内存示例库");
+          } else {
+            const msg = e instanceof Error ? e.message : String(e);
+            get().setStatus(`载入 content/ 失败：${msg}`);
+          }
+        }
+      },
     }),
     {
       name: STORE_KEY,
       storage: idbJSONStorage,
       partialize: (s) => ({
-        documents: s.documents,
+        // documents / trash / assets live in content/ — IDB keeps UI prefs only
         drafts: s.drafts,
-        trash: s.trash,
         emptyFolders: s.emptyFolders,
         theme: s.theme,
         viewMode: s.viewMode,
@@ -1658,7 +1863,6 @@ export const useStore = create<LanghuanState>()(
         fsLastSyncAt: s.fsLastSyncAt,
         savedSearches: s.savedSearches,
         statusFilter: s.statusFilter,
-        assets: s.assets,
         annotations: s.annotations,
         readingPrefs: s.readingPrefs,
         mdFocusMode: s.mdFocusMode,
@@ -1668,9 +1872,20 @@ export const useStore = create<LanghuanState>()(
         docSplitRatio: s.docSplitRatio,
         customShortcuts: s.customShortcuts,
       }),
-      version: 8,
+      version: 9,
       migrate: (persisted, fromVersion) => {
         const p = (persisted || {}) as Record<string, unknown>;
+        if (fromVersion < 9) {
+          stashIdbLibrary({
+            documents: Array.isArray(p.documents) ? (p.documents as Document[]) : [],
+            assets: Array.isArray(p.assets) ? (p.assets as AssetMeta[]) : [],
+            trash: Array.isArray(p.trash) ? (p.trash as TrashItem[]) : [],
+          });
+          // Stop carrying library bodies in the persisted blob
+          delete p.documents;
+          delete p.assets;
+          delete p.trash;
+        }
         if (Array.isArray(p.tagFilters)) {
           p.tagFilters = [...new Set((p.tagFilters as unknown[]).map(String).filter(Boolean))];
         } else if (typeof p.tagFilter === "string" && p.tagFilter) {
@@ -1746,11 +1961,13 @@ export const useStore = create<LanghuanState>()(
           if (typeof state.outlineRailOpen !== "boolean") {
             state.setOutlineRailOpen(true);
           }
-          const purged = state.purgeExpiredTrash();
-          if (purged > 0) {
-            state.setStatus(`已自动清理 ${purged} 篇过期回收站文档`);
-          }
-          void state.refreshStorageUsage();
+          void state.hydrateFromContent().then(() => {
+            const purged = state.purgeExpiredTrash();
+            if (purged > 0) {
+              state.setStatus(`已自动清理 ${purged} 篇过期回收站文档`);
+            }
+            void state.refreshStorageUsage();
+          });
         }
       },
     }

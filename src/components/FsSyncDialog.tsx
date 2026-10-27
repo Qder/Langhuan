@@ -178,11 +178,12 @@ export function FsSyncDialog() {
       <div className="p-5 space-y-4">
         <div>
           <h2 id="fs-sync-title" className="font-serif text-lg font-semibold">
-            本地文件夹同步
+            本地文件夹同步（可选镜像）
           </h2>
           <p className="mt-1 text-sm text-[var(--muted)]">
-            用 File System Access 绑定磁盘目录：保存时写出真实 .md / .html，可用 Git、网盘、Obsidian
-            打开。IndexedDB 仍是会话内权威数据源，磁盘为镜像。
+            知识库主数据在仓库根目录 <code className="text-xs">content/</code>（经 API
+            读写）。此处绑定是可选的额外镜像：保存时再写一份到所选文件夹，便于用 Git / 网盘 /
+            Obsidian 打开。
           </p>
         </div>
 

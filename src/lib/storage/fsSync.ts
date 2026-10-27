@@ -4,6 +4,8 @@ import { get, set, del } from "idb-keyval";
 import type { AssetMeta, Document } from "../types";
 import { libraryDocTypeFromPath } from "../importable";
 import { FS_HANDLE_KEY, FS_INDEX_DIR, FS_INDEX_FILE } from "./constants";
+import { safeRelPath } from "./pathSanitize";
+export { safeRelPath } from "./pathSanitize";
 import { getAssetBlob } from "../assets/store";
 
 export type FsIndexEntry = {
@@ -49,16 +51,6 @@ export type BidirectionalSyncResult = {
 /** True when showDirectoryPicker exists (Chrome / Edge / Opera). */
 export function isFsAccessSupported(): boolean {
   return typeof window !== "undefined" && typeof window.showDirectoryPicker === "function";
-}
-
-/** Sanitize library path for use under the bound directory (no escape). */
-export function safeRelPath(path: string): string {
-  return path
-    .replace(/\\/g, "/")
-    .replace(/^\/+/, "")
-    .split("/")
-    .filter((p) => p && p !== "." && p !== "..")
-    .join("/");
 }
 
 export async function getStoredHandle(): Promise<FileSystemDirectoryHandle | null> {
