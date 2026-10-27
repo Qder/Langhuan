@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { useStore } from "@/lib/store";
+import { useStore } from "@/lib/store"
+import { applyThemeToDocument } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
@@ -89,7 +90,7 @@ export function AppShell() {
   }, [hydrated, setHydrated]);
 
   React.useEffect(() => {
-    document.documentElement.classList.toggle("dark", theme === "ink");
+    applyThemeToDocument(theme);
   }, [theme]);
 
   React.useEffect(() => {

@@ -9,7 +9,8 @@ import { languages } from "@codemirror/language-data";
 import { searchKeymap, highlightSelectionMatches, openSearchPanel } from "@codemirror/search";
 import { autocompletion, closeBrackets, closeBracketsKeymap, completionKeymap } from "@codemirror/autocomplete";
 import { bracketMatching, foldGutter, foldKeymap, indentOnInput, syntaxHighlighting, defaultHighlightStyle } from "@codemirror/language";
-import { useStore } from "@/lib/store";
+import { useStore } from "@/lib/store"
+import { isDarkTheme } from "@/lib/theme";
 import type { Document } from "@/lib/types";
 import { titleOf, cn } from "@/lib/utils";
 import { getDocMeta } from "@/lib/docMeta";
@@ -431,7 +432,7 @@ export function MdCodeMirror({
         },
         ".cm-content": {
           padding: "12px 8px",
-          caretColor: theme === "ink" ? "#e8e6e1" : "#2b261f",
+          caretColor: "var(--fg)",
         },
         ".cm-gutters": {
           background: "transparent",
@@ -470,7 +471,7 @@ export function MdCodeMirror({
           color: "var(--fg)",
         },
       },
-      { dark: theme === "ink" }
+      { dark: isDarkTheme(theme) }
     );
 
     const state = EditorState.create({

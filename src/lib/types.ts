@@ -31,7 +31,8 @@ export type PendingNav =
 /** preview | split | source | mixed (Typora-like block edit for MD) */
 export type ViewMode = "preview" | "split" | "source" | "mixed";
 
-export type ThemeMode = "paper" | "ink";
+/** Reading themes — UI labels in THEME_LABELS (theme.ts). Legacy paper/ink migrate on load. */
+export type ThemeMode = "bamboo" | "xuan" | "songyan" | "jiang" | "cyber";
 
 export type StatusFeedback = {
   message: string;

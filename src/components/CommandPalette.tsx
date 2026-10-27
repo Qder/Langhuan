@@ -1,9 +1,10 @@
 "use client";
 
 import * as React from "react";
-import { Archive, BookmarkPlus, CalendarDays, ClipboardPaste, Columns2, Download, FilePlus2, FileText, FolderSync, Globe, History, Home, Keyboard, LayoutTemplate, Moon, Network, Search, SlidersHorizontal, Sun, Trash2, Maximize2, Blend, Type } from "lucide-react";
+import { Archive, BookmarkPlus, CalendarDays, ClipboardPaste, Columns2, Download, FilePlus2, FileText, FolderSync, Globe, History, Home, Keyboard, LayoutTemplate, Network, Palette, Search, SlidersHorizontal, Trash2, Maximize2, Blend, Type } from "lucide-react";
 import { Dialog } from "./ui/dialog";
 import { useStore } from "@/lib/store";
+import { themeLabel } from "@/lib/theme";
 import { searchDocuments } from "@/lib/search";
 import { titleOf, cn } from "@/lib/utils";
 import { importClipboardAs } from "@/lib/clipboardImport";
@@ -17,6 +18,7 @@ export function CommandPalette() {
   const createDoc = useStore((s) => s.createDoc);
   const setStatus = useStore((s) => s.setStatus);
   const toggleTheme = useStore((s) => s.toggleTheme);
+  const setTheme = useStore((s) => s.setTheme);
   const theme = useStore((s) => s.theme);
   const setBackupDialogOpen = useStore((s) => s.setBackupDialogOpen);
   const setFsSyncDialogOpen = useStore((s) => s.setFsSyncDialogOpen);
@@ -129,10 +131,46 @@ export function CommandPalette() {
         },
       },
       {
-        key: "cmd-theme",
-        label: theme === "paper" ? "切换到墨色主题" : "切换到纸色主题",
-        icon: theme === "paper" ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />,
+        key: "cmd-theme-cycle",
+        label: "切换下一主题",
+        hint: `当前：${themeLabel(theme)}`,
+        icon: <Palette className="h-4 w-4" />,
         run: () => toggleTheme(),
+      },
+      {
+        key: "cmd-theme-bamboo",
+        label: "主题：青灯竹影",
+        hint: theme === "bamboo" ? "当前" : "浅青灰 · 墨绿",
+        icon: <Palette className="h-4 w-4" />,
+        run: () => { setTheme("bamboo"); setStatus("已切换到青灯竹影"); },
+      },
+      {
+        key: "cmd-theme-xuan",
+        label: "主题：宣纸靛青",
+        hint: theme === "xuan" ? "当前" : "宣纸白 · 靛青",
+        icon: <Palette className="h-4 w-4" />,
+        run: () => { setTheme("xuan"); setStatus("已切换到宣纸靛青"); },
+      },
+      {
+        key: "cmd-theme-songyan",
+        label: "主题：松烟月白",
+        hint: theme === "songyan" ? "当前" : "深炭 · 月白",
+        icon: <Palette className="h-4 w-4" />,
+        run: () => { setTheme("songyan"); setStatus("已切换到松烟月白"); },
+      },
+      {
+        key: "cmd-theme-jiang",
+        label: "主题：绛帐缃帙",
+        hint: theme === "jiang" ? "当前" : "暖米黄 · 绛紫",
+        icon: <Palette className="h-4 w-4" />,
+        run: () => { setTheme("jiang"); setStatus("已切换到绛帐缃帙"); },
+      },
+      {
+        key: "cmd-theme-cyber",
+        label: "主题：赛博藏经",
+        hint: theme === "cyber" ? "当前" : "深底 · 青绿",
+        icon: <Palette className="h-4 w-4" />,
+        run: () => { setTheme("cyber"); setStatus("已切换到赛博藏经"); },
       },
       {
         key: "cmd-home",

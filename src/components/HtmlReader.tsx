@@ -6,7 +6,8 @@ import {
   Code2,
   Minimize2,
 } from "lucide-react";
-import { useStore } from "@/lib/store";
+import { useStore } from "@/lib/store"
+import { isDarkTheme } from "@/lib/theme";
 import type { Document } from "@/lib/types";
 import {
   anchorsCoverViewport,
@@ -451,7 +452,7 @@ export function HtmlReader({ doc }: { doc: Document }) {
   const { fixedWidth, frameStyle, badgeLabel, showGutters } = layout;
 
   const pageDark = isDarkCssColor(pageBg);
-  const showGradient = pageDark && theme === "paper" && !htmlImmersive;
+  const showGradient = pageDark && !isDarkTheme(theme) && !htmlImmersive;
 
   const onIframeLoad = () => {
     window.setTimeout(() => setLoaded(true), 200);

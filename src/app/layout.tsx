@@ -56,7 +56,14 @@ const themeScript = `
         theme = parsed && parsed.state && parsed.state.theme;
       }
     }
-    if (theme === 'ink') document.documentElement.classList.add('dark');
+    var map = { paper: 'xuan', ink: 'songyan' };
+    if (map[theme]) theme = map[theme];
+    var ids = { bamboo:1, xuan:1, songyan:1, jiang:1, cyber:1 };
+    if (!ids[theme]) theme = 'xuan';
+    var root = document.documentElement;
+    root.setAttribute('data-theme', theme);
+    if (theme === 'songyan' || theme === 'cyber') root.classList.add('dark');
+    else root.classList.remove('dark');
   } catch (e) {}
 })();
 `;

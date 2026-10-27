@@ -13,14 +13,13 @@ import {
   Globe,
   Home,
   LayoutTemplate,
-  Moon,
   Network,
+  Palette,
   PanelLeft,
   Plus,
   RotateCcw,
   Search,
   Star,
-  Sun,
   Trash2,
   Upload,
   X,
@@ -33,6 +32,7 @@ import { Button } from "./ui/button";
 import { Dialog } from "./ui/dialog";
 import { Dropdown, DropdownItem } from "./ui/dropdown";
 import { useStore, filteredDocuments } from "@/lib/store";
+import { THEME_IDS, THEME_HINTS, THEME_LABELS, isDarkTheme, themeLabel } from "@/lib/theme";
 import { collectTagCounts } from "@/lib/tags";
 import { dirname, titleOf, cn, relativeTime, basename } from "@/lib/utils";
 import { buildTree, isPathUnderFolder, parentFolderForNew, type FolderTreeNode } from "@/lib/folders";
@@ -329,7 +329,7 @@ export function Sidebar() {
   const setStatus = useStore((s) => s.setStatus);
   const setCommandOpen = useStore((s) => s.setCommandOpen);
   const theme = useStore((s) => s.theme);
-  const toggleTheme = useStore((s) => s.toggleTheme);
+  const setTheme = useStore((s) => s.setTheme);
   const sidebarOpen = useStore((s) => s.sidebarOpen);
   const setSidebarOpen = useStore((s) => s.setSidebarOpen);
   const sidebarWidth = useStore((s) => s.sidebarWidth);
@@ -783,19 +783,57 @@ export function Sidebar() {
               )}
             </span>
           </button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className={cn("shrink-0", compact ? "h-7 w-7" : "h-8 w-8")}
-            onClick={toggleTheme}
-            aria-label={theme === "paper" ? "切换到墨色" : "切换到纸色"}
+          <Dropdown
+            align="right"
+            trigger={
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cn("shrink-0", compact ? "h-7 w-7" : "h-8 w-8")}
+                aria-label={`主题：${themeLabel(theme)}`}
+                title={`主题：${themeLabel(theme)}`}
+              >
+                <Palette className="h-3.5 w-3.5" />
+              </Button>
+            }
           >
-            {theme === "paper" ? (
-              <Moon className="h-3.5 w-3.5" />
-            ) : (
-              <Sun className="h-3.5 w-3.5" />
-            )}
-          </Button>
+            {THEME_IDS.map((id) => (
+              <DropdownItem
+                key={id}
+                onClick={() => {
+                  setTheme(id);
+                  setStatus(`已切换到${THEME_LABELS[id]}`);
+                }}
+              >
+                <span
+                  className={cn(
+                    "inline-block h-2.5 w-2.5 rounded-full border border-[var(--border)]",
+                    isDarkTheme(id) ? "bg-[#1a1d26]" : "bg-[#faf8f3]"
+                  )}
+                  style={
+                    id === "bamboo"
+                      ? { background: "#2f6b4f" }
+                      : id === "xuan"
+                        ? { background: "#3a5080" }
+                        : id === "songyan"
+                          ? { background: "#a8b0bc" }
+                          : id === "jiang"
+                            ? { background: "#8b3a4a" }
+                            : { background: "#2dd4bf" }
+                  }
+                />
+                <span className="flex min-w-0 flex-1 flex-col">
+                  <span className="truncate">{THEME_LABELS[id]}</span>
+                  <span className="truncate text-[10px] text-[var(--muted)]">
+                    {THEME_HINTS[id]}
+                  </span>
+                </span>
+                {theme === id && (
+                  <span className="text-[10px] text-[var(--accent)]">当前</span>
+                )}
+              </DropdownItem>
+            ))}
+          </Dropdown>
           {compact && (
             <span className="shrink-0 text-[10px] text-[var(--muted)] tabular-nums pr-1">
               {formatBytes(bytes)}

@@ -19,6 +19,13 @@ import { createAnnotation, updateAnnotationNote } from "./annotations";
 import type { ReadingPrefs } from "./readingPrefs";
 import { DEFAULT_READING_PREFS, normalizeReadingPrefs } from "./readingPrefs";
 import {
+  THEME_STORAGE_KEY,
+  applyThemeToDocument,
+  nextTheme,
+  normalizeTheme,
+  themeLabel,
+} from "./theme";
+import {
   deleteAssetBlob,
   putAssetBlob,
   saveAssetMetaList,
@@ -403,7 +410,7 @@ export const useStore = create<LanghuanState>()(
       emptyFolders: [],
       activeId: null,
       viewMode: "preview",
-      theme: "paper",
+      theme: "xuan",
       tagFilters: [],
       sidebarOpen: false,
       commandOpen: false,
@@ -457,22 +464,21 @@ export const useStore = create<LanghuanState>()(
 
       setHydrated: (v) => set({ hydrated: v }),
       setTheme: (t) => {
-        set({ theme: t });
-        if (typeof document !== "undefined") {
-          document.documentElement.classList.toggle("dark", t === "ink");
-        }
+        const id = normalizeTheme(t);
+        set({ theme: id });
+        applyThemeToDocument(id);
         try {
           if (typeof localStorage !== "undefined") {
-            localStorage.setItem("langhuan-theme", t);
+            localStorage.setItem(THEME_STORAGE_KEY, id);
           }
         } catch {
           /* ignore */
         }
       },
       toggleTheme: () => {
-        const next = get().theme === "paper" ? "ink" : "paper";
+        const next = nextTheme(get().theme);
         get().setTheme(next);
-        get().setStatus(next === "ink" ? "已切换到墨色主题" : "已切换到纸色主题");
+        get().setStatus(`已切换到${themeLabel(next)}`);
       },
       setSidebarOpen: (v) => set({ sidebarOpen: v }),
       setCommandOpen: (v) => set({ commandOpen: v }),
@@ -1662,7 +1668,7 @@ export const useStore = create<LanghuanState>()(
         docSplitRatio: s.docSplitRatio,
         customShortcuts: s.customShortcuts,
       }),
-      version: 7,
+      version: 8,
       migrate: (persisted, fromVersion) => {
         const p = (persisted || {}) as Record<string, unknown>;
         if (Array.isArray(p.tagFilters)) {
@@ -1716,15 +1722,19 @@ export const useStore = create<LanghuanState>()(
           });
           p.customShortcuts = overrides;
         }
+        // N-langhuan-themes-5: paper→xuan, ink→songyan
+        p.theme = normalizeTheme(p.theme);
         void fromVersion;
         return p as typeof persisted;
       },
       onRehydrateStorage: () => (state) => {
         state?.setHydrated(true);
         if (state?.theme && typeof document !== "undefined") {
-          document.documentElement.classList.toggle("dark", state.theme === "ink");
+          const id = normalizeTheme(state.theme);
+          if (id !== state.theme) state.theme = id;
+          applyThemeToDocument(id);
           try {
-            localStorage.setItem("langhuan-theme", state.theme);
+            localStorage.setItem(THEME_STORAGE_KEY, id);
           } catch {
             /* ignore */
           }
