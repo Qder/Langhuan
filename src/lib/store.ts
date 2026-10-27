@@ -556,16 +556,25 @@ export const useStore = create<LanghuanState>()(
           highlight: opts?.highlight ?? true,
           center: opts?.center ?? true,
         };
-        // Preview-only: remember for later; do NOT auto-switch to split.
-        // User opens 源码/分栏 explicitly, then editors apply pendingReveal.
+        // Explicit 「定位源码」(select/focus): open split immediately so editors
+        // mount/reveal. Plain preview remember (no select) still waits for 源码/分栏.
+        // 框选 alone never calls this with select — only context menu / shortcuts.
         if (viewMode === "preview") {
-          const hint =
-            select || focus
-              ? "已记住选区，点「源码」或「分栏」可编辑"
-              : "已记住位置，点「源码」或「分栏」可查看";
+          if (select || focus) {
+            set({
+              viewMode: "split",
+              htmlImmersive: false,
+              pendingReveal: pending,
+              status: { message: result.message, at: Date.now() },
+            });
+            return;
+          }
           set({
             pendingReveal: pending,
-            status: { message: hint, at: Date.now() },
+            status: {
+              message: "已记住位置，点「源码」或「分栏」可查看",
+              at: Date.now(),
+            },
           });
           return;
         }

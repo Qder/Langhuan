@@ -466,7 +466,7 @@ export function HtmlReader({ doc }: { doc: Document }) {
       if (typeof localStorage === "undefined") return;
       if (localStorage.getItem("langhuan-hint-preview-edit")) return;
       localStorage.setItem("langhuan-hint-preview-edit", "1");
-      setStatus("框选后右键「定位源码」，再开源码/分栏可编辑");
+      setStatus("框选后右键「定位源码」可进入分栏并选中源码");
     } catch {
       /* ignore */
     }
