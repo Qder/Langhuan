@@ -21,7 +21,11 @@ import { DocAside, hasDocAsideContent } from "./DocAside";
 import { getDocMeta } from "@/lib/docMeta";
 import { useStore } from "@/lib/store";
 import { findBacklinks } from "@/lib/search";
-import { extractOutline } from "@/lib/outline";
+import {
+  extractOutline,
+  OUTLINE_SPY_THRESHOLD_PX,
+  resolveActiveHeadingId,
+} from "@/lib/outline";
 import { getTags, parseFrontmatter } from "@/lib/tags";
 import { useMediaQuery } from "@/lib/useMediaQuery";
 import { countWords, readingMinutes, relativeTime, cn, titleOf } from "@/lib/utils";
@@ -223,22 +227,32 @@ export function MarkdownReader({ doc }: { doc: Document }) {
     srcLine?: number;
   } | null>(null);
 
+  // Outline scroll-spy: highlight the heading currently in view.
   React.useEffect(() => {
     const root = document.getElementById("reader-scroll");
     if (!root) return;
-    const heads = [...root.querySelectorAll("h1[id],h2[id],h3[id]")];
-    const onScroll = () => {
-      let current = "";
-      for (const h of heads) {
-        const rect = h.getBoundingClientRect();
-        if (rect.top <= 120) current = h.id;
-      }
-      setActiveHeading(current);
+    let raf = 0;
+    const measure = () => {
+      raf = 0;
+      const scope = articleRef.current ?? root;
+      const heads = [...scope.querySelectorAll<HTMLElement>("h1[id],h2[id],h3[id]")];
+      const current = resolveActiveHeadingId(
+        heads.map((h) => ({ id: h.id, top: h.getBoundingClientRect().top })),
+        OUTLINE_SPY_THRESHOLD_PX
+      );
+      setActiveHeading((prev) => (prev === current ? prev : current));
     };
-    root.addEventListener("scroll", onScroll);
-    onScroll();
-    return () => root.removeEventListener("scroll", onScroll);
-  }, [body]);
+    const onScroll = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(measure);
+    };
+    root.addEventListener("scroll", onScroll, { passive: true });
+    measure();
+    return () => {
+      root.removeEventListener("scroll", onScroll);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [body, outline.length]);
 
   const runLocate = React.useCallback((opts?: { select?: boolean; focus?: boolean }) => {
     const root = articleRef.current;
@@ -1012,6 +1026,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
             activeHeading={activeHeading}
             variant="rail"
             doc={doc}
+            onNavigateHeading={setActiveHeading}
           />
         )}
         </div>

@@ -34,7 +34,11 @@ import { DocAside, hasDocAsideContent } from "./DocAside";
 import { getDocMeta } from "@/lib/docMeta";
 import { findUnlinkedMentions } from "@/lib/wikilink";
 import { useStore } from "@/lib/store";
-import { extractOutline } from "@/lib/outline";
+import {
+  extractOutline,
+  OUTLINE_SPY_THRESHOLD_PX,
+  resolveActiveHeadingId,
+} from "@/lib/outline";
 import { findBacklinks } from "@/lib/search";
 import { useMediaQuery } from "@/lib/useMediaQuery";
 import { basename, titleOf, cn, relativeTime } from "@/lib/utils";
@@ -167,22 +171,33 @@ export function TopBar() {
   const assetCount = active ? assetsForDoc(active.id).length : 0;
   const asideAvailable = hasDocAsideContent(outline, backlinks, mentionCount, annotationCount, assetCount);
 
-  // Track active heading for popover (same scroll root as reader)
+  // Track active heading for popover outline (same scroll root as MD reader)
   React.useEffect(() => {
     if (!tocOpen && wide) return;
     const root = document.getElementById("reader-scroll");
     if (!root) return;
-    const onScroll = () => {
-      const heads = [...root.querySelectorAll("h1[id],h2[id],h3[id]")];
-      let current = "";
-      for (const h of heads) {
-        if (h.getBoundingClientRect().top <= 120) current = h.id;
-      }
-      setActiveHeading(current);
+    let raf = 0;
+    const measure = () => {
+      raf = 0;
+      const article = root.querySelector("article");
+      const scope = article ?? root;
+      const heads = [...scope.querySelectorAll<HTMLElement>("h1[id],h2[id],h3[id]")];
+      const current = resolveActiveHeadingId(
+        heads.map((h) => ({ id: h.id, top: h.getBoundingClientRect().top })),
+        OUTLINE_SPY_THRESHOLD_PX
+      );
+      setActiveHeading((prev) => (prev === current ? prev : current));
     };
-    root.addEventListener("scroll", onScroll);
-    onScroll();
-    return () => root.removeEventListener("scroll", onScroll);
+    const onScroll = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(measure);
+    };
+    root.addEventListener("scroll", onScroll, { passive: true });
+    measure();
+    return () => {
+      root.removeEventListener("scroll", onScroll);
+      if (raf) cancelAnimationFrame(raf);
+    };
   }, [tocOpen, wide, active?.id]);
 
   React.useEffect(() => {
@@ -726,6 +741,7 @@ export function TopBar() {
                     activeHeading={activeHeading}
                     variant="popover"
                     doc={active}
+                    onNavigateHeading={setActiveHeading}
                   />
                 </div>
               )}

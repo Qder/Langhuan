@@ -19,6 +19,8 @@ export type DocAsideProps = {
   className?: string;
   /** Active document for 未链接的提及 / 批注 / 附件 */
   doc?: Document | null;
+  /** Called when user clicks an outline item (after scroll-into-view). */
+  onNavigateHeading?: (id: string) => void;
 };
 
 type TocNode = {
@@ -48,10 +50,12 @@ function TocTree({
   nodes,
   activeHeading,
   depth = 0,
+  onNavigateHeading,
 }: {
   nodes: TocNode[];
   activeHeading: string;
   depth?: number;
+  onNavigateHeading?: (id: string) => void;
 }) {
   const [collapsed, setCollapsed] = React.useState<Record<string, boolean>>({});
   return (
@@ -60,6 +64,7 @@ function TocTree({
         const key = n.heading.id + n.heading.text;
         const hasKids = n.children.length > 0;
         const isCollapsed = !!collapsed[key];
+        const isActive = activeHeading === n.heading.id;
         return (
           <div key={key}>
             <div className="flex items-center gap-0.5">
@@ -84,8 +89,11 @@ function TocTree({
               )}
               <a
                 href={`#${n.heading.id}`}
+                data-outline-id={n.heading.id}
+                aria-current={isActive ? "true" : undefined}
                 onClick={(e) => {
                   e.preventDefault();
+                  onNavigateHeading?.(n.heading.id);
                   document
                     .getElementById(n.heading.id)
                     ?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -93,7 +101,7 @@ function TocTree({
                 className={cn(
                   "min-w-0 flex-1 truncate rounded-lg px-1.5 py-1 hover:bg-[var(--hover)] transition-colors",
                   n.heading.level === 1 && "font-medium",
-                  activeHeading === n.heading.id &&
+                  isActive &&
                     "text-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_10%,transparent)]"
                 )}
                 style={{ paddingLeft: 4 + Math.max(0, depth) * 8 }}
@@ -106,6 +114,7 @@ function TocTree({
                 nodes={n.children}
                 activeHeading={activeHeading}
                 depth={depth + 1}
+                onNavigateHeading={onNavigateHeading}
               />
             )}
           </div>
@@ -125,6 +134,7 @@ export function DocAside({
   variant = "rail",
   className,
   doc,
+  onNavigateHeading,
 }: DocAsideProps) {
   const openDoc = useStore((s) => s.requestOpenDoc);
   const documents = useStore((s) => s.documents);
@@ -139,6 +149,38 @@ export function DocAside({
   const [backlinksOpen, setBacklinksOpen] = React.useState(false);
   const [mentionsOpen, setMentionsOpen] = React.useState(true);
   const [annOpen, setAnnOpen] = React.useState(true);
+  const asideRef = React.useRef<HTMLElement>(null);
+  const ignoreOutlineScrollUntil = React.useRef(0);
+  const lastSpyId = React.useRef("");
+
+  // Keep the active outline row visible when scroll-spy advances (not when the
+  // user is manually scrolling the outline list).
+  React.useEffect(() => {
+    if (!activeHeading || activeHeading === lastSpyId.current) {
+      lastSpyId.current = activeHeading;
+      return;
+    }
+    lastSpyId.current = activeHeading;
+    if (Date.now() < ignoreOutlineScrollUntil.current) return;
+    const root = asideRef.current;
+    if (!root) return;
+    const el = root.querySelector<HTMLElement>(
+      `[data-outline-id="${CSS.escape(activeHeading)}"]`
+    );
+    if (!el) return;
+    const rootRect = root.getBoundingClientRect();
+    const elRect = el.getBoundingClientRect();
+    const pad = 8;
+    if (elRect.top >= rootRect.top + pad && elRect.bottom <= rootRect.bottom - pad) {
+      return;
+    }
+    // Adjust only the aside scroller — scrollIntoView would also nudge #reader-scroll.
+    const delta =
+      elRect.top < rootRect.top + pad
+        ? elRect.top - rootRect.top - pad
+        : elRect.bottom - (rootRect.bottom - pad);
+    root.scrollTop += delta;
+  }, [activeHeading]);
 
   const content = doc ? getContent(doc.id) : "";
   const selfTitles = React.useMemo(() => {
@@ -186,6 +228,10 @@ export function DocAside({
 
   return (
     <aside
+      ref={asideRef}
+      onScroll={() => {
+        ignoreOutlineScrollUntil.current = Date.now() + 1200;
+      }}
       className={cn(
         "flex flex-col gap-4 font-ui text-sm",
         variant === "rail" &&
@@ -201,7 +247,11 @@ export function DocAside({
           <div className="text-[11px] uppercase tracking-wider text-[var(--muted)] px-1 mb-1.5">
             大纲
           </div>
-          <TocTree nodes={tocTree} activeHeading={activeHeading} />
+          <TocTree
+            nodes={tocTree}
+            activeHeading={activeHeading}
+            onNavigateHeading={onNavigateHeading}
+          />
         </nav>
       )}
 
