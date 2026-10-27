@@ -1,15 +1,102 @@
 "use client";
 
 import * as React from "react";
-import { Folder } from "lucide-react";
+import { ChevronDown, Folder } from "lucide-react";
 import { Dialog } from "./ui/dialog";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { useStore } from "@/lib/store";
-import { collectFolders, importPreviewLabel, rewriteImportPaths } from "@/lib/importPaths";
+import { importPreviewLabel, rewriteImportPaths } from "@/lib/importPaths";
+import { buildTree, type FolderTreeNode } from "@/lib/folders";
 import { cn } from "@/lib/utils";
 
 type Pending = { path: string; content: string }[];
+
+function FolderPickNode({
+  node,
+  depth,
+  expanded,
+  onToggle,
+  selected,
+  customActive,
+  onSelect,
+}: {
+  node: FolderTreeNode;
+  depth: number;
+  expanded: Set<string>;
+  onToggle: (path: string) => void;
+  selected: string;
+  customActive: boolean;
+  onSelect: (path: string) => void;
+}) {
+  const folders = [...node.children.values()].sort((a, b) =>
+    a.name.localeCompare(b.name, "zh")
+  );
+  if (!folders.length) return null;
+
+  return (
+    <>
+      {folders.map((f) => {
+        const open = expanded.has(f.path);
+        const hasKids = f.children.size > 0;
+        const isSelected = !customActive && selected === f.path;
+        return (
+          <div key={f.path}>
+            <div
+              className={cn(
+                "flex w-full items-center gap-0.5 rounded-lg text-sm transition-colors",
+                isSelected
+                  ? "bg-[color-mix(in_srgb,var(--accent)_12%,transparent)] text-[var(--accent)]"
+                  : "hover:bg-[var(--hover)]"
+              )}
+              style={{ paddingLeft: 4 + depth * 12 }}
+            >
+              <button
+                type="button"
+                className={cn(
+                  "shrink-0 p-1 rounded hover:bg-[var(--hover)]",
+                  !hasKids && "invisible pointer-events-none"
+                )}
+                aria-label={open ? "折叠" : "展开"}
+                aria-expanded={hasKids ? open : undefined}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onToggle(f.path);
+                }}
+              >
+                <ChevronDown
+                  className={cn(
+                    "h-3 w-3 text-[var(--muted)] transition-transform",
+                    !open && "-rotate-90"
+                  )}
+                />
+              </button>
+              <button
+                type="button"
+                onClick={() => onSelect(f.path)}
+                className="flex min-w-0 flex-1 items-center gap-2 rounded-lg py-1.5 pr-2 text-left font-mono"
+              >
+                <Folder className="h-4 w-4 shrink-0 opacity-70" />
+                <span className="truncate">{f.name}</span>
+              </button>
+            </div>
+            {open && hasKids && (
+              <FolderPickNode
+                node={f}
+                depth={depth + 1}
+                expanded={expanded}
+                onToggle={onToggle}
+                selected={selected}
+                customActive={customActive}
+                onSelect={onSelect}
+              />
+            )}
+          </div>
+        );
+      })}
+    </>
+  );
+}
 
 export function ImportFolderDialog({
   open,
@@ -21,23 +108,50 @@ export function ImportFolderDialog({
   onClose: () => void;
 }) {
   const documents = useStore((s) => s.documents);
+  const emptyFolders = useStore((s) => s.emptyFolders);
   const importFiles = useStore((s) => s.importFiles);
-  const folders = React.useMemo(
-    () => collectFolders(documents.map((d) => d.path)),
-    [documents]
+  const tree = React.useMemo(
+    () =>
+      buildTree(
+        documents.map((d) => ({
+          id: d.id,
+          path: d.path,
+          type: d.type,
+          starred: d.starred,
+        })),
+        emptyFolders
+      ),
+    [documents, emptyFolders]
   );
   const [selected, setSelected] = React.useState<string>(""); // "" = 库根目录
   const [custom, setCustom] = React.useState("");
+  const [expanded, setExpanded] = React.useState<Set<string>>(() => new Set());
 
   React.useEffect(() => {
     if (open) {
       setSelected("");
       setCustom("");
+      setExpanded(new Set());
     }
   }, [open]);
 
+  const customActive = !!custom.trim();
   const target = custom.trim() || selected;
   const list = files || [];
+
+  const onSelectFolder = (path: string) => {
+    setSelected(path);
+    setCustom("");
+  };
+
+  const onToggle = (path: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  };
 
   const confirm = () => {
     if (!list.length) {
@@ -59,16 +173,19 @@ export function ImportFolderDialog({
           <p className="mt-1 text-sm text-[var(--muted)]">{importPreviewLabel(list)}</p>
         </div>
 
-        <div className="space-y-1.5 max-h-48 overflow-y-auto scroll-thin rounded-xl border border-[var(--border)] p-1.5">
+        <div
+          className="space-y-0.5 max-h-56 overflow-y-auto scroll-thin rounded-xl border border-[var(--border)] p-1.5"
+          role="tree"
+          aria-label="选择目标文件夹"
+        >
           <button
             type="button"
-            onClick={() => {
-              setSelected("");
-              setCustom("");
-            }}
+            role="treeitem"
+            aria-selected={!customActive && selected === ""}
+            onClick={() => onSelectFolder("")}
             className={cn(
               "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-left transition-colors",
-              !custom.trim() && selected === ""
+              !customActive && selected === ""
                 ? "bg-[color-mix(in_srgb,var(--accent)_12%,transparent)] text-[var(--accent)]"
                 : "hover:bg-[var(--hover)]"
             )}
@@ -76,30 +193,20 @@ export function ImportFolderDialog({
             <Folder className="h-4 w-4 shrink-0 opacity-70" />
             库根目录
           </button>
-          {folders.map((f) => (
-            <button
-              key={f}
-              type="button"
-              onClick={() => {
-                setSelected(f);
-                setCustom("");
-              }}
-              className={cn(
-                "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-left font-mono transition-colors",
-                !custom.trim() && selected === f
-                  ? "bg-[color-mix(in_srgb,var(--accent)_12%,transparent)] text-[var(--accent)]"
-                  : "hover:bg-[var(--hover)]"
-              )}
-            >
-              <Folder className="h-4 w-4 shrink-0 opacity-70" />
-              {f}
-            </button>
-          ))}
+          <FolderPickNode
+            node={tree}
+            depth={0}
+            expanded={expanded}
+            onToggle={onToggle}
+            selected={selected}
+            customActive={customActive}
+            onSelect={onSelectFolder}
+          />
         </div>
 
         <div className="space-y-1.5">
           <label htmlFor="import-new-folder" className="text-xs text-[var(--muted)]">
-            或输入新文件夹路径
+            或输入新路径
           </label>
           <Input
             id="import-new-folder"
