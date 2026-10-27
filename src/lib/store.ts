@@ -37,10 +37,14 @@ type LanghuanState = {
   splitRatio: number;
   /** When true, source is on the left (or top on small screens). */
   splitSourceFirst: boolean;
-  /** Desktop sidebar width in px (220–420). */
+  /** Desktop sidebar width in px (240–360). */
   sidebarWidth: number;
   /** Markdown outline/backlinks panel width in px (160–360). */
   outlineWidth: number;
+  /** Whether the MD outline/backlinks rail is preferred open (persisted). */
+  outlineRailOpen: boolean;
+  /** Sidebar middle panel: docs tree | tags | starred. */
+  sidebarPanel: "docs" | "tags" | "stars";
   setHydrated: (v: boolean) => void;
   setTheme: (t: ThemeMode) => void;
   toggleTheme: () => void;
@@ -53,6 +57,9 @@ type LanghuanState = {
   toggleSplitSourceFirst: () => void;
   setSidebarWidth: (w: number) => void;
   setOutlineWidth: (w: number) => void;
+  setOutlineRailOpen: (v: boolean) => void;
+  toggleOutlineRail: () => void;
+  setSidebarPanel: (p: "docs" | "tags" | "stars") => void;
   setStatus: (message: string) => void;
   applyLocateResult: (result: LocateResult) => void;
   clearPendingReveal: () => void;
@@ -98,8 +105,10 @@ export const useStore = create<LanghuanState>()(
       pendingPreviewLocate: null,
       splitRatio: 0.5,
       splitSourceFirst: true,
-      sidebarWidth: 300,
+      sidebarWidth: 280,
       outlineWidth: 240,
+      outlineRailOpen: true,
+      sidebarPanel: "docs",
 
       setHydrated: (v) => set({ hydrated: v }),
       setTheme: (t) => {
@@ -128,13 +137,20 @@ export const useStore = create<LanghuanState>()(
         get().setStatus(next ? "分栏：源码在左" : "分栏：预览在左");
       },
       setSidebarWidth: (w) => {
-        const clamped = Math.min(420, Math.max(220, Math.round(w)));
+        const clamped = Math.min(360, Math.max(240, Math.round(w)));
         set({ sidebarWidth: clamped });
       },
       setOutlineWidth: (w) => {
         const clamped = Math.min(360, Math.max(160, Math.round(w)));
         set({ outlineWidth: clamped });
       },
+      setOutlineRailOpen: (v) => set({ outlineRailOpen: v }),
+      toggleOutlineRail: () => {
+        const next = !get().outlineRailOpen;
+        set({ outlineRailOpen: next });
+        get().setStatus(next ? "已显示大纲栏" : "已隐藏大纲栏");
+      },
+      setSidebarPanel: (p) => set({ sidebarPanel: p }),
       setStatus: (message) => set({ status: { message, at: Date.now() } }),
 
       applyLocateResult: (result) => {
@@ -350,11 +366,21 @@ export const useStore = create<LanghuanState>()(
         splitSourceFirst: s.splitSourceFirst,
         sidebarWidth: s.sidebarWidth,
         outlineWidth: s.outlineWidth,
+        outlineRailOpen: s.outlineRailOpen,
       }),
       onRehydrateStorage: () => (state) => {
         state?.setHydrated(true);
         if (state?.theme === "ink" && typeof document !== "undefined") {
           document.documentElement.classList.add("dark");
+        }
+        // Clamp legacy widths into the new layout ranges.
+        if (state) {
+          if (typeof state.sidebarWidth === "number") {
+            state.setSidebarWidth(state.sidebarWidth);
+          }
+          if (typeof state.outlineRailOpen !== "boolean") {
+            state.setOutlineRailOpen(true);
+          }
         }
       },
     }

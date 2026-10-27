@@ -15,10 +15,13 @@ import { mdSanitizeSchema } from "@/lib/mdSanitizeSchema";
 import { resolveLibraryHref, resolveMediaSrc } from "@/lib/resolveLibraryPath";
 import { MermaidBlock } from "./MermaidBlock";
 import { WikiLink } from "./WikiLink";
+import { DocAside, hasDocAsideContent } from "./DocAside";
 import { useStore } from "@/lib/store";
 import { findBacklinks } from "@/lib/search";
+import { extractOutline } from "@/lib/outline";
 import { getTags, parseFrontmatter } from "@/lib/tags";
-import { countWords, readingMinutes, relativeTime, titleOf, cn } from "@/lib/utils";
+import { useMediaQuery } from "@/lib/useMediaQuery";
+import { countWords, readingMinutes, relativeTime, cn } from "@/lib/utils";
 import type { Document } from "@/lib/types";
 import {
   frontmatterOffset,
@@ -30,7 +33,6 @@ import {
 import { rehypeSrcPositions } from "@/lib/locate/rehypeSrcPositions";
 import { PreviewContextMenu, type ContextMenuItem } from "./locate/PreviewContextMenu";
 import { SelectionFloatBar } from "./locate/SelectionFloatBar";
-import { ResizeGutter } from "./ui/ResizeGutter";
 import "highlight.js/styles/github-dark.css";
 import "katex/dist/katex.min.css";
 
@@ -117,22 +119,6 @@ function CodeBlock({
   );
 }
 
-function extractOutline(md: string): { id: string; text: string; level: number }[] {
-  const { body } = parseFrontmatter(md);
-  const out: { id: string; text: string; level: number }[] = [];
-  for (const line of body.split(/\n/)) {
-    const m = line.match(/^(#{1,3})\s+(.+)$/);
-    if (!m) continue;
-    const text = m[2].replace(/[#*`]/g, "").trim();
-    const id = text
-      .toLowerCase()
-      .replace(/\s+/g, "-")
-      .replace(/[^\w\u4e00-\u9fff-]/g, "");
-    out.push({ id, text, level: m[1].length });
-  }
-  return out;
-}
-
 function calloutKindFromChildren(children: React.ReactNode): {
   kind: "tip" | "note" | "warn" | null;
   title: string;
@@ -170,8 +156,8 @@ export function MarkdownReader({ doc }: { doc: Document }) {
   const pendingPreviewLocate = useStore((s) => s.pendingPreviewLocate);
   const clearPendingPreviewLocate = useStore((s) => s.clearPendingPreviewLocate);
   const setStatus = useStore((s) => s.setStatus);
-  const outlineWidth = useStore((s) => s.outlineWidth);
-  const setOutlineWidth = useStore((s) => s.setOutlineWidth);
+  const outlineRailOpen = useStore((s) => s.outlineRailOpen);
+  const wide = useMediaQuery("(min-width: 1280px)");
   const content = getContent(doc.id);
   const fmOffset = frontmatterOffset(content);
   const { body } = parseFrontmatter(content);
@@ -379,12 +365,22 @@ export function MarkdownReader({ doc }: { doc: Document }) {
     return React.createElement(Tag, { ...props, ...attrs }, children);
   };
 
+  const showRail =
+    outlineRailOpen && wide && hasDocAsideContent(outline, backlinks);
+
   return (
     <div className="h-full flex min-h-0">
       <div id="reader-scroll" className="flex-1 overflow-y-auto scroll-thin">
+        <div
+          className={cn(
+            "mx-auto flex w-full justify-center px-4 md:px-8 py-8",
+            showRail && "gap-14"
+          )}
+          style={showRail ? { maxWidth: 740 + 56 + 240 } : undefined}
+        >
         <article
           ref={articleRef}
-          className="prose-langhuan mx-auto px-4 md:px-8 py-8 animate-enter"
+          className="prose-langhuan w-full max-w-[740px] min-w-0 animate-enter"
           onContextMenu={onContextMenu}
         >
           <header className="mb-8 space-y-3 font-ui not-serif">
@@ -652,68 +648,16 @@ export function MarkdownReader({ doc }: { doc: Document }) {
             {body}
           </ReactMarkdown>
         </article>
+        {showRail && (
+          <DocAside
+            outline={outline}
+            backlinks={backlinks}
+            activeHeading={activeHeading}
+            variant="rail"
+          />
+        )}
+        </div>
       </div>
-
-      <ResizeGutter
-        className="hidden xl:flex"
-        axis="horizontal"
-        label="调整大纲宽度"
-        value={outlineWidth}
-        min={160}
-        max={360}
-        onDelta={(d) => {
-          // Gutter is left of the outline: drag right shrinks outline
-          setOutlineWidth(useStore.getState().outlineWidth - d);
-        }}
-        onReset={() => setOutlineWidth(240)}
-      />
-      <aside
-        className="hidden xl:flex shrink-0 flex-col border-l border-[var(--border)] p-4 gap-6 overflow-y-auto scroll-thin"
-        style={{ width: outlineWidth, minWidth: outlineWidth, maxWidth: outlineWidth }}
-      >
-        <div>
-          <div className="text-xs uppercase tracking-wider text-[var(--muted)] mb-2">大纲</div>
-          <nav className="space-y-1 sticky top-0">
-            {outline.length === 0 && <div className="text-xs text-[var(--muted)]">暂无标题</div>}
-            {outline.map((h) => (
-              <a
-                key={h.id + h.text}
-                href={`#${h.id}`}
-                onClick={(e) => {
-                  e.preventDefault();
-                  document.getElementById(h.id)?.scrollIntoView({ behavior: "smooth", block: "start" });
-                }}
-                className={cn(
-                  "block text-sm rounded-lg px-2 py-1 hover:bg-[var(--hover)] truncate",
-                  h.level === 1 && "font-medium",
-                  h.level === 2 && "pl-3",
-                  h.level === 3 && "pl-5 text-[var(--muted)]",
-                  activeHeading === h.id &&
-                    "text-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_10%,transparent)]"
-                )}
-              >
-                {h.text}
-              </a>
-            ))}
-          </nav>
-        </div>
-        <div>
-          <div className="text-xs uppercase tracking-wider text-[var(--muted)] mb-2">反向链接</div>
-          <div className="space-y-1">
-            {backlinks.length === 0 && <div className="text-xs text-[var(--muted)]">暂无反向链接</div>}
-            {backlinks.map((b) => (
-              <button
-                key={b.id}
-                type="button"
-                onClick={() => openDoc(b.id)}
-                className="block w-full text-left text-sm rounded-lg px-2 py-1.5 hover:bg-[var(--hover)] truncate"
-              >
-                {titleOf(b.path)}
-              </button>
-            ))}
-          </div>
-        </div>
-      </aside>
 
       {menu && (
         <PreviewContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={() => setMenu(null)} />

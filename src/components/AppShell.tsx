@@ -49,7 +49,7 @@ export function AppShell() {
   if (!hydrated) {
     return (
       <div className="h-dvh flex">
-        <div className="hidden md:block w-[300px] border-r border-[var(--border)] p-4 space-y-3">
+        <div className="hidden md:block w-[280px] border-r border-[var(--border)] p-4 space-y-3">
           <div className="skeleton h-10" />
           <div className="skeleton h-9" />
           <div className="skeleton h-9" />
