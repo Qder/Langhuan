@@ -27,7 +27,7 @@ import {
 import {
   clearRevealInView,
   locateHighlightExtensions,
-  revealRangeInView,
+  scheduleRevealRangeInView,
 } from "./locateHighlight";
 import { safeCoordsAtPos, scrollEditorToSourceOffset } from "./safeCoords";
 
@@ -537,21 +537,26 @@ export function MdCodeMirror({
     applyingExternal.current = false;
   }, [content]);
 
-  // pending reveal — defer while preview-only (editor may be mounted but hidden)
-  React.useEffect(() => {
+  // pending reveal — defer while preview-only (editor may be mounted but hidden).
+  // After display:none → split, CM6 needs measure + rAF or scroll/highlight no-ops.
+  React.useLayoutEffect(() => {
     if (!pendingReveal) return;
     if (viewMode === "preview") return;
-    const view = viewRef.current;
-    if (!view) return;
-    unfollowUntil.current = Date.now() + SOURCE_SCROLL_UNFOLLOW_MS;
-    ignoreScrollUntil.current = Date.now() + 120;
-    revealRangeInView(view, pendingReveal.start, pendingReveal.end, {
-      center: pendingReveal.center !== false,
-      highlight: pendingReveal.highlight !== false,
-      select: !!pendingReveal.select,
-      focus: !!pendingReveal.focus,
+    let cancelled = false;
+    const pending = pendingReveal;
+    scheduleRevealRangeInView(() => viewRef.current, pending, {
+      isCancelled: () => cancelled,
+      onBefore: () => {
+        unfollowUntil.current = Date.now() + SOURCE_SCROLL_UNFOLLOW_MS;
+        ignoreScrollUntil.current = Date.now() + 120;
+      },
+      onDone: () => {
+        if (!cancelled) clearPendingReveal();
+      },
     });
-    clearPendingReveal();
+    return () => {
+      cancelled = true;
+    };
   }, [pendingReveal, clearPendingReveal, viewMode]);
 
   // Preview → editor anchor scroll sync

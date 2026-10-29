@@ -83,13 +83,21 @@ export function revealRangeInView(
   view: EditorView,
   from: number,
   to: number,
-  opts: { center?: boolean; highlight?: boolean; select?: boolean; focus?: boolean } = {}
+  opts: {
+    center?: boolean;
+    highlight?: boolean;
+    select?: boolean;
+    focus?: boolean;
+    /** Always scroll to center — skip "already in view" short-circuit (split click locate). */
+    forceScroll?: boolean;
+  } = {}
 ) {
   const {
     center = true,
     highlight = true,
     select = false,
     focus = false,
+    forceScroll = false,
   } = opts;
   const docLen = view.state.doc.length;
   const f = clampDocPos(from, docLen);
@@ -104,13 +112,13 @@ export function revealRangeInView(
     const coords = safeCoordsAtPos(view, f);
     const rect = view.scrollDOM.getBoundingClientRect();
     let needScroll = true;
-    if (coords) {
+    if (!forceScroll && coords) {
       const pad = 48;
       if (coords.top >= rect.top + pad && coords.bottom <= rect.bottom - pad) {
         needScroll = false;
       }
     }
-    if (needScroll) {
+    if (needScroll || forceScroll) {
       try {
         effects.push(EditorView.scrollIntoView(f, { y: "center" }));
       } catch {
@@ -123,7 +131,78 @@ export function revealRangeInView(
     selection: select ? { anchor: f, head: t } : undefined,
     effects,
   });
+
+  // Manual center fallback: CM6 scrollIntoView can no-op after display:none → split
+  // (stale geometry). Plain click locate uses forceScroll and has no selection cue.
+  if (center && forceScroll) {
+    const scroll = view.scrollDOM;
+    const coords = safeCoordsAtPos(view, f);
+    if (coords && scroll.clientHeight > 0) {
+      const rect = scroll.getBoundingClientRect();
+      const mid = (coords.top + coords.bottom) / 2;
+      const next = scroll.scrollTop + (mid - rect.top) - rect.height / 2;
+      if (Number.isFinite(next) && Math.abs(scroll.scrollTop - next) > 1) {
+        scroll.scrollTop = next;
+      }
+    }
+  }
   if (focus) view.focus();
+}
+
+export type PendingRevealLike = {
+  start: number;
+  end: number;
+  select?: boolean;
+  focus?: boolean;
+  highlight?: boolean;
+  center?: boolean;
+};
+
+/**
+ * Apply pendingReveal after layout: view may be null on first paint, or scrollDOM
+ * still 0-height after the source pane leaves `hidden`. Retries with rAF.
+ */
+export function scheduleRevealRangeInView(
+  getView: () => EditorView | null,
+  pending: PendingRevealLike,
+  opts: {
+    isCancelled: () => boolean;
+    onBefore?: () => void;
+    onDone: () => void;
+    maxAttempts?: number;
+  }
+) {
+  const maxAttempts = opts.maxAttempts ?? 24;
+  const run = (attempt: number) => {
+    if (opts.isCancelled()) return;
+    const view = getView();
+    if (!view) {
+      if (attempt < maxAttempts) requestAnimationFrame(() => run(attempt + 1));
+      return;
+    }
+    try {
+      view.requestMeasure();
+    } catch {
+      /* ignore */
+    }
+    if (view.scrollDOM.clientHeight < 12 && attempt < maxAttempts) {
+      requestAnimationFrame(() => run(attempt + 1));
+      return;
+    }
+    opts.onBefore?.();
+    revealRangeInView(view, pending.start, pending.end, {
+      center: pending.center !== false,
+      highlight: pending.highlight !== false,
+      select: !!pending.select,
+      focus: !!pending.focus,
+      forceScroll: true,
+    });
+    opts.onDone();
+  };
+  // Double rAF: wait for flex layout after un-hiding the source pane.
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => run(0));
+  });
 }
 
 export function clearRevealInView(view: EditorView) {

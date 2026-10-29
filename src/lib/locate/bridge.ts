@@ -479,23 +479,25 @@ export const HTML_LOCATE_BRIDGE = `
     }, "*");
   });
 
+  /**
+   * True only for real controls (align Markdown: a/button/input/textarea/summary).
+   * Do NOT treat bare label/option/onclick/ARIA roles as interactive — quiz cards
+   * often wrap stems in <label> or role=button; that silently blocked split click locate.
+   * Short answer-toggle chrome text is still skipped.
+   */
   function isInteractive(node) {
     var el = node && node.nodeType === 3 ? node.parentElement : node;
     while (el && el !== document.body && el !== document.documentElement) {
       if (!el.tagName) break;
       var tag = el.tagName.toLowerCase();
       if (tag === "a" || tag === "button" || tag === "input" || tag === "textarea" ||
-          tag === "select" || tag === "label" || tag === "summary" || tag === "option" ||
+          tag === "select" || tag === "summary" ||
           tag === "video" || tag === "audio") return true;
       if (el.isContentEditable) return true;
       if (el.getAttribute) {
-        if (el.getAttribute("onclick") != null) return true;
-        var role = el.getAttribute("role");
-        if (role === "button" || role === "link" || role === "textbox" || role === "checkbox" ||
-            role === "radio" || role === "switch" || role === "tab" || role === "menuitem") return true;
         // Short chrome labels (e.g. 「显示答案」) — do not locate, let page handle.
         try {
-          var short = String(el.textContent || "").replace(/\\s+/g, "").trim();
+          var short = String(el.textContent || "").replace(/\s+/g, "").trim();
           if (short === "显示答案" || short === "隐藏答案" || short === "查看答案" || short === "收起答案") return true;
         } catch (eAns) {}
       }
@@ -719,8 +721,18 @@ export const HTML_LOCATE_BRIDGE = `
     // Hash / blocked nav / interactive: skip locate (plain and explicit).
     if (navHandled) return;
     if (isInteractive(target)) return;
+    // Skip locate only when the click sits inside an existing drag-selection.
+    // A leftover non-collapsed selection elsewhere must not block split click jump.
     var sel = window.getSelection();
-    if (sel && !sel.isCollapsed && String(sel).trim() && e.detail < 2) return;
+    if (sel && !sel.isCollapsed && String(sel).trim() && e.detail < 2 && sel.rangeCount > 0) {
+      try {
+        var sRange = sel.getRangeAt(0);
+        var sNode = target && target.nodeType ? target : null;
+        if (sNode && sRange.intersectsNode(sNode)) return;
+      } catch (eSel) {
+        return;
+      }
+    }
 
     var lhEl = closestLh(target);
     var selfAnnotated = false;

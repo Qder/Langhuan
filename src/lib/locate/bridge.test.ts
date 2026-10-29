@@ -98,6 +98,26 @@ const DATA = {
     expect(HTML_LOCATE_BRIDGE).toContain("pointQuery");
   });
 
+  it("isInteractive does not treat label/onclick/ARIA as interactive (quiz stems)", () => {
+    const start = HTML_LOCATE_BRIDGE.indexOf("function isInteractive");
+    const end = HTML_LOCATE_BRIDGE.indexOf("function stripChromeClone");
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const body = HTML_LOCATE_BRIDGE.slice(start, end);
+    // Real controls still skipped
+    expect(body).toContain('tag === "button"');
+    expect(body).toContain('tag === "a"');
+    expect(body).toContain('tag === "input"');
+    // Quiz cards wrap text in <label> / role=button — must still post lh-locate
+    expect(body).not.toContain('tag === "label"');
+    expect(body).not.toContain('tag === "option"');
+    expect(body).not.toContain('getAttribute("onclick")');
+    expect(body).not.toContain('role === "button"');
+    expect(body).toContain("显示答案");
+    // Selection gate: only skip when click intersects the selection
+    expect(HTML_LOCATE_BRIDGE).toContain("intersectsNode");
+  });
+
   it("plain left-click posts lh-locate (no 朱砂 box; thin outline flash only)", () => {
     // Align Markdown: plain click must post lh-locate (gates removed).
     expect(HTML_LOCATE_BRIDGE).toContain("explicitLocate");
