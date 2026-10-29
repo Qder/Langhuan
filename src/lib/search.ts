@@ -58,7 +58,13 @@ export function resolveWikiTarget(docs: Document[], name: string): Document | un
     docs.find((d) => titleOf(d.path) === n) ||
     docs.find((d) => basename(d.path) === n) ||
     docs.find((d) => d.path === n) ||
-    docs.find((d) => d.path.endsWith("/" + n) || d.path.endsWith("/" + n + ".md"));
+    docs.find((d) => d.path.replace(/\.(md|html)$/i, "") === n) ||
+    docs.find(
+      (d) =>
+        d.path.endsWith("/" + n) ||
+        d.path.endsWith("/" + n + ".md") ||
+        d.path.endsWith("/" + n + ".html")
+    );
   if (byTitle) return byTitle;
   return docs.find((d) => getDocMeta(d).aliases.includes(n));
 }

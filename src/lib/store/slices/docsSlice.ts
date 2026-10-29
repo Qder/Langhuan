@@ -2,8 +2,15 @@
 
 import type { StateCreator } from "zustand";
 import type { Document, FocusedPane } from "../../types";
-import { getDocMeta } from "../../docMeta";
-import { docLinkNames, rewriteWikiLinksOnRename } from "../../wikilink";
+import { applyDocMeta, getDocMeta } from "../../docMeta";
+import {
+  docLinkNames,
+  extractWikiLinks,
+  pathTargetOf,
+  rewriteWikiLinksWithMap,
+  type WikiRewriteMapping,
+} from "../../wikilink";
+import { resolveWikiTarget } from "../../search";
 import { isImportableLibraryPath, libraryDocTypeFromPath, normalizeImportedPath } from "../../importable";
 import { basename, dirname, normalizeNewlines, titleOf, uid } from "../../utils";
 import { pushVersion } from "../../storage/versions";
@@ -53,6 +60,17 @@ type DocsSliceKeys =
   | "createFromTemplate";
 
 export type DocsSlice = Pick<LanghuanState, DocsSliceKeys>;
+
+function countUnresolvedWikiLinks(docs: Document[]): number {
+  let n = 0;
+  for (const d of docs) {
+    for (const r of extractWikiLinks(d.content)) {
+      if (!r.target) continue;
+      if (!resolveWikiTarget(docs, r.target)) n += 1;
+    }
+  }
+  return n;
+}
 
 export const createDocsSlice: StateCreator<
   LanghuanState,
@@ -291,36 +309,67 @@ export const createDocsSlice: StateCreator<
           : path.toLowerCase().endsWith(".md")
             ? "md"
             : null;
-        const oldNames = docLinkNames(prev, getDocMeta(prev).aliases);
+        const oldTitle = titleOf(prev.path);
         const newTitle = titleOf(path);
+        const oldNames = docLinkNames(prev, getDocMeta(prev).aliases);
+        const mapping: WikiRewriteMapping = {
+          oldNames,
+          newTarget: newTitle,
+          newPathTarget: pathTargetOf(path),
+          styleHint: "title",
+        };
+        const mappings = [mapping];
+
         let linkUpdates = 0;
+        const changedIds = new Set<string>();
+        const now = Date.now();
+
+        // Snapshot + rewrite other docs (md and html) before writing
         const documents = get().documents.map((d) => {
           if (d.id === id) {
+            let content = d.content;
+            if (oldTitle && oldTitle !== newTitle) {
+              const prevAliases = getDocMeta(d).aliases;
+              const nextAliases = [
+                oldTitle,
+                ...prevAliases.filter((a) => a !== oldTitle && a !== newTitle),
+              ].slice(0, 10);
+              if (nextAliases.join("\0") !== prevAliases.join("\0")) {
+                void pushVersion({ docId: d.id, content: d.content, path: d.path });
+                content = applyDocMeta(content, (ext as Document["type"]) || d.type, {
+                  aliases: nextAliases,
+                });
+                changedIds.add(d.id);
+              }
+            }
             return {
               ...d,
               path,
               type: (ext as Document["type"]) || d.type,
-              updatedAt: Date.now(),
+              content,
+              updatedAt: now,
             };
           }
-          if (d.type !== "md") return d;
-          const { content, count } = rewriteWikiLinksOnRename(d.content, oldNames, newTitle);
+          const { content, count } = rewriteWikiLinksWithMap(d.content, mappings);
           if (!count) return d;
+          void pushVersion({ docId: d.id, content: d.content, path: d.path });
           linkUpdates += count;
-          return { ...d, content, updatedAt: Date.now() };
+          changedIds.add(d.id);
+          return { ...d, content, updatedAt: now };
         });
-        // Also rewrite drafts that reference old names
+
         const drafts = { ...get().drafts };
         for (const [did, draftContent] of Object.entries(drafts)) {
           if (did === id) continue;
           const doc = documents.find((x) => x.id === did);
-          if (!doc || doc.type !== "md") continue;
-          const { content, count } = rewriteWikiLinksOnRename(draftContent, oldNames, newTitle);
+          if (!doc) continue;
+          const { content, count } = rewriteWikiLinksWithMap(draftContent, mappings);
           if (count) {
             drafts[did] = content;
             linkUpdates += count;
           }
         }
+
         set((s) => ({
           documents,
           drafts,
@@ -329,17 +378,18 @@ export const createDocsSlice: StateCreator<
             documents.map((d) => d.path)
           ),
         }));
+
+        const unresolved = countUnresolvedWikiLinks(get().documents);
         const msg =
           linkUpdates > 0
-            ? `已重命名为 ${basename(path)}，并更新 ${linkUpdates} 处双链`
+            ? `已重命名，并更新 ${linkUpdates} 处双链；另有 ${unresolved} 处仍无法解析`
             : `已重命名为 ${basename(path)}`;
         get().setStatus(msg);
+
         const renamed = get().documents.find((d) => d.id === id);
         scheduleContentPersist(get, set, renamed, prev.path !== path ? prev.path : undefined);
-        if (linkUpdates > 0) {
-          for (const d of get().documents) {
-            if (d.id !== id && d.type === "md") scheduleContentPersist(get, set, d);
-          }
+        for (const d of get().documents) {
+          if (d.id !== id && changedIds.has(d.id)) scheduleContentPersist(get, set, d);
         }
       },
 

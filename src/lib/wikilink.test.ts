@@ -5,6 +5,7 @@ import {
   linkifyMention,
   parseWikiInner,
   rewriteWikiLinksOnRename,
+  rewriteWikiLinksWithMap,
   wikiDisplayLabel,
 } from "./wikilink";
 
@@ -61,5 +62,32 @@ describe("wikiDisplayLabel", () => {
     expect(wikiDisplayLabel({ target: "a", alias: "x" })).toBe("x");
     expect(wikiDisplayLabel({ target: "a", heading: "h" })).toBe("a › h");
     expect(wikiDisplayLabel({ target: "a" })).toBe("a");
+  });
+});
+
+describe("rewriteWikiLinksWithMap", () => {
+  it("rewrites title, heading, alias, embed and keeps path style", () => {
+    const src = "[[旧名]] ![[旧名#节]] [[旧名|别名]] [[folder/旧名]] [[别的]]";
+    const { content, count } = rewriteWikiLinksWithMap(src, [
+      {
+        oldNames: ["旧名", "folder/旧名", "旧名.md"],
+        newTarget: "新名",
+        newPathTarget: "folder/新名",
+      },
+    ]);
+    expect(count).toBe(4);
+    expect(content).toBe(
+      "[[新名]] ![[新名#节]] [[新名|别名]] [[folder/新名]] [[别的]]"
+    );
+  });
+
+  it("applies multiple mappings in one pass", () => {
+    const src = "[[a]] [[b]]";
+    const { content, count } = rewriteWikiLinksWithMap(src, [
+      { oldNames: ["a"], newTarget: "A" },
+      { oldNames: ["b"], newTarget: "B" },
+    ]);
+    expect(count).toBe(2);
+    expect(content).toBe("[[A]] [[B]]");
   });
 });

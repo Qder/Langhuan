@@ -94,7 +94,9 @@ vi.mock("./wikilink", async (importOriginal) => {
 import {
   docLinkNames,
   extractWikiLinks,
+  pathTargetOf,
   rewriteWikiLinksOnRename,
+  rewriteWikiLinksWithMap,
 } from "./wikilink";
 import { getDocMeta } from "./docMeta";
 import { resolveWikiTarget } from "./search";
@@ -141,24 +143,36 @@ describe("wiki rename gaps (reproduce)", () => {
       expect(content).toBe("[[新名]] ![[新名#节]] [[新名|别名]] [[别的]]");
     });
 
-    it.fails("preserves path-style target instead of collapsing to title", () => {
-      const src = "见 [[日记/2026-10-29]] 与 [[日记/2026-10-29#焦点|今天]]";
-      const oldNames = docLinkNames(
-        doc({ path: "日记/2026-10-29.md", type: "md", content: "" }),
-        []
+    it("preserves path-style target via rewriteWikiLinksWithMap", () => {
+      const src = "见 [[日记/2026-10-29]] 与 [[日记/2026-10-29#焦点|今天]] 和 [[2026-10-29]]";
+      const oldDoc = doc({ path: "日记/2026-10-29.md", type: "md", content: "" });
+      const oldNames = docLinkNames(oldDoc, []);
+      const { content, count } = rewriteWikiLinksWithMap(src, [
+        {
+          oldNames,
+          newTarget: "2026-10-29",
+          newPathTarget: pathTargetOf("journals/2026-10-29.md"),
+        },
+      ]);
+      // Title-form [[2026-10-29]] already equals newTarget — no rewrite needed.
+      expect(count).toBe(2);
+      expect(content).toBe(
+        "见 [[journals/2026-10-29]] 与 [[journals/2026-10-29#焦点|今天]] 和 [[2026-10-29]]"
       );
-      // Old API only accepts newTitle — path form cannot be preserved.
-      const { content } = rewriteWikiLinksOnRename(src, oldNames, "2026-10-29");
-      expect(content).toContain("[[journals/2026-10-29]]");
-      expect(content).toContain("[[journals/2026-10-29#焦点|今天]]");
-      expect(content).not.toBe("见 [[2026-10-29]] 与 [[2026-10-29#焦点|今天]]");
+    });
+
+    it("OnRename wrapper still title-rewrites for back-compat", () => {
+      const src = "[[旧名]] ![[旧名#节|显示]]";
+      const { content, count } = rewriteWikiLinksOnRename(src, ["旧名"], "新名");
+      expect(count).toBe(2);
+      expect(content).toBe("[[新名]] ![[新名#节|显示]]");
     });
   });
 
   describe("store renameDoc / renameFolder", () => {
     beforeEach(() => resetStore());
 
-    it.fails("rewrites [[]] inside HTML documents", () => {
+    it("rewrites [[]] inside HTML documents", () => {
       const target = useStore.getState().createDoc({
         type: "md",
         path: "旧名.md",
@@ -178,7 +192,7 @@ describe("wiki rename gaps (reproduce)", () => {
       expect(html?.content).not.toContain("[[旧名]]");
     });
 
-    it.fails("path-style links follow folder rename", () => {
+    it("path-style links follow folder rename", () => {
       useStore.getState().createDoc({
         type: "md",
         path: "日记/2026-10-29.md",
@@ -203,7 +217,7 @@ describe("wiki rename gaps (reproduce)", () => {
       );
     });
 
-    it.fails("appends old title to aliases so missed [[旧名]] still resolves", () => {
+    it("appends old title to aliases so missed [[旧名]] still resolves", () => {
       const target = useStore.getState().createDoc({
         type: "md",
         path: "旧名.md",
@@ -251,7 +265,7 @@ describe("wiki rename gaps (reproduce)", () => {
       expect(calls).toBeGreaterThan(0);
     });
 
-    it.fails("pushVersion before rewriting other documents", () => {
+    it("pushVersion before rewriting other documents", () => {
       const target = useStore.getState().createDoc({
         type: "md",
         path: "旧名.md",

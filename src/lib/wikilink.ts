@@ -72,28 +72,103 @@ export function docLinkNames(doc: Document, aliases: string[] = []): string[] {
   return [...names].filter(Boolean);
 }
 
+/** Path without extension, using `/` separators. */
+export function pathTargetOf(path: string): string {
+  return path.replace(/\\/g, "/").replace(/\.(md|html)$/i, "");
+}
+
+export type WikiRewriteMapping = {
+  /** Any name that currently resolves to the renamed doc (title/basename/path/aliases). */
+  oldNames: string[];
+  /** New title form (titleOf). Used when the original link looked like a title/basename. */
+  newTarget: string;
+  /** New path without extension. Used when the original link looked path-like. */
+  newPathTarget?: string;
+  /** Default when the matched old name is ambiguous; per-link style still wins. */
+  styleHint?: "title" | "path";
+};
+
+function isPathStyleTarget(target: string, mapping: WikiRewriteMapping): boolean {
+  if (target.includes("/")) return true;
+  if (/\.(md|html)$/i.test(target)) return true;
+  if (mapping.styleHint === "path") {
+    // Only force path when the matched name itself is path-like among oldNames
+    const hit = mapping.oldNames.find((n) => n === target);
+    if (hit && (hit.includes("/") || /\.(md|html)$/i.test(hit))) return true;
+  }
+  // Exact match against a path-like oldName
+  for (const n of mapping.oldNames) {
+    if (n !== target) continue;
+    if (n.includes("/") || /\.(md|html)$/i.test(n)) return true;
+  }
+  return false;
+}
+
+function pickReplacementTarget(oldTarget: string, mapping: WikiRewriteMapping): string {
+  if (isPathStyleTarget(oldTarget, mapping) && mapping.newPathTarget) {
+    // If user wrote with extension, keep extension on the new path target's file form
+    if (/\.(md|html)$/i.test(oldTarget)) {
+      const ext = oldTarget.match(/\.(md|html)$/i)?.[0] || "";
+      // newPathTarget is no-ext; append same ext family if old had one
+      if (mapping.newPathTarget.toLowerCase().endsWith(ext.toLowerCase())) {
+        return mapping.newPathTarget;
+      }
+      return mapping.newPathTarget + ext;
+    }
+    return mapping.newPathTarget;
+  }
+  return mapping.newTarget;
+}
+
+/**
+ * Rewrite wikilinks using a list of rename mappings (one pass).
+ * Preserves heading, alias, and embed `!`; keeps path vs title writing style when possible.
+ */
+export function rewriteWikiLinksWithMap(
+  content: string,
+  mappings: WikiRewriteMapping[]
+): { content: string; count: number } {
+  if (!mappings.length) return { content, count: 0 };
+  const prepared = mappings
+    .map((m) => ({
+      ...m,
+      oldSet: new Set(m.oldNames.map((n) => n.trim()).filter(Boolean)),
+      newTarget: m.newTarget.trim(),
+      newPathTarget: m.newPathTarget?.trim() || undefined,
+    }))
+    .filter((m) => m.oldSet.size && m.newTarget);
+  if (!prepared.length) return { content, count: 0 };
+
+  const refs = extractWikiLinks(content);
+  if (!refs.length) return { content, count: 0 };
+
+  let count = 0;
+  let next = content;
+  for (let i = refs.length - 1; i >= 0; i--) {
+    const r = refs[i];
+    if (!r.target) continue;
+    const mapping = prepared.find((m) => m.oldSet.has(r.target));
+    if (!mapping) continue;
+    const replacement = pickReplacementTarget(r.target, mapping);
+    if (!replacement || replacement === r.target) continue;
+    const heading = r.heading ? `#${r.heading}` : "";
+    const alias = r.alias != null ? `|${r.alias}` : "";
+    const rebuilt = `${r.embed ? "!" : ""}[[${replacement}${heading}${alias}]]`;
+    next = next.slice(0, r.start) + rebuilt + next.slice(r.end);
+    count += 1;
+  }
+  return { content: next, count };
+}
+
+/** Thin wrapper: title-style rename for a single document. */
 export function rewriteWikiLinksOnRename(
   content: string,
   oldNames: string[],
   newTitle: string
 ): { content: string; count: number } {
-  const oldSet = new Set(oldNames.map((n) => n.trim()).filter(Boolean));
-  if (!oldSet.size || !newTitle.trim()) return { content, count: 0 };
-  let count = 0;
-  const refs = extractWikiLinks(content);
-  if (!refs.length) return { content, count: 0 };
-  // Replace from end so offsets stay valid
-  let next = content;
-  for (let i = refs.length - 1; i >= 0; i--) {
-    const r = refs[i];
-    if (!oldSet.has(r.target)) continue;
-    const heading = r.heading ? `#${r.heading}` : "";
-    const alias = r.alias != null ? `|${r.alias}` : "";
-    const rebuilt = `${r.embed ? "!" : ""}[[${newTitle}${heading}${alias}]]`;
-    next = next.slice(0, r.start) + rebuilt + next.slice(r.end);
-    count += 1;
-  }
-  return { content: next, count };
+  return rewriteWikiLinksWithMap(content, [
+    { oldNames, newTarget: newTitle, styleHint: "title" },
+  ]);
 }
 
 export type UnlinkedMention = {
