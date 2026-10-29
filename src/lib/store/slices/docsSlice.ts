@@ -72,6 +72,161 @@ function countUnresolvedWikiLinks(docs: Document[]): number {
   return n;
 }
 
+type RenameSessionEntry = {
+  id: string;
+  oldPath: string;
+  newPath: string;
+  oldNames: string[];
+  oldTitle: string;
+  newTitle: string;
+  newPathTarget: string;
+  type: Document["type"];
+};
+
+/**
+ * One rename session: update paths + aliases for entries, then a single
+ * library-wide rewriteWikiLinksWithMap pass (each body rewritten once).
+ */
+function applyWikiRenameSession(
+  get: () => LanghuanState,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  set: any,
+  entries: RenameSessionEntry[],
+  statusWhenNoLinks: string
+): { linkUpdates: number; unresolved: number } {
+  if (!entries.length) {
+    get().setStatus(statusWhenNoLinks);
+    return { linkUpdates: 0, unresolved: countUnresolvedWikiLinks(get().documents) };
+  }
+
+  const byId = new Map(entries.map((e) => [e.id, e]));
+  const renamedIds = new Set(entries.map((e) => e.id));
+  const mappings: WikiRewriteMapping[] = entries.map((e) => ({
+    oldNames: e.oldNames,
+    newTarget: e.newTitle,
+    newPathTarget: e.newPathTarget,
+    styleHint: "title" as const,
+  }));
+
+  let linkUpdates = 0;
+  const changedIds = new Set<string>();
+  const now = Date.now();
+  const prevPaths = new Map(entries.map((e) => [e.id, e.oldPath]));
+  const originalById = new Map(get().documents.map((d) => [d.id, d]));
+
+  const documents = get().documents.map((d) => {
+    const entry = byId.get(d.id);
+    if (entry) {
+      let content = d.content;
+      if (entry.oldTitle && entry.oldTitle !== entry.newTitle) {
+        const prevAliases = getDocMeta(d).aliases;
+        const nextAliases = [
+          entry.oldTitle,
+          ...prevAliases.filter((a) => a !== entry.oldTitle && a !== entry.newTitle),
+        ].slice(0, 10);
+        if (nextAliases.join("\0") !== prevAliases.join("\0")) {
+          void pushVersion({ docId: d.id, content: d.content, path: d.path });
+          content = applyDocMeta(content, entry.type, { aliases: nextAliases });
+          changedIds.add(d.id);
+        }
+      }
+      return {
+        ...d,
+        path: entry.newPath,
+        type: entry.type,
+        content,
+        updatedAt: now,
+      };
+    }
+
+    const { content, count } = rewriteWikiLinksWithMap(d.content, mappings);
+    if (!count) return d;
+    void pushVersion({ docId: d.id, content: d.content, path: d.path });
+    linkUpdates += count;
+    changedIds.add(d.id);
+    return { ...d, content, updatedAt: now };
+  });
+
+  // Sibling links inside renamed docs themselves
+  const documents2 = documents.map((d) => {
+    if (!renamedIds.has(d.id)) return d;
+    const { content, count } = rewriteWikiLinksWithMap(d.content, mappings);
+    if (!count) return d;
+    if (!changedIds.has(d.id)) {
+      const prev = originalById.get(d.id);
+      if (prev) void pushVersion({ docId: d.id, content: prev.content, path: prev.path });
+    }
+    linkUpdates += count;
+    changedIds.add(d.id);
+    return { ...d, content, updatedAt: now };
+  });
+
+  const drafts = { ...get().drafts };
+  for (const [did, draftContent] of Object.entries(drafts)) {
+    const { content, count } = rewriteWikiLinksWithMap(draftContent, mappings);
+    if (count) {
+      drafts[did] = content;
+      linkUpdates += count;
+    }
+  }
+
+  set((s: LanghuanState) => ({
+    documents: documents2,
+    drafts,
+    emptyFolders: pruneEmptyFolders(
+      s.emptyFolders,
+      documents2.map((d) => d.path)
+    ),
+  }));
+
+  const unresolved = countUnresolvedWikiLinks(get().documents);
+  if (linkUpdates > 0) {
+    get().setStatus(`已重命名，并更新 ${linkUpdates} 处双链；另有 ${unresolved} 处仍无法解析`);
+  } else {
+    get().setStatus(statusWhenNoLinks);
+  }
+
+  for (const e of entries) {
+    const doc = get().documents.find((d) => d.id === e.id);
+    scheduleContentPersist(
+      get,
+      set,
+      doc,
+      prevPaths.get(e.id) !== e.newPath ? prevPaths.get(e.id) : undefined
+    );
+  }
+  for (const d of get().documents) {
+    if (!renamedIds.has(d.id) && changedIds.has(d.id)) {
+      scheduleContentPersist(get, set, d);
+    }
+  }
+
+  return { linkUpdates, unresolved };
+}
+
+function buildRenameEntry(
+  prev: Document,
+  newPathRaw: string,
+  allDocs: Document[]
+): RenameSessionEntry {
+  const path = ensureUniquePath(newPathRaw.replace(/\\/g, "/"), allDocs, prev.id);
+  const ext = path.toLowerCase().endsWith(".html")
+    ? "html"
+    : path.toLowerCase().endsWith(".md")
+      ? "md"
+      : null;
+  return {
+    id: prev.id,
+    oldPath: prev.path,
+    newPath: path,
+    oldNames: docLinkNames(prev, getDocMeta(prev).aliases),
+    oldTitle: titleOf(prev.path),
+    newTitle: titleOf(path),
+    newPathTarget: pathTargetOf(path),
+    type: (ext as Document["type"]) || prev.type,
+  };
+}
+
 export const createDocsSlice: StateCreator<
   LanghuanState,
   [],
@@ -303,94 +458,8 @@ export const createDocsSlice: StateCreator<
   renameDoc: (id, newPath) => {
         const prev = get().documents.find((d) => d.id === id);
         if (!prev) return;
-        const path = ensureUniquePath(newPath.replace(/\\/g, "/"), get().documents, id);
-        const ext = path.toLowerCase().endsWith(".html")
-          ? "html"
-          : path.toLowerCase().endsWith(".md")
-            ? "md"
-            : null;
-        const oldTitle = titleOf(prev.path);
-        const newTitle = titleOf(path);
-        const oldNames = docLinkNames(prev, getDocMeta(prev).aliases);
-        const mapping: WikiRewriteMapping = {
-          oldNames,
-          newTarget: newTitle,
-          newPathTarget: pathTargetOf(path),
-          styleHint: "title",
-        };
-        const mappings = [mapping];
-
-        let linkUpdates = 0;
-        const changedIds = new Set<string>();
-        const now = Date.now();
-
-        // Snapshot + rewrite other docs (md and html) before writing
-        const documents = get().documents.map((d) => {
-          if (d.id === id) {
-            let content = d.content;
-            if (oldTitle && oldTitle !== newTitle) {
-              const prevAliases = getDocMeta(d).aliases;
-              const nextAliases = [
-                oldTitle,
-                ...prevAliases.filter((a) => a !== oldTitle && a !== newTitle),
-              ].slice(0, 10);
-              if (nextAliases.join("\0") !== prevAliases.join("\0")) {
-                void pushVersion({ docId: d.id, content: d.content, path: d.path });
-                content = applyDocMeta(content, (ext as Document["type"]) || d.type, {
-                  aliases: nextAliases,
-                });
-                changedIds.add(d.id);
-              }
-            }
-            return {
-              ...d,
-              path,
-              type: (ext as Document["type"]) || d.type,
-              content,
-              updatedAt: now,
-            };
-          }
-          const { content, count } = rewriteWikiLinksWithMap(d.content, mappings);
-          if (!count) return d;
-          void pushVersion({ docId: d.id, content: d.content, path: d.path });
-          linkUpdates += count;
-          changedIds.add(d.id);
-          return { ...d, content, updatedAt: now };
-        });
-
-        const drafts = { ...get().drafts };
-        for (const [did, draftContent] of Object.entries(drafts)) {
-          if (did === id) continue;
-          const doc = documents.find((x) => x.id === did);
-          if (!doc) continue;
-          const { content, count } = rewriteWikiLinksWithMap(draftContent, mappings);
-          if (count) {
-            drafts[did] = content;
-            linkUpdates += count;
-          }
-        }
-
-        set((s) => ({
-          documents,
-          drafts,
-          emptyFolders: pruneEmptyFolders(
-            s.emptyFolders,
-            documents.map((d) => d.path)
-          ),
-        }));
-
-        const unresolved = countUnresolvedWikiLinks(get().documents);
-        const msg =
-          linkUpdates > 0
-            ? `已重命名，并更新 ${linkUpdates} 处双链；另有 ${unresolved} 处仍无法解析`
-            : `已重命名为 ${basename(path)}`;
-        get().setStatus(msg);
-
-        const renamed = get().documents.find((d) => d.id === id);
-        scheduleContentPersist(get, set, renamed, prev.path !== path ? prev.path : undefined);
-        for (const d of get().documents) {
-          if (d.id !== id && changedIds.has(d.id)) scheduleContentPersist(get, set, d);
-        }
+        const entry = buildRenameEntry(prev, newPath, get().documents);
+        applyWikiRenameSession(get, set, [entry], `已重命名为 ${basename(entry.newPath)}`);
       },
 
   renameFolder: (oldPath, newSegment) => {
@@ -420,10 +489,18 @@ export const createDocsSlice: StateCreator<
         const under = get().documents.filter((d) =>
           d.path.replace(/\\/g, "/").startsWith(prefix)
         );
+        // Collect all old→new mappings, then one library rewrite pass.
+        let planned = get().documents.slice();
+        const entries: RenameSessionEntry[] = [];
         for (const d of under) {
           const rel = d.path.replace(/\\/g, "/").slice(old.length);
-          get().renameDoc(d.id, neu + rel);
+          const entry = buildRenameEntry(d, neu + rel, planned);
+          entries.push(entry);
+          planned = planned.map((x) =>
+            x.id === entry.id ? { ...x, path: entry.newPath, type: entry.type } : x
+          );
         }
+        applyWikiRenameSession(get, set, entries, `已重命名文件夹为 ${neu}`);
         set((s) => ({
           emptyFolders: pruneEmptyFolders(
             remapEmptyFolders(s.emptyFolders, old, neu),
@@ -431,7 +508,12 @@ export const createDocsSlice: StateCreator<
           ),
           sidebarPanel: "docs",
         }));
-        get().setStatus(`已重命名文件夹为 ${neu}`);
+        const st = get().status?.message || "";
+        if (!st.includes("双链")) {
+          get().setStatus(`已重命名文件夹为 ${neu}`);
+        } else {
+          get().setStatus(st.replace(/^已重命名，/, `已重命名文件夹为 ${neu}，`));
+        }
         if (get().fsBoundName) {
           void ensureLibraryDir(neu).catch(() => {});
         }
@@ -465,10 +547,17 @@ export const createDocsSlice: StateCreator<
         const under = get().documents.filter((d) =>
           d.path.replace(/\\/g, "/").startsWith(prefix)
         );
+        let planned = get().documents.slice();
+        const entries: RenameSessionEntry[] = [];
         for (const d of under) {
           const rel = d.path.replace(/\\/g, "/").slice(old.length);
-          get().renameDoc(d.id, neu + rel);
+          const entry = buildRenameEntry(d, neu + rel, planned);
+          entries.push(entry);
+          planned = planned.map((x) =>
+            x.id === entry.id ? { ...x, path: entry.newPath, type: entry.type } : x
+          );
         }
+        applyWikiRenameSession(get, set, entries, `已移动文件夹到 ${neu}`);
         set((s) => ({
           emptyFolders: pruneEmptyFolders(
             remapEmptyFolders(s.emptyFolders, old, neu),
@@ -476,7 +565,12 @@ export const createDocsSlice: StateCreator<
           ),
           sidebarPanel: "docs",
         }));
-        get().setStatus(`已移动文件夹到 ${neu}`);
+        const st = get().status?.message || "";
+        if (!st.includes("双链")) {
+          get().setStatus(`已移动文件夹到 ${neu}`);
+        } else {
+          get().setStatus(st.replace(/^已重命名，/, `已移动文件夹到 ${neu}，`));
+        }
         if (get().fsBoundName) {
           void ensureLibraryDir(neu).catch(() => {});
         }

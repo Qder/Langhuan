@@ -230,7 +230,7 @@ describe("wiki rename gaps (reproduce)", () => {
       expect(resolveWikiTarget(useStore.getState().documents, "旧名")?.id).toBe(target.id);
     });
 
-    it.fails("folder rename with 3 docs rewrites each library body once (not N²)", () => {
+    it("folder rename with 3 docs rewrites each library body once (not N²)", () => {
       useStore.getState().createDoc({
         type: "md",
         path: "pack/a.md",
