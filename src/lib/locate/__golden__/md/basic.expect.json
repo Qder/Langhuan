@@ -1,0 +1,195 @@
+{
+  "id": "basic",
+  "kind": "markdown",
+  "sourceFile": "md/basic.md",
+  "cases": [
+    {
+      "name": "h1",
+      "find": {
+        "tag": "h1",
+        "text": "标题 Hello"
+      },
+      "start": 42,
+      "end": 52,
+      "sliceContains": "# 标题 Hello"
+    },
+    {
+      "name": "paragraph",
+      "find": {
+        "tag": "p",
+        "text": "bold"
+      },
+      "start": 54,
+      "end": 113,
+      "sliceContains": "**bold**"
+    },
+    {
+      "name": "ul li",
+      "find": {
+        "tag": "li",
+        "text": "item alpha"
+      },
+      "start": 122,
+      "end": 150,
+      "sliceContains": "item alpha"
+    },
+    {
+      "name": "ol li",
+      "find": {
+        "tag": "li",
+        "text": "first"
+      },
+      "start": 165,
+      "end": 173,
+      "sliceContains": "first"
+    },
+    {
+      "name": "task",
+      "find": {
+        "tag": "li",
+        "text": "todo checked"
+      },
+      "start": 206,
+      "end": 224,
+      "sliceContains": "todo checked"
+    },
+    {
+      "name": "blockquote",
+      "find": {
+        "tag": "blockquote",
+        "text": "blockquote"
+      },
+      "start": 226,
+      "end": 245,
+      "sliceContains": ">"
+    },
+    {
+      "name": "table cell",
+      "find": {
+        "tag": "td",
+        "text": "cell1"
+      },
+      "start": 279,
+      "end": 287,
+      "sliceContains": "cell1"
+    },
+    {
+      "name": "code fence",
+      "find": {
+        "tag": "pre",
+        "text": "const x"
+      },
+      "start": 298,
+      "end": 336,
+      "sliceContains": "```js"
+    },
+    {
+      "name": "mermaid",
+      "find": {
+        "tag": "pre",
+        "text": "graph TD"
+      },
+      "start": 374,
+      "end": 405,
+      "sliceContains": "mermaid"
+    },
+    {
+      "name": "block math",
+      "find": {
+        "tag": "pre",
+        "text": "E = mc^2"
+      },
+      "start": 338,
+      "end": 352,
+      "sliceContains": "$$"
+    },
+    {
+      "name": "inline math",
+      "find": {
+        "tag": "code",
+        "text": "a+b"
+      },
+      "start": 361,
+      "end": 366,
+      "sliceEquals": "$a+b$"
+    },
+    {
+      "name": "image",
+      "find": {
+        "tag": "img"
+      },
+      "start": 407,
+      "end": 429,
+      "sliceContains": "![alt text]"
+    },
+    {
+      "name": "emoji cjk paragraph",
+      "find": {
+        "tag": "p",
+        "text": "Emoji"
+      },
+      "start": 431,
+      "end": 455,
+      "sliceContains": "🎉"
+    }
+  ],
+  "reverse": [
+    {
+      "name": "offset in h1 text",
+      "offset": 45,
+      "expectTag": "h1",
+      "expectTextContains": "标题"
+    },
+    {
+      "name": "offset mid bold markers",
+      "offset": 70,
+      "expectTag": "p",
+      "expectTextContains": "bold"
+    },
+    {
+      "name": "offset at EOF",
+      "offset": 99999,
+      "expectTag": null,
+      "expectNone": true
+    }
+  ],
+  "selection": [
+    {
+      "name": "select bold word cross markers",
+      "selectedText": "bold",
+      "blockSliceContains": "段落 one with **bold**",
+      "expectSliceContains": "bold",
+      "expectPrecision": "exact",
+      "heuristicFallback": false
+    },
+    {
+      "name": "select link label",
+      "selectedText": "link",
+      "blockSliceContains": "[link](https://ex.com)",
+      "expectSliceContains": "link",
+      "expectPrecision": "exact",
+      "heuristicFallback": false
+    },
+    {
+      "name": "select code span text",
+      "selectedText": "code",
+      "blockSliceContains": "`code`",
+      "expectSliceContains": "code",
+      "expectPrecision": "exact",
+      "heuristicFallback": false
+    },
+    {
+      "name": "fuzzy unrelated guard",
+      "selectedText": "item alpha nested",
+      "blockSliceContains": "item alpha",
+      "expectSliceContains": "item alpha",
+      "heuristicFallback": true,
+      "fallbackMustContain": "item alpha",
+      "expectPrecisionIn": [
+        "fuzzy",
+        "block",
+        "exact"
+      ]
+    }
+  ]
+}

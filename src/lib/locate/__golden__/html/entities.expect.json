@@ -1,0 +1,27 @@
+{
+  "id": "entities",
+  "kind": "html",
+  "sourceFile": "html/entities.html",
+  "cases": [
+    {
+      "name": "amp entity para",
+      "find": {
+        "tag": "p",
+        "text": "Amp"
+      },
+      "start": 29,
+      "end": 60,
+      "sliceContains": "&amp;"
+    },
+    {
+      "name": "long attr",
+      "find": {
+        "tag": "p",
+        "text": "Long attr"
+      },
+      "start": 80,
+      "end": 177,
+      "sliceContains": "a-very-long-attribute"
+    }
+  ]
+}

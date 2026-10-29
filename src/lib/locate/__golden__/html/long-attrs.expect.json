@@ -1,0 +1,35 @@
+{
+  "id": "long-attrs",
+  "kind": "html",
+  "sourceFile": "html/long-attrs.html",
+  "cases": [
+    {
+      "name": "stem p despite long attrs on parent",
+      "find": { "tag": "p", "text": "超长属性题干" },
+      "start": 243,
+      "end": 269,
+      "sliceEquals": "<p class=\"stem\">超长属性题干</p>"
+    },
+    {
+      "name": "div range includes long data-desc",
+      "find": { "selector": "#card" },
+      "start": 32,
+      "end": 278,
+      "sliceContains": "data-desc=\"这是一道很长的题目描述"
+    }
+  ],
+  "reverse": [
+    {
+      "name": "offset inside long attribute value",
+      "offset": 100,
+      "expectTag": "div",
+      "expectTextContains": "超长属性题干"
+    },
+    {
+      "name": "offset mid stem text",
+      "offset": 255,
+      "expectTag": "p",
+      "expectTextContains": "超长属性题干"
+    }
+  ]
+}

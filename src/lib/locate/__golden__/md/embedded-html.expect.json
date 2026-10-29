@@ -1,0 +1,27 @@
+{
+  "id": "embedded-html",
+  "kind": "markdown",
+  "sourceFile": "md/embedded-html.md",
+  "cases": [
+    {
+      "name": "details summary path",
+      "find": {
+        "tag": "p",
+        "text": "Paragraph before"
+      },
+      "start": 0,
+      "end": 17,
+      "sliceContains": "Paragraph before"
+    },
+    {
+      "name": "raw span para",
+      "find": {
+        "tag": "p",
+        "text": "inline html"
+      },
+      "start": 102,
+      "end": 153,
+      "sliceContains": "inline html"
+    }
+  ]
+}

@@ -1,0 +1,90 @@
+{
+  "id": "basic",
+  "kind": "html",
+  "sourceFile": "html/basic.html",
+  "cases": [
+    {
+      "name": "h1",
+      "find": {
+        "tag": "h1",
+        "text": "Hello HTML"
+      },
+      "start": 66,
+      "end": 85,
+      "sliceContains": "<h1>"
+    },
+    {
+      "name": "strong innermost",
+      "find": {
+        "tag": "strong",
+        "text": "bold"
+      },
+      "start": 106,
+      "end": 127,
+      "sliceContains": "<strong>"
+    },
+    {
+      "name": "li",
+      "find": {
+        "tag": "li",
+        "text": "Item"
+      },
+      "start": 149,
+      "end": 184,
+      "sliceContains": "<li>"
+    },
+    {
+      "name": "em in td",
+      "find": {
+        "tag": "em",
+        "text": "em"
+      },
+      "start": 215,
+      "end": 226,
+      "sliceContains": "<em>"
+    }
+  ],
+  "reverse": [
+    {
+      "name": "offset inside strong",
+      "offset": 110,
+      "expectTag": "strong",
+      "expectTextContains": "bold"
+    },
+    {
+      "name": "offset mid tag name of h1",
+      "offset": 68,
+      "expectTag": "h1",
+      "expectTextContains": "Hello HTML"
+    },
+    {
+      "name": "offset in whitespace between blocks",
+      "offset": 86,
+      "expectTag": "p",
+      "allowAncestor": true,
+      "knownFailure": true,
+      "knownFailureReason": "data-lh ranges cover elements only; inter-element whitespace has no covering node"
+    }
+  ],
+  "selection": [
+    {
+      "name": "select bold text",
+      "selectedText": "bold",
+      "expectSliceContains": "bold",
+      "expectPrecision": "exact",
+      "heuristicFallback": false
+    },
+    {
+      "name": "select across noisy spaces (fallback ok)",
+      "selectedText": "Item   link",
+      "expectSliceContains": "Item",
+      "expectPrecisionIn": [
+        "exact",
+        "fuzzy",
+        "block"
+      ],
+      "heuristicFallback": true,
+      "fallbackMustContain": "Item"
+    }
+  ]
+}

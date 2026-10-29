@@ -1,0 +1,17 @@
+{
+  "id": "crlf",
+  "kind": "markdown",
+  "sourceFile": "md/crlf.md",
+  "cases": [
+    {
+      "name": "heading despite CRLF",
+      "find": {
+        "tag": "h3",
+        "text": "CRLF Heading"
+      },
+      "start": 39,
+      "end": 55,
+      "sliceContains": "CRLF Heading"
+    }
+  ]
+}

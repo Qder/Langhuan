@@ -1,0 +1,27 @@
+{
+  "id": "fragment",
+  "kind": "html",
+  "sourceFile": "html/fragment.html",
+  "cases": [
+    {
+      "name": "fragment p",
+      "find": {
+        "tag": "p",
+        "text": "Fragment"
+      },
+      "start": 21,
+      "end": 54,
+      "sliceContains": "<p>"
+    },
+    {
+      "name": "fragment strong",
+      "find": {
+        "tag": "strong",
+        "text": "strong"
+      },
+      "start": 72,
+      "end": 95,
+      "sliceContains": "<strong>"
+    }
+  ]
+}

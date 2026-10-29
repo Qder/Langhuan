@@ -1,0 +1,44 @@
+{
+  "id": "trailing-ws",
+  "kind": "markdown",
+  "sourceFile": "md/trailing-ws.md",
+  "cases": [
+    {
+      "name": "h1 keeps trailing spaces in source slice",
+      "find": {
+        "tag": "h1",
+        "text": "Title"
+      },
+      "start": 0,
+      "end": 9,
+      "sliceEquals": "# Title  "
+    },
+    {
+      "name": "paragraph trailing spaces in original",
+      "find": {
+        "tag": "p",
+        "text": "Paragraph with trailing"
+      },
+      "start": 11,
+      "end": 44,
+      "sliceEquals": "Paragraph with trailing spaces.  "
+    },
+    {
+      "name": "after blank lines",
+      "find": {
+        "tag": "p",
+        "text": "Then continues"
+      },
+      "start": 68,
+      "end": 83,
+      "sliceEquals": "Then continues."
+    }
+  ],
+  "reverse": [
+    {
+      "name": "offset in blank lines between paragraphs",
+      "offset": 66,
+      "expectNone": true
+    }
+  ]
+}

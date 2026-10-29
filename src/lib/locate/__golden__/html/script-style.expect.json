@@ -1,0 +1,27 @@
+{
+  "id": "script-style",
+  "kind": "html",
+  "sourceFile": "html/script-style.html",
+  "cases": [
+    {
+      "name": "p after style",
+      "find": {
+        "tag": "p",
+        "text": "Visible after style"
+      },
+      "start": 58,
+      "end": 94,
+      "sliceContains": "Visible after style"
+    },
+    {
+      "name": "p with stripped onclick",
+      "find": {
+        "tag": "p",
+        "text": "Has handler"
+      },
+      "start": 143,
+      "end": 180,
+      "sliceContains": "Has handler"
+    }
+  ]
+}

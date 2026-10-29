@@ -1,0 +1,17 @@
+{
+  "id": "crlf",
+  "kind": "html",
+  "sourceFile": "html/crlf.html",
+  "cases": [
+    {
+      "name": "crlf para offsets on normalized LF",
+      "find": {
+        "tag": "p",
+        "text": "CRLF para"
+      },
+      "start": 29,
+      "end": 45,
+      "sliceContains": "CRLF para"
+    }
+  ]
+}

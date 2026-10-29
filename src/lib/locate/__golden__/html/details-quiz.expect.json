@@ -1,0 +1,37 @@
+{
+  "id": "details-quiz",
+  "kind": "html",
+  "sourceFile": "html/details-quiz.html",
+  "cases": [
+    {
+      "name": "summary",
+      "find": {
+        "tag": "summary",
+        "text": "题干"
+      },
+      "start": 46,
+      "end": 80,
+      "sliceContains": "<summary>"
+    },
+    {
+      "name": "answer",
+      "find": {
+        "tag": "div",
+        "text": "答案"
+      },
+      "start": 83,
+      "end": 113,
+      "sliceContains": "答案"
+    },
+    {
+      "name": "label stem",
+      "find": {
+        "tag": "label",
+        "text": "Label-wrapped"
+      },
+      "start": 125,
+      "end": 191,
+      "sliceContains": "<label"
+    }
+  ]
+}
