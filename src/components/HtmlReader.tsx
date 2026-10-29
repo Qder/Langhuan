@@ -7,6 +7,7 @@ import {
   Minimize2,
 } from "lucide-react";
 import { useStore } from "@/lib/store"
+import { subscribeScrollSync } from "@/lib/locate/scrollBus";
 import { isDarkTheme } from "@/lib/theme";
 import type { Document } from "@/lib/types";
 import {
@@ -50,7 +51,6 @@ export function HtmlReader({ doc }: { doc: Document }) {
   const setHtmlImmersive = useStore((s) => s.setHtmlImmersive);
   const setHtmlScrollPercent = useStore((s) => s.setHtmlScrollPercent);
   const publishScrollSync = useStore((s) => s.publishScrollSync);
-  const scrollSyncEvent = useStore((s) => s.scrollSyncEvent);
   const getSyncScrollEnabled = useStore((s) => s.getSyncScrollEnabled);
   const viewModeStore = useStore((s) => s.viewMode);
   const setViewMode = useStore((s) => s.setViewMode);
@@ -396,31 +396,32 @@ export function HtmlReader({ doc }: { doc: Document }) {
     clearPendingPreviewLocate();
   }, [pendingPreviewLocate, clearPendingPreviewLocate, setStatus]);
 
-  // Editor → preview scroll sync (anchor offset → scrollToRange)
+  // Editor → preview scroll sync (bus; anchor offset → scrollToRange)
   React.useEffect(() => {
-    if (!scrollSyncEvent) return;
-    if (scrollSyncEvent.docId !== doc.id) return;
-    if (scrollSyncEvent.from !== "editor") return;
-    if (!getSyncScrollEnabled(doc.id)) return;
-    if (viewModeStore !== "split") return;
-    // Bug 4: do not send {o,o+1} against a huge dynamic shell when anchors are weak.
-    if (anchorsWeakRef.current) return;
-    const win = iframeRef.current?.contentWindow;
-    if (!win) return;
-    if (machineDrive.current === "preview") return;
-    machineDrive.current = "editor";
-    ignoreScrollUntil.current = Date.now() + 100;
-    const o = scrollSyncEvent.sourceOffset;
-    if (o == null || !Number.isFinite(o)) return;
-    win.postMessage(
-      { type: "scrollToRange", range: { start: o, end: o + 1 } },
-      "*"
-    );
-    if (resetTimer.current) window.clearTimeout(resetTimer.current);
-    resetTimer.current = window.setTimeout(() => {
-      machineDrive.current = null;
-    }, 150);
-  }, [scrollSyncEvent, doc.id, getSyncScrollEnabled, viewModeStore]);
+    return subscribeScrollSync((ev) => {
+      if (ev.docId !== doc.id) return;
+      if (ev.from !== "editor") return;
+      if (!getSyncScrollEnabled(doc.id)) return;
+      if (useStore.getState().viewMode !== "split") return;
+      // Bug 4: do not send {o,o+1} against a huge dynamic shell when anchors are weak.
+      if (anchorsWeakRef.current) return;
+      const win = iframeRef.current?.contentWindow;
+      if (!win) return;
+      if (machineDrive.current === "preview") return;
+      machineDrive.current = "editor";
+      ignoreScrollUntil.current = Date.now() + 100;
+      const o = ev.sourceOffset;
+      if (o == null || !Number.isFinite(o)) return;
+      win.postMessage(
+        { type: "scrollToRange", range: { start: o, end: o + 1 } },
+        "*"
+      );
+      if (resetTimer.current) window.clearTimeout(resetTimer.current);
+      resetTimer.current = window.setTimeout(() => {
+        machineDrive.current = null;
+      }, 150);
+    });
+  }, [doc.id, getSyncScrollEnabled]);
 
   const menuItems = React.useMemo((): ContextMenuItem[] => {
     const payload = menu?.payload;

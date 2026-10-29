@@ -23,6 +23,7 @@ import {
   defaultHighlightStyle,
 } from "@codemirror/language";
 import { useStore } from "@/lib/store";
+import { subscribeScrollSync } from "@/lib/locate/scrollBus";
 import type { Document } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import {
@@ -78,7 +79,6 @@ export function HtmlCodeMirror({
   const viewMode = useStore((s) => s.viewMode);
   const getSyncScrollEnabled = useStore((s) => s.getSyncScrollEnabled);
   const publishScrollSync = useStore((s) => s.publishScrollSync);
-  const scrollSyncEvent = useStore((s) => s.scrollSyncEvent);
   const htmlScrollPercent = useStore((s) => s.htmlScrollPercent);
 
   const unfollowUntil = React.useRef(0);
@@ -249,44 +249,45 @@ export function HtmlCodeMirror({
     };
   }, [pendingReveal, clearPendingReveal, viewMode]);
 
-  // Preview → source: prefer anchor offset when coverage is good; else percent.
+  // Preview → source via bus: prefer anchor offset when coverage is good; else percent.
   React.useEffect(() => {
-    if (!scrollSyncEvent) return;
-    if (scrollSyncEvent.docId !== doc.id) return;
-    if (scrollSyncEvent.from !== "preview") return;
-    if (!getSyncScrollEnabled(doc.id)) return;
-    if (viewMode !== "split") return;
-    const view = viewRef.current;
-    if (!view) return;
-    if (Date.now() < unfollowUntil.current) return;
-    if (machineDrive.current === "editor") return;
-    // Never move the source viewport while the user is actively in the editor.
-    if (view.hasFocus) return;
+    return subscribeScrollSync((ev) => {
+      if (ev.docId !== doc.id) return;
+      if (ev.from !== "preview") return;
+      if (!getSyncScrollEnabled(doc.id)) return;
+      if (useStore.getState().viewMode !== "split") return;
+      const view = viewRef.current;
+      if (!view) return;
+      if (Date.now() < unfollowUntil.current) return;
+      if (machineDrive.current === "editor") return;
+      // Never move the source viewport while the user is actively in the editor.
+      if (view.hasFocus) return;
 
-    machineDrive.current = "preview";
-    ignoreScrollUntil.current = Date.now() + 100;
-    if (resetTimer.current) window.clearTimeout(resetTimer.current);
-    resetTimer.current = window.setTimeout(() => {
-      machineDrive.current = null;
-    }, 150);
+      machineDrive.current = "preview";
+      ignoreScrollUntil.current = Date.now() + 100;
+      if (resetTimer.current) window.clearTimeout(resetTimer.current);
+      resetTimer.current = window.setTimeout(() => {
+        machineDrive.current = null;
+      }, 150);
 
-    const offset = scrollSyncEvent.sourceOffset;
-    if (typeof offset === "number" && Number.isFinite(offset)) {
-      scrollEditorToSourceOffset(view, offset);
-      return;
-    }
+      const offset = ev.sourceOffset;
+      if (typeof offset === "number" && Number.isFinite(offset)) {
+        scrollEditorToSourceOffset(view, offset);
+        return;
+      }
 
-    const pct =
-      typeof scrollSyncEvent.percent === "number"
-        ? scrollSyncEvent.percent
-        : htmlScrollPercent;
-    if (typeof pct !== "number" || !Number.isFinite(pct)) return;
-    const scroll = view.scrollDOM;
-    const next = scrollTopFromPercent(pct, scroll.scrollHeight, scroll.clientHeight);
-    if (shouldUpdateScrollTop(scroll.scrollTop, next)) {
-      scroll.scrollTop = next;
-    }
-  }, [scrollSyncEvent, doc.id, getSyncScrollEnabled, viewMode, htmlScrollPercent]);
+      const pct =
+        typeof ev.percent === "number"
+          ? ev.percent
+          : useStore.getState().htmlScrollPercent;
+      if (typeof pct !== "number" || !Number.isFinite(pct)) return;
+      const scroll = view.scrollDOM;
+      const next = scrollTopFromPercent(pct, scroll.scrollHeight, scroll.clientHeight);
+      if (shouldUpdateScrollTop(scroll.scrollTop, next)) {
+        scroll.scrollTop = next;
+      }
+    });
+  }, [doc.id, getSyncScrollEnabled]);
 
   // Safety net: lh-scroll percent alone (when anchors message gated/missing).
   React.useEffect(() => {

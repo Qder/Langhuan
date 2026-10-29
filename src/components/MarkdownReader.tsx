@@ -46,6 +46,8 @@ import {
 import type { LocateResult } from "@/lib/locate";
 import { rehypeSrcPositions } from "@/lib/locate/rehypeSrcPositions";
 import { PreviewContextMenu, type ContextMenuItem } from "./locate/PreviewContextMenu";
+import { subscribeScrollSync } from "@/lib/locate/scrollBus";
+import { probeRender, probeSection } from "@/lib/dev/perfProbe";
 import { AssetImage } from "./editor/AssetImage";
 import "highlight.js/styles/github-dark.css";
 import "katex/dist/katex.min.css";
@@ -192,9 +194,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
   const clearPendingPreviewLocate = useStore((s) => s.clearPendingPreviewLocate);
   const setStatus = useStore((s) => s.setStatus);
   const publishScrollSync = useStore((s) => s.publishScrollSync);
-  const scrollSyncEvent = useStore((s) => s.scrollSyncEvent);
   const getSyncScrollEnabled = useStore((s) => s.getSyncScrollEnabled);
-  const viewMode = useStore((s) => s.viewMode);
   const outlineRailOpen = useStore((s) => s.outlineRailOpen);
   const readingPrefs = useStore((s) => s.readingPrefs);
   const mdFocusMode = useStore((s) => s.mdFocusMode);
@@ -206,6 +206,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
   const setDraft = useStore((s) => s.setDraft);
   const saveDoc = useStore((s) => s.saveDoc);
   const wide = useMediaQuery("(min-width: 1280px)");
+  probeRender("MarkdownReader");
   const content = getContent(doc.id);
   const fmOffset = frontmatterOffset(content);
   const fmLineOffset = frontmatterLineOffset(content);
@@ -290,28 +291,30 @@ export function MarkdownReader({ doc }: { doc: Document }) {
   }, [content, applyLocateResult, setStatus]);
 
   const measureMdAnchors = React.useCallback(() => {
-    const root = document.getElementById("reader-scroll");
-    const article = articleRef.current;
-    if (!root || !article) return [];
-    const rootRect = root.getBoundingClientRect();
-    const nodes = [...article.querySelectorAll<HTMLElement>("[data-src-start]")];
-    return measureAnchorsFromElements(
-      nodes.map((el, i) => {
-        const start = Number(el.getAttribute("data-src-start"));
-        const end = Number(el.getAttribute("data-src-end") || start);
-        const line = Number(el.getAttribute("data-src-line") || 1);
-        const rect = el.getBoundingClientRect();
-        return {
-          id: `md-${i}`,
-          start,
-          end,
-          startLine: line,
-          endLine: line,
-          top: rect.top - rootRect.top + root.scrollTop,
-          height: rect.height,
-        };
-      })
-    );
+    return probeSection("measureMdAnchors", () => {
+      const root = document.getElementById("reader-scroll");
+      const article = articleRef.current;
+      if (!root || !article) return [];
+      const rootRect = root.getBoundingClientRect();
+      const nodes = [...article.querySelectorAll<HTMLElement>("[data-src-start]")];
+      return measureAnchorsFromElements(
+        nodes.map((el, i) => {
+          const start = Number(el.getAttribute("data-src-start"));
+          const end = Number(el.getAttribute("data-src-end") || start);
+          const line = Number(el.getAttribute("data-src-line") || 1);
+          const rect = el.getBoundingClientRect();
+          return {
+            id: `md-${i}`,
+            start,
+            end,
+            startLine: line,
+            endLine: line,
+            top: rect.top - rootRect.top + root.scrollTop,
+            height: rect.height,
+          };
+        })
+      );
+    });
   }, []);
 
   // Preview scroll → editor (anchor interpolate)
@@ -323,23 +326,25 @@ export function MarkdownReader({ doc }: { doc: Document }) {
       if (raf) return;
       raf = requestAnimationFrame(() => {
         raf = 0;
-        const now = Date.now();
-        if (now < ignoreScrollUntil.current) return;
-        if (!getSyncScrollEnabled(doc.id)) return;
-        if (useStore.getState().viewMode !== "split") return;
-        if (machineDrive.current === "editor") return;
-        machineDrive.current = "preview";
-        if (resetTimer.current) window.clearTimeout(resetTimer.current);
-        resetTimer.current = window.setTimeout(() => {
-          machineDrive.current = null;
-        }, 150);
-        const anchors = measureMdAnchors();
-        const offset = previewTopToSourceOffset(root.scrollTop, anchors);
-        if (offset == null) return;
-        publishScrollSync({
-          docId: doc.id,
-          from: "preview",
-          sourceOffset: offset,
+        probeSection("previewScrollFrame", () => {
+          const now = Date.now();
+          if (now < ignoreScrollUntil.current) return;
+          if (!getSyncScrollEnabled(doc.id)) return;
+          if (useStore.getState().viewMode !== "split") return;
+          if (machineDrive.current === "editor") return;
+          machineDrive.current = "preview";
+          if (resetTimer.current) window.clearTimeout(resetTimer.current);
+          resetTimer.current = window.setTimeout(() => {
+            machineDrive.current = null;
+          }, 150);
+          const anchors = measureMdAnchors();
+          const offset = previewTopToSourceOffset(root.scrollTop, anchors);
+          if (offset == null) return;
+          publishScrollSync({
+            docId: doc.id,
+            from: "preview",
+            sourceOffset: offset,
+          });
         });
       });
     };
@@ -350,30 +355,31 @@ export function MarkdownReader({ doc }: { doc: Document }) {
     };
   }, [doc.id, getSyncScrollEnabled, measureMdAnchors, publishScrollSync, body]);
 
-  // Editor → preview scroll
+  // Editor → preview scroll (bus; no React re-render on scroll)
   React.useEffect(() => {
-    if (!scrollSyncEvent) return;
-    if (scrollSyncEvent.docId !== doc.id) return;
-    if (scrollSyncEvent.from !== "editor") return;
-    if (!getSyncScrollEnabled(doc.id)) return;
-    if (viewMode !== "split") return;
-    const root = document.getElementById("reader-scroll");
-    if (!root) return;
-    if (machineDrive.current === "preview") return;
-    machineDrive.current = "editor";
-    ignoreScrollUntil.current = Date.now() + 100;
-    const anchors = measureMdAnchors();
-    const so = scrollSyncEvent.sourceOffset;
-    if (so == null || !Number.isFinite(so)) return;
-    const top = sourceOffsetToPreviewTop(so, anchors);
-    if (top != null && shouldUpdateScrollTop(root.scrollTop, top)) {
-      root.scrollTop = top;
-    }
-    if (resetTimer.current) window.clearTimeout(resetTimer.current);
-    resetTimer.current = window.setTimeout(() => {
-      machineDrive.current = null;
-    }, 150);
-  }, [scrollSyncEvent, doc.id, getSyncScrollEnabled, viewMode, measureMdAnchors]);
+    return subscribeScrollSync((ev) => {
+      if (ev.docId !== doc.id) return;
+      if (ev.from !== "editor") return;
+      if (!getSyncScrollEnabled(doc.id)) return;
+      if (useStore.getState().viewMode !== "split") return;
+      const root = document.getElementById("reader-scroll");
+      if (!root) return;
+      if (machineDrive.current === "preview") return;
+      machineDrive.current = "editor";
+      ignoreScrollUntil.current = Date.now() + 100;
+      const anchors = measureMdAnchors();
+      const so = ev.sourceOffset;
+      if (so == null || !Number.isFinite(so)) return;
+      const top = sourceOffsetToPreviewTop(so, anchors);
+      if (top != null && shouldUpdateScrollTop(root.scrollTop, top)) {
+        root.scrollTop = top;
+      }
+      if (resetTimer.current) window.clearTimeout(resetTimer.current);
+      resetTimer.current = window.setTimeout(() => {
+        machineDrive.current = null;
+      }, 150);
+    });
+  }, [doc.id, getSyncScrollEnabled, measureMdAnchors]);
 
   // Click preview block → locate source only in split (highlight).
   // Preview-only: plain click must NOT remember locate — use右键「定位源码」。

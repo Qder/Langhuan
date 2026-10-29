@@ -2,6 +2,7 @@
 
 import type { StateCreator } from "zustand";
 import type { LanghuanState } from "../types";
+import { publishScrollBus } from "@/lib/locate/scrollBus";
 
 type LocateSliceKeys =
   | "viewMode"
@@ -76,9 +77,12 @@ export const createLocateSlice: StateCreator<
         get().setStatus(!cur ? "已开启同步滚动" : "已关闭同步滚动");
       },
   publishScrollSync: (ev) => {
-        set({
-          scrollSyncEvent: { ...ev, nonce: Date.now() },
-        });
+        const event = { ...ev, nonce: Date.now() };
+        // Forward to non-React bus so pane subscribers can drive DOM without re-render.
+        publishScrollBus(event);
+        // Keep store field for getState() readers / shape snapshot; no component should
+        // useStore-select this on the hot scroll path.
+        set({ scrollSyncEvent: event });
       },
   clearScrollSyncEvent: () => set({ scrollSyncEvent: null }),
   applyLocateResult: (result, opts) => {

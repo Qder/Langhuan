@@ -30,6 +30,7 @@ import {
   scheduleRevealRangeInView,
 } from "./locateHighlight";
 import { safeCoordsAtPos, scrollEditorToSourceOffset } from "./safeCoords";
+import { subscribeScrollSync } from "@/lib/locate/scrollBus";
 
 function offsetToLineCol(text: string, offset: number): { line: number; col: number } {
   const o = Math.max(0, Math.min(offset, text.length));
@@ -83,7 +84,6 @@ export function MdCodeMirror({
   const resetTimer = React.useRef<number | null>(null);
   const cursorThrottle = React.useRef(0);
   const publishScrollSync = useStore((s) => s.publishScrollSync);
-  const scrollSyncEvent = useStore((s) => s.scrollSyncEvent);
   const getSyncScrollEnabled = useStore((s) => s.getSyncScrollEnabled);
   const readOnlyComp = React.useRef(new Compartment());
   const slashRef = React.useRef(slash);
@@ -559,28 +559,29 @@ export function MdCodeMirror({
     };
   }, [pendingReveal, clearPendingReveal, viewMode]);
 
-  // Preview → editor anchor scroll sync
+  // Preview → editor anchor scroll sync (bus; no React re-render on scroll)
   React.useEffect(() => {
-    if (!scrollSyncEvent) return;
-    if (scrollSyncEvent.docId !== doc.id) return;
-    if (scrollSyncEvent.from !== "preview") return;
-    if (!getSyncScrollEnabled(doc.id)) return;
-    if (viewMode !== "split") return;
-    const view = viewRef.current;
-    if (!view) return;
-    if (Date.now() < unfollowUntil.current) return;
-    if (machineDrive.current === "editor") return;
-    if (view.hasFocus) return;
-    machineDrive.current = "preview";
-    ignoreScrollUntil.current = Date.now() + 100;
-    if (scrollSyncEvent.sourceOffset == null || !Number.isFinite(scrollSyncEvent.sourceOffset)) return;
-    // coordsAtPos can throw RangeError even after clamp (DocView race / EOF side).
-    scrollEditorToSourceOffset(view, scrollSyncEvent.sourceOffset);
-    if (resetTimer.current) window.clearTimeout(resetTimer.current);
-    resetTimer.current = window.setTimeout(() => {
-      machineDrive.current = null;
-    }, 150);
-  }, [scrollSyncEvent, doc.id, getSyncScrollEnabled, viewMode]);
+    return subscribeScrollSync((ev) => {
+      if (ev.docId !== doc.id) return;
+      if (ev.from !== "preview") return;
+      if (!getSyncScrollEnabled(doc.id)) return;
+      if (useStore.getState().viewMode !== "split") return;
+      const view = viewRef.current;
+      if (!view) return;
+      if (Date.now() < unfollowUntil.current) return;
+      if (machineDrive.current === "editor") return;
+      if (view.hasFocus) return;
+      machineDrive.current = "preview";
+      ignoreScrollUntil.current = Date.now() + 100;
+      if (ev.sourceOffset == null || !Number.isFinite(ev.sourceOffset)) return;
+      // coordsAtPos can throw RangeError even after clamp (DocView race / EOF side).
+      scrollEditorToSourceOffset(view, ev.sourceOffset);
+      if (resetTimer.current) window.clearTimeout(resetTimer.current);
+      resetTimer.current = window.setTimeout(() => {
+        machineDrive.current = null;
+      }, 150);
+    });
+  }, [doc.id, getSyncScrollEnabled]);
 
   const applySlash = (
     view: EditorView,
