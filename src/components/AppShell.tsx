@@ -31,6 +31,7 @@ import { openCreateDocDialog } from "@/lib/createDocDialogBus";
 import { RegisterSW } from "./pwa/RegisterSW";
 import { AUTOSAVE_DEBOUNCE_MS } from "@/lib/storage/constants";
 import { matchShortcut, normalizeShortcuts } from "@/lib/shortcuts";
+import { shouldHandlePreviewUndoShortcut } from "@/lib/previewUndo";
 
 export function AppShell() {
   const hydrated = useStore((s) => s.hydrated);
@@ -58,6 +59,8 @@ export function AppShell() {
   const closeTab = useStore((s) => s.closeTab);
   const setExportDialogOpen = useStore((s) => s.setExportDialogOpen);
   const setFindReplaceOpen = useStore((s) => s.setFindReplaceOpen);
+  const undoPreviewEdit = useStore((s) => s.undoPreviewEdit);
+  const redoPreviewEdit = useStore((s) => s.redoPreviewEdit);
 
   const shortcuts = React.useMemo(
     () => normalizeShortcuts(customShortcuts),
@@ -161,6 +164,27 @@ export function AppShell() {
         return;
       }
 
+      // Preview-edit document undo/redo — never steal CodeMirror history.
+      if (
+        matchShortcut(e, shortcuts.previewUndo) &&
+        shouldHandlePreviewUndoShortcut(e.target, typing)
+      ) {
+        if (undoPreviewEdit()) {
+          e.preventDefault();
+        }
+        return;
+      }
+      if (
+        (matchShortcut(e, shortcuts.previewRedo) ||
+          matchShortcut(e, "mod+y")) &&
+        shouldHandlePreviewUndoShortcut(e.target, typing)
+      ) {
+        if (redoPreviewEdit()) {
+          e.preventDefault();
+        }
+        return;
+      }
+
       const active = getActive();
       if (active?.type === "html" && !typing) {
         if (e.key === "Escape" && htmlImmersive) {
@@ -210,6 +234,8 @@ export function AppShell() {
     closeTab,
     setExportDialogOpen,
     setFindReplaceOpen,
+    undoPreviewEdit,
+    redoPreviewEdit,
   ]);
 
   if (!hydrated) {

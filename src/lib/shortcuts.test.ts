@@ -43,4 +43,22 @@ describe("shortcuts", () => {
     const s = formatShortcut("mod+s");
     expect(s === "⌘S" || s === "Ctrl+S").toBe(true);
   });
+
+  it("matchShortcut preview undo/redo", () => {
+    expect(
+      matchShortcut(keyEvent({ key: "z", metaKey: true }), DEFAULT_SHORTCUTS.previewUndo)
+    ).toBe(true);
+    expect(
+      matchShortcut(
+        keyEvent({ key: "z", metaKey: true, shiftKey: true }),
+        DEFAULT_SHORTCUTS.previewUndo
+      )
+    ).toBe(false);
+    expect(
+      matchShortcut(
+        keyEvent({ key: "z", metaKey: true, shiftKey: true }),
+        DEFAULT_SHORTCUTS.previewRedo
+      )
+    ).toBe(true);
+  });
 });
