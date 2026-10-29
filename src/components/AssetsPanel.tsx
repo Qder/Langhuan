@@ -5,12 +5,17 @@ import { ImageIcon, Trash2 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { basename, cn, relativeTime } from "@/lib/utils";
 import { AssetImage } from "./editor/AssetImage";
+import { Dialog } from "./ui/dialog";
+import { Button } from "./ui/button";
 
 export function AssetsPanel({ docId }: { docId: string }) {
   const assetsForDoc = useStore((s) => s.assetsForDoc);
   const removeAsset = useStore((s) => s.removeAsset);
   const assets = assetsForDoc(docId);
   const [open, setOpen] = React.useState(true);
+  const [pendingDelete, setPendingDelete] = React.useState<{ id: string; name: string } | null>(
+    null
+  );
 
   if (!assets.length) return null;
 
@@ -47,11 +52,7 @@ export function AssetsPanel({ docId }: { docId: string }) {
                 type="button"
                 aria-label="删除附件"
                 className="rounded-md p-1 text-[var(--muted)] hover:text-[var(--accent)] hover:bg-[var(--hover)]"
-                onClick={() => {
-                  if (confirm(`删除附件 ${basename(a.path)}？正文中的引用不会自动删除。`)) {
-                    removeAsset(a.id);
-                  }
-                }}
+                onClick={() => setPendingDelete({ id: a.id, name: basename(a.path) })}
               >
                 <Trash2 className="h-3.5 w-3.5" />
               </button>
@@ -59,6 +60,34 @@ export function AssetsPanel({ docId }: { docId: string }) {
           ))}
         </ul>
       )}
+      <Dialog
+        open={!!pendingDelete}
+        onClose={() => setPendingDelete(null)}
+        labelledBy="asset-delete-title"
+      >
+        <div className="p-5 space-y-3">
+          <h2 id="asset-delete-title" className="font-serif text-lg font-semibold">
+            删除附件？
+          </h2>
+          <p className="text-sm text-[var(--muted)]">
+            删除附件「{pendingDelete?.name}」？正文中的引用不会自动删除。
+          </p>
+          <div className="flex justify-end gap-2 pt-1">
+            <Button variant="outline" onClick={() => setPendingDelete(null)}>
+              取消
+            </Button>
+            <Button
+              variant="accent"
+              onClick={() => {
+                if (pendingDelete) removeAsset(pendingDelete.id);
+                setPendingDelete(null);
+              }}
+            >
+              删除
+            </Button>
+          </div>
+        </div>
+      </Dialog>
     </div>
   );
 }

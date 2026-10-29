@@ -16,6 +16,7 @@ import {
 } from "@/lib/utils";
 import { ImportFolderDialog, type PendingImportAsset, type PendingImportDoc } from "./ImportFolderDialog";
 import { importClipboardAs } from "@/lib/clipboardImport";
+import { PasteSourceDialog } from "./PasteSourceDialog";
 import {
   isImportableImagePath,
   isImportableLibraryPath,
@@ -36,6 +37,7 @@ export function HomeView() {
     docs: PendingImportDoc[];
     assets: PendingImportAsset[];
   } | null>(null);
+  const [pasteOpen, setPasteOpen] = React.useState(false);
 
   const tags = collectTagCounts(documents);
   const words = documents.reduce((n, d) => n + countWords(d.type === "html" ? stripHtml(d.content) : d.content), 0);
@@ -43,12 +45,7 @@ export function HomeView() {
   const recent = [...documents].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 8);
   const starred = documents.filter((d) => d.starred);
 
-  const onPaste = () => {
-    const text = window.prompt("粘贴 Markdown 或 HTML 源码：");
-    if (text == null || !text.trim()) return;
-    const isHtml = /^\s*</.test(text) || /<\/?[a-z][\s\S]*>/i.test(text);
-    createDoc({ type: isHtml ? "html" : "md", content: text });
-  };
+  const onPaste = () => setPasteOpen(true);
 
   const onClipperMd = async () => {
     const res = await importClipboardAs("md");
@@ -267,6 +264,7 @@ export function HomeView() {
         assets={pendingImport?.assets ?? null}
         onClose={() => setPendingImport(null)}
       />
+      <PasteSourceDialog open={pasteOpen} onClose={() => setPasteOpen(false)} />
     </div>
   );
 }

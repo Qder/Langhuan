@@ -38,6 +38,8 @@ import { dirname, titleOf, cn, relativeTime, basename } from "@/lib/utils";
 import { buildTree, isPathUnderFolder, type FolderTreeNode } from "@/lib/folders";
 import { CreateFolderDialog } from "./CreateFolderDialog";
 import { MoveFolderDialog, RenameFolderDialog } from "./FolderOpsDialogs";
+import { PasteSourceDialog } from "./PasteSourceDialog";
+import { AddTagsDialog, MoveDocsDialog } from "./BatchOpsDialogs";
 import { formatBytes } from "@/lib/storage/usage";
 import { ImportFolderDialog, type PendingImportAsset, type PendingImportDoc } from "./ImportFolderDialog";
 import { importClipboardAs } from "@/lib/clipboardImport";
@@ -367,7 +369,6 @@ export function Sidebar() {
   const clearTreeSelection = useStore((s) => s.clearTreeSelection);
   const setTreeSelection = useStore((s) => s.setTreeSelection);
   const batchDelete = useStore((s) => s.batchDelete);
-  const batchSetTags = useStore((s) => s.batchSetTags);
   const moveDocsToFolder = useStore((s) => s.moveDocsToFolder);
   const setExportDialogOpen = useStore((s) => s.setExportDialogOpen);
   const htmlImmersive = useStore((s) => s.htmlImmersive);
@@ -395,8 +396,14 @@ export function Sidebar() {
   const [deleteConfirm, setDeleteConfirm] = React.useState<
     | { kind: "doc"; id: string; title: string }
     | { kind: "folder"; path: string; docCount: number }
+    | { kind: "batch"; ids: string[]; count: number }
+    | { kind: "empty-trash"; count: number }
+    | { kind: "purge"; id: string; title: string }
     | null
   >(null);
+  const [pasteOpen, setPasteOpen] = React.useState(false);
+  const [moveDocsOpen, setMoveDocsOpen] = React.useState(false);
+  const [addTagsOpen, setAddTagsOpen] = React.useState(false);
   const deleteDoc = useStore((s) => s.deleteDoc);
   const deleteFolder = useStore((s) => s.deleteFolder);
   const openInSplit = useStore((s) => s.openInSplit);
@@ -656,12 +663,7 @@ export function Sidebar() {
     ];
   }, [fileMenu, documents, openInSplit]);
 
-  const onPasteSource = () => {
-    const text = window.prompt("粘贴 Markdown 或 HTML 源码：");
-    if (text == null || !text.trim()) return;
-    const isHtml = /^\s*</.test(text) || /<\/?[a-z][\s\S]*>/i.test(text);
-    createDoc({ type: isHtml ? "html" : "md", content: text, open: true });
-  };
+  const onPasteSource = () => setPasteOpen(true);
 
   const onClipperMd = async () => {
     const res = await importClipboardAs("md");
@@ -1093,23 +1095,14 @@ export function Sidebar() {
                   <button
                     type="button"
                     className="inline-flex items-center gap-1 rounded-lg border border-[var(--border)] px-2 py-1 text-[10px] hover:bg-[var(--hover)]"
-                    onClick={() => {
-                      const folder = window.prompt("移动到文件夹（留空=根目录）", "");
-                      if (folder == null) return;
-                      moveDocsToFolder(treeSelection, folder.trim());
-                    }}
+                    onClick={() => setMoveDocsOpen(true)}
                   >
                     <FolderOpen className="h-3 w-3" /> 移动
                   </button>
                   <button
                     type="button"
                     className="inline-flex items-center gap-1 rounded-lg border border-[var(--border)] px-2 py-1 text-[10px] hover:bg-[var(--hover)]"
-                    onClick={() => {
-                      const raw = window.prompt("添加标签（逗号分隔）", "");
-                      if (raw == null || !raw.trim()) return;
-                      const tags = raw.split(/[,，]/).map((t) => t.trim()).filter(Boolean);
-                      batchSetTags(treeSelection, tags, "add");
-                    }}
+                    onClick={() => setAddTagsOpen(true)}
                   >
                     <Tag className="h-3 w-3" /> 打标签
                   </button>
@@ -1123,10 +1116,13 @@ export function Sidebar() {
                   <button
                     type="button"
                     className="inline-flex items-center gap-1 rounded-lg border border-[var(--accent)]/40 text-[var(--accent)] px-2 py-1 text-[10px] hover:bg-[var(--hover)]"
-                    onClick={() => {
-                      if (!window.confirm(`将 ${treeSelection.length} 篇移入回收站？`)) return;
-                      batchDelete(treeSelection);
-                    }}
+                    onClick={() =>
+                      setDeleteConfirm({
+                        kind: "batch",
+                        ids: [...treeSelection],
+                        count: treeSelection.length,
+                      })
+                    }
                   >
                     <Trash2 className="h-3 w-3" /> 删除
                   </button>
@@ -1259,9 +1255,8 @@ export function Sidebar() {
                   type="button"
                   disabled={!trash.length}
                   onClick={() => {
-                    if (trash.length && confirm(`彻底删除回收站中的 ${trash.length} 篇？`)) {
-                      emptyTrash();
-                    }
+                    if (!trash.length) return;
+                    setDeleteConfirm({ kind: "empty-trash", count: trash.length });
                   }}
                   className="text-[11px] text-[var(--accent)] disabled:opacity-40 hover:underline"
                 >
@@ -1293,11 +1288,13 @@ export function Sidebar() {
                       </button>
                       <button
                         type="button"
-                        onClick={() => {
-                          if (confirm(`彻底删除「${titleOf(t.doc.path)}」？`)) {
-                            purgeTrashItem(t.doc.id);
-                          }
-                        }}
+                        onClick={() =>
+                          setDeleteConfirm({
+                            kind: "purge",
+                            id: t.doc.id,
+                            title: titleOf(t.doc.path),
+                          })
+                        }
                         className="inline-flex items-center gap-1 rounded-lg px-1.5 py-0.5 text-[11px] text-[var(--accent)] hover:bg-[var(--hover)]"
                       >
                         彻底删除
@@ -1561,14 +1558,22 @@ export function Sidebar() {
           <h2 id="tree-delete-title" className="font-serif text-lg font-semibold">
             {deleteConfirm?.kind === "folder" && deleteConfirm.docCount === 0
               ? "删除空文件夹？"
-              : "移入回收站？"}
+              : deleteConfirm?.kind === "empty-trash" || deleteConfirm?.kind === "purge"
+                ? "彻底删除？"
+                : "移入回收站？"}
           </h2>
           <p className="text-sm text-[var(--muted)]">
             {deleteConfirm?.kind === "folder"
               ? deleteConfirm.docCount > 0
                 ? `将文件夹「${deleteConfirm.path}」及其下的 ${deleteConfirm.docCount} 篇文档移入回收站，可在 30 天内恢复。`
                 : `删除空文件夹「${deleteConfirm.path}」。`
-              : `将「${deleteConfirm?.kind === "doc" ? deleteConfirm.title : ""}」移入回收站，可在 30 天内恢复。`}
+              : deleteConfirm?.kind === "batch"
+                ? `将已选 ${deleteConfirm.count} 篇移入回收站，可在 30 天内恢复。`
+                : deleteConfirm?.kind === "empty-trash"
+                  ? `彻底删除回收站中的 ${deleteConfirm.count} 篇？此操作不可恢复。`
+                  : deleteConfirm?.kind === "purge"
+                    ? `彻底删除「${deleteConfirm.title}」？此操作不可恢复。`
+                    : `将「${deleteConfirm?.kind === "doc" ? deleteConfirm.title : ""}」移入回收站，可在 30 天内恢复。`}
           </p>
           <div className="flex justify-end gap-2 pt-1">
             <Button variant="outline" onClick={() => setDeleteConfirm(null)}>
@@ -1580,17 +1585,40 @@ export function Sidebar() {
                 if (!deleteConfirm) return;
                 if (deleteConfirm.kind === "doc") {
                   deleteDoc(deleteConfirm.id);
-                } else {
+                } else if (deleteConfirm.kind === "folder") {
                   deleteFolder(deleteConfirm.path);
+                } else if (deleteConfirm.kind === "batch") {
+                  batchDelete(deleteConfirm.ids);
+                } else if (deleteConfirm.kind === "empty-trash") {
+                  emptyTrash();
+                } else if (deleteConfirm.kind === "purge") {
+                  purgeTrashItem(deleteConfirm.id);
                 }
                 setDeleteConfirm(null);
               }}
             >
-              删除
+              {deleteConfirm?.kind === "empty-trash" || deleteConfirm?.kind === "purge"
+                ? "彻底删除"
+                : "删除"}
             </Button>
           </div>
         </div>
       </Dialog>
+      <PasteSourceDialog
+        open={pasteOpen}
+        onClose={() => setPasteOpen(false)}
+        openAfterCreate
+      />
+      <MoveDocsDialog
+        open={moveDocsOpen}
+        docIds={treeSelection}
+        onClose={() => setMoveDocsOpen(false)}
+      />
+      <AddTagsDialog
+        open={addTagsOpen}
+        docIds={treeSelection}
+        onClose={() => setAddTagsOpen(false)}
+      />
     </>
   );
 }

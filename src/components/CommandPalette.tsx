@@ -9,6 +9,7 @@ import { searchDocuments } from "@/lib/search";
 import { renderSnippetMarks } from "@/lib/search/highlight";
 import { titleOf, cn } from "@/lib/utils";
 import { importClipboardAs } from "@/lib/clipboardImport";
+import { SaveSearchDialog } from "./BatchOpsDialogs";
 
 export function CommandPalette() {
   const open = useStore((s) => s.commandOpen);
@@ -46,11 +47,13 @@ export function CommandPalette() {
   const toggleDocSplit = useStore((s) => s.toggleDocSplit);
   const secondaryId = useStore((s) => s.secondaryId);
   const savedSearches = useStore((s) => s.savedSearches);
-  const addSavedSearch = useStore((s) => s.addSavedSearch);
   const removeSavedSearch = useStore((s) => s.removeSavedSearch);
   const [q, setQ] = React.useState("");
   const [idx, setIdx] = React.useState(0);
   const inputRef = React.useRef<HTMLInputElement>(null);
+  const [saveSearch, setSaveSearch] = React.useState<{ query: string; defaultName: string } | null>(
+    null
+  );
 
   React.useEffect(() => {
     if (open) {
@@ -361,11 +364,9 @@ export function CommandPalette() {
       icon: <BookmarkPlus className="h-4 w-4 text-[var(--accent)]" />,
       keepOpen: true,
       run: () => {
-        const name = window.prompt("为常用搜索命名", q.trim().slice(0, 24));
-        if (name && name.trim()) {
-          addSavedSearch(name.trim(), q.trim());
-          setStatus(`已保存搜索「${name.trim()}」`);
-        }
+        const query = q.trim();
+        setSaveSearch({ query, defaultName: query.slice(0, 24) });
+        setOpen(false);
       },
     });
   }
@@ -393,6 +394,7 @@ export function CommandPalette() {
   };
 
   return (
+    <>
     <Dialog open={open} onClose={() => setOpen(false)} className="max-w-xl overflow-hidden p-0" labelledBy="cmd-title">
       <div className="flex items-center gap-2 border-b border-[var(--border)] px-4">
         <Search className="h-4 w-4 text-[var(--muted)]" />
@@ -430,5 +432,14 @@ export function CommandPalette() {
         ))}
       </div>
     </Dialog>
+      {saveSearch ? (
+        <SaveSearchDialog
+          open
+          query={saveSearch.query}
+          defaultName={saveSearch.defaultName}
+          onClose={() => setSaveSearch(null)}
+        />
+      ) : null}
+    </>
   );
 }
