@@ -23,6 +23,7 @@ import { ClipUrlDialog } from "./ClipUrlDialog";
 import { TemplateDialog } from "./TemplateDialog";
 import { ExportDialog } from "./ExportDialog";
 import { QuizReviewDialog } from "./QuizReviewDialog";
+import { LinkHealthDialog } from "./LinkHealthDialog";
 import { ShortcutsDialog } from "./ShortcutsDialog";
 import { CreateDocDialogHost } from "./CreateDocDialog";
 import { openCreateDocDialog } from "@/lib/createDocDialogBus";
@@ -250,6 +251,7 @@ export function AppShell() {
       <TemplateDialog />
       <ExportDialog />
       <QuizReviewDialog />
+      <LinkHealthDialog />
       <ShortcutsDialog />
       <CreateDocDialogHost />
       <RegisterSW />

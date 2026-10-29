@@ -16,6 +16,7 @@ export function KnowledgeGraphDialog() {
   const setOpen = useStore((s) => s.setGraphDialogOpen);
   const documents = useStore((s) => s.documents);
   const openDoc = useStore((s) => s.requestOpenDoc);
+  const setLinkHealthOpen = useStore((s) => s.setLinkHealthOpen);
   const svgRef = React.useRef<SVGSVGElement>(null);
   const [nodes, setNodes] = React.useState<SimNode[]>([]);
   const edgesRef = React.useRef<{ from: string; to: string }[]>([]);
@@ -72,9 +73,20 @@ export function KnowledgeGraphDialog() {
             （节点越大被引用越多；点空心环为孤立笔记）
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => setOpen(false)}>
-          关闭
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setLinkHealthOpen(true);
+            }}
+          >
+            打开体检
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setOpen(false)}>
+            关闭
+          </Button>
+        </div>
       </div>
       <div className="bg-[color-mix(in_srgb,var(--bg)_80%,transparent)] p-2">
         <svg

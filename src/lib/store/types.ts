@@ -157,6 +157,8 @@ export type LanghuanState = {
   quizDocs: QuizDoc[];
   /** Quiz review dialog. */
   quizReviewOpen: boolean;
+  /** Link & image health scan dialog. */
+  linkHealthOpen: boolean;
   /** After opening a quiz doc from review list, scroll+highlight this item. */
   pendingQuizReveal: { docId: string; itemId: string } | null;
   /** MD reading prefs (font / width / focus). */
@@ -284,6 +286,7 @@ export type LanghuanState = {
   updateAnnotation: (id: string, patch: { note?: string; color?: Annotation["color"] }) => void;
   removeAnnotation: (id: string) => void;
   setQuizReviewOpen: (v: boolean) => void;
+  setLinkHealthOpen: (v: boolean) => void;
   setPendingQuizReveal: (v: { docId: string; itemId: string } | null) => void;
   upsertQuizDoc: (doc: QuizDoc) => void;
   setQuizItemState: (docId: string, itemId: string, state: QuizItemState) => void;
