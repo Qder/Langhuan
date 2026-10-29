@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Archive, BookmarkPlus, CalendarDays, ClipboardPaste, Columns2, Download, FilePlus2, FileText, FolderSync, Globe, History, Home, Keyboard, LayoutTemplate, Network, Palette, Search, SlidersHorizontal, Trash2, Maximize2, Blend, Type } from "lucide-react";
+import { BookOpenCheck, Archive, BookmarkPlus, CalendarDays, ClipboardPaste, Columns2, Download, FilePlus2, FileText, FolderSync, Globe, History, Home, Keyboard, LayoutTemplate, Network, Palette, Search, SlidersHorizontal, Trash2, Maximize2, Blend, Type } from "lucide-react";
 import { Dialog } from "./ui/dialog";
 import { useStore } from "@/lib/store";
 import { themeLabel } from "@/lib/theme";
@@ -41,6 +41,7 @@ export function CommandPalette() {
   const openDailyNote = useStore((s) => s.openDailyNote);
   const setTemplateDialogOpen = useStore((s) => s.setTemplateDialogOpen);
   const setGraphDialogOpen = useStore((s) => s.setGraphDialogOpen);
+  const setQuizReviewOpen = useStore((s) => s.setQuizReviewOpen);
   const setClipUrlDialogOpen = useStore((s) => s.setClipUrlDialogOpen);
   const setPropsDialogOpen = useStore((s) => s.setPropsDialogOpen);
   const setExportDialogOpen = useStore((s) => s.setExportDialogOpen);
@@ -233,6 +234,13 @@ export function CommandPalette() {
         hint: "双链力导向图",
         icon: <Network className="h-4 w-4 text-[var(--teal)]" />,
         run: () => setGraphDialogOpen(true),
+      },
+      {
+        key: "cmd-quiz-review",
+        label: "待复习",
+        hint: "HTML 题目：不会 / 未做",
+        icon: <BookOpenCheck className="h-4 w-4 text-[var(--accent)]" />,
+        run: () => setQuizReviewOpen(true),
       },
       {
         key: "cmd-clip-url",

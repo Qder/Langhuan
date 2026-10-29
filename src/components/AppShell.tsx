@@ -22,6 +22,7 @@ import { PropsPanelDialog } from "./PropsPanelDialog";
 import { ClipUrlDialog } from "./ClipUrlDialog";
 import { TemplateDialog } from "./TemplateDialog";
 import { ExportDialog } from "./ExportDialog";
+import { QuizReviewDialog } from "./QuizReviewDialog";
 import { ShortcutsDialog } from "./ShortcutsDialog";
 import { CreateDocDialogHost } from "./CreateDocDialog";
 import { openCreateDocDialog } from "@/lib/createDocDialogBus";
@@ -248,6 +249,7 @@ export function AppShell() {
       <ClipUrlDialog />
       <TemplateDialog />
       <ExportDialog />
+      <QuizReviewDialog />
       <ShortcutsDialog />
       <CreateDocDialogHost />
       <RegisterSW />

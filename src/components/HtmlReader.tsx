@@ -30,6 +30,13 @@ import {
   normalizeHtmlPrefs,
 } from "@/lib/htmlPreviewPrefs";
 import { PreviewContextMenu, type ContextMenuItem } from "./locate/PreviewContextMenu";
+import { QuizToolbar } from "./QuizToolbar";
+import {
+  countQuizStates,
+  detectQuizHtml,
+  parseQuizItemId,
+  type QuizItem,
+} from "@/lib/quiz";
 import { cn } from "@/lib/utils";
 
 
@@ -61,10 +68,43 @@ export function HtmlReader({ doc }: { doc: Document }) {
   // Subscribe to the prefs record entry so width/zoom clicks re-render.
   const prefsRaw = useStore((s) => s.htmlPreviewPrefs[doc.id]);
   const prefs = normalizeHtmlPrefs(prefsRaw);
+  const quizDoc = useStore((s) => s.quizDocs.find((q) => q.docId === doc.id));
+  const syncQuizForDoc = useStore((s) => s.syncQuizForDoc);
+  const setQuizItemState = useStore((s) => s.setQuizItemState);
+  const pendingQuizReveal = useStore((s) => s.pendingQuizReveal);
+  const setPendingQuizReveal = useStore((s) => s.setPendingQuizReveal);
 
   const content = getContent(doc.id);
+  const isQuizPage = React.useMemo(
+    () =>
+      doc.type === "html" &&
+      detectQuizHtml(content, { forceQuiz: !!quizDoc?.forceQuiz }),
+    [doc.type, content, quizDoc?.forceQuiz]
+  );
+  const showQuizToolbar =
+    isQuizPage && (viewModeStore === "preview" || viewModeStore === "split");
+  const quizCounts = React.useMemo(
+    () => countQuizStates(quizDoc?.items || []),
+    [quizDoc?.items]
+  );
+  const [activeQuizItemId, setActiveQuizItemId] = React.useState<string | null>(null);
+  const activeQuizItem: QuizItem | null = React.useMemo(() => {
+    const items = quizDoc?.items || [];
+    if (!items.length) return null;
+    if (activeQuizItemId) {
+      const hit = items.find((i) => i.id === activeQuizItemId);
+      if (hit) return hit;
+    }
+    return items.find((i) => i.state === "dont_know") || items.find((i) => i.state === "unseen") || items[0];
+  }, [quizDoc?.items, activeQuizItemId]);
+
   const iframeRef = React.useRef<HTMLIFrameElement>(null);
   const stageRef = React.useRef<HTMLDivElement>(null);
+  const postQuiz = React.useCallback((msg: Record<string, unknown>) => {
+    const win = iframeRef.current?.contentWindow;
+    if (!win) return;
+    win.postMessage(msg, "*");
+  }, []);
   const [menu, setMenu] = React.useState<{
     x: number;
     y: number;
@@ -96,6 +136,13 @@ export function HtmlReader({ doc }: { doc: Document }) {
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+
+
+  // Keep quiz metadata in sync with HTML source (no body mutation).
+  React.useEffect(() => {
+    if (!isQuizPage) return;
+    syncQuizForDoc(doc.id);
+  }, [isQuizPage, doc.id, content, syncQuizForDoc]);
 
   // Reset load state when content/reload changes
   React.useEffect(() => {
@@ -322,6 +369,42 @@ export function HtmlReader({ doc }: { doc: Document }) {
         return;
       }
       if (data.type === "lh-ready") {
+        if (isQuizPage) {
+          postQuiz({ type: "lh-quiz-list" });
+          const pending = useStore.getState().pendingQuizReveal;
+          if (pending && pending.docId === doc.id) {
+            const range = parseQuizItemId(pending.itemId);
+            postQuiz({
+              type: "lh-quiz-set-open",
+              id: pending.itemId,
+              open: true,
+            });
+            if (range) {
+              postQuiz({
+                type: "scrollToRange",
+                range: { start: range.start, end: range.end },
+              });
+              postQuiz({
+                type: "highlightRange",
+                range: { start: range.start, end: range.end },
+              });
+            }
+            setActiveQuizItemId(pending.itemId);
+            setPendingQuizReveal(null);
+          }
+        }
+        return;
+      }
+      if (data.type === "lh-quiz-peeked" && typeof data.id === "string") {
+        setQuizItemState(doc.id, data.id, "peeked");
+        setActiveQuizItemId(data.id);
+        return;
+      }
+      if (data.type === "lh-quiz-list" && Array.isArray(data.items) && data.items.length) {
+        const firstOpen = data.items.find((it) => it && it.open);
+        if (firstOpen && typeof firstOpen.id === "string") {
+          setActiveQuizItemId(firstOpen.id);
+        }
         return;
       }
       if (data.type === "lh-keydown") {
@@ -332,6 +415,14 @@ export function HtmlReader({ doc }: { doc: Document }) {
       if (data.type === "lh-locate") {
         // Click outside the context menu (inside iframe) dismisses it.
         setMenu(null);
+        if (isQuizPage && data.range && quizDoc?.items?.length) {
+          const s = data.range.start;
+          const hit = quizDoc.items.find((it) => {
+            const r = parseQuizItemId(it.id);
+            return r && r.start <= s && s < r.end;
+          });
+          if (hit) setActiveQuizItemId(hit.id);
+        }
         if (!data.range && isTrivialSelection(data.text || data.textSnippet || "")) return;
         // Align Markdown: plain click = locate + highlight (no focus/selection);
         // ⌘/Ctrl+click or double-click = enter edit (select + focus; preview→split).
@@ -358,7 +449,7 @@ export function HtmlReader({ doc }: { doc: Document }) {
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [runLocate, handleBridgeKey, setHtmlScrollPercent, getSyncScrollEnabled, publishScrollSync, doc.id]);
+  }, [runLocate, handleBridgeKey, setHtmlScrollPercent, getSyncScrollEnabled, publishScrollSync, doc.id, isQuizPage, postQuiz, setQuizItemState, setPendingQuizReveal, quizDoc?.items]);
 
   // Source → Preview highlight via range (data-lh).
   // Caret follow: highlight only (no scroll) — scrolling preview would emit
@@ -497,8 +588,38 @@ export function HtmlReader({ doc }: { doc: Document }) {
     }
   }, [viewModeStore, loaded, doc.id, setStatus]);
 
+  // Review-list jump while iframe already loaded.
+  React.useEffect(() => {
+    if (!pendingQuizReveal || pendingQuizReveal.docId !== doc.id) return;
+    if (!loaded || !isQuizPage) return;
+    const itemId = pendingQuizReveal.itemId;
+    const range = parseQuizItemId(itemId);
+    postQuiz({ type: "lh-quiz-set-open", id: itemId, open: true });
+    if (range) {
+      postQuiz({ type: "scrollToRange", range: { start: range.start, end: range.end } });
+      postQuiz({ type: "highlightRange", range: { start: range.start, end: range.end } });
+    }
+    setActiveQuizItemId(itemId);
+    setPendingQuizReveal(null);
+  }, [pendingQuizReveal, doc.id, loaded, isQuizPage, postQuiz, setPendingQuizReveal]);
+
   return (
     <div className="relative h-full min-h-0 flex flex-col bg-[var(--bg)]">
+      {showQuizToolbar && (
+        <QuizToolbar
+          counts={quizCounts}
+          activeItem={activeQuizItem}
+          onCollapseAll={() => postQuiz({ type: "lh-quiz-set-open", all: true, open: false })}
+          onExpandAll={() => postQuiz({ type: "lh-quiz-set-open", all: true, open: true })}
+          onSetState={(itemId, state) => {
+            setQuizItemState(doc.id, itemId, state);
+            setActiveQuizItemId(itemId);
+            if (state === "peeked") {
+              postQuiz({ type: "lh-quiz-set-open", id: itemId, open: true });
+            }
+          }}
+        />
+      )}
       {/* Stage: full-bleed, no padding/radius */}
       <div
         ref={stageRef}

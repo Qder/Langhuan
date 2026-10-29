@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import {
+import { BookOpenCheck,
   Archive,
   BookmarkPlus,
   CalendarDays,
@@ -34,6 +34,7 @@ import { Dropdown, DropdownItem } from "./ui/dropdown";
 import { useStore, filteredDocuments } from "@/lib/store";
 import { THEME_IDS, THEME_HINTS, THEME_LABELS, isDarkTheme, themeLabel } from "@/lib/theme";
 import { collectTagCounts } from "@/lib/tags";
+import { reviewBadgeCount } from "@/lib/quiz";
 import { dirname, titleOf, cn, relativeTime, basename } from "@/lib/utils";
 import { buildTree, isPathUnderFolder, type FolderTreeNode } from "@/lib/folders";
 import { CreateFolderDialog } from "./CreateFolderDialog";
@@ -338,6 +339,12 @@ export function Sidebar() {
   const openDailyNote = useStore((s) => s.openDailyNote);
   const setTemplateDialogOpen = useStore((s) => s.setTemplateDialogOpen);
   const setGraphDialogOpen = useStore((s) => s.setGraphDialogOpen);
+  const setQuizReviewOpen = useStore((s) => s.setQuizReviewOpen);
+  const quizDocs = useStore((s) => s.quizDocs);
+  const reviewCount = React.useMemo(() => {
+    const b = reviewBadgeCount(quizDocs, new Set(documents.map((d) => d.id)));
+    return b.dontKnow + b.unseen;
+  }, [quizDocs, documents]);
   const setClipUrlDialogOpen = useStore((s) => s.setClipUrlDialogOpen);
   const openHome = useStore((s) => s.requestOpenHome);
   const activeId = useStore((s) => s.activeId);
@@ -987,6 +994,19 @@ export function Sidebar() {
         <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto scroll-thin">
           {sidebarPanel === "docs" && (
             <div>
+              {reviewCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setQuizReviewOpen(true)}
+                  className="mb-1.5 flex w-full items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] px-2.5 py-1.5 text-left text-xs text-[var(--fg)] transition-colors hover:border-[var(--accent)]/40 hover:bg-[color-mix(in_srgb,var(--accent)_8%,var(--bg-elevated))]"
+                >
+                  <BookOpenCheck className="h-3.5 w-3.5 shrink-0 text-[var(--accent)]" />
+                  <span className="min-w-0 flex-1 truncate">待复习</span>
+                  <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--danger,#e11d48)] px-1 text-[10px] font-semibold text-white">
+                    {reviewCount > 99 ? "99+" : reviewCount}
+                  </span>
+                </button>
+              )}
               {tagFilters.length > 0 && (
                 <div className="sticky top-0 z-10 mb-1.5 flex items-center gap-1 rounded-lg border border-[var(--accent)]/30 bg-[color-mix(in_srgb,var(--accent)_8%,var(--bg-elevated))] px-2 py-1 text-xs text-[var(--accent)]">
                   <div className="flex min-w-0 flex-1 flex-wrap gap-1 overflow-x-auto scroll-thin">

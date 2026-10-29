@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { FileCode2, FilePlus2, FolderInput, Globe, Search, Star } from "lucide-react";
+import { BookOpenCheck, FileCode2, FilePlus2, FolderInput, Globe, Search, Star } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { collectTagCounts, getTags } from "@/lib/tags";
 import { countAllBacklinks } from "@/lib/search";
@@ -18,6 +18,7 @@ import { ImportFolderDialog, type PendingImportAsset, type PendingImportDoc } fr
 import { importClipboardAs } from "@/lib/clipboardImport";
 import { PasteSourceDialog } from "./PasteSourceDialog";
 import { openCreateDocDialog } from "@/lib/createDocDialogBus";
+import { reviewBadgeCount } from "@/lib/quiz";
 import {
   isImportableImagePath,
   isImportableLibraryPath,
@@ -30,6 +31,8 @@ export function HomeView() {
   const setStatus = useStore((s) => s.setStatus);
   const openDoc = useStore((s) => s.requestOpenDoc);
   const setCommandOpen = useStore((s) => s.setCommandOpen);
+  const setQuizReviewOpen = useStore((s) => s.setQuizReviewOpen);
+  const quizDocs = useStore((s) => s.quizDocs);
   const setTagFilters = useStore((s) => s.setTagFilters);
   const setSidebarPanel = useStore((s) => s.setSidebarPanel);
   const resetSeed = useStore((s) => s.resetSeed);
@@ -45,6 +48,10 @@ export function HomeView() {
   const backlinks = countAllBacklinks(documents);
   const recent = [...documents].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 8);
   const starred = documents.filter((d) => d.starred);
+  const quizBadge = React.useMemo(() => {
+    const b = reviewBadgeCount(quizDocs, new Set(documents.map((d) => d.id)));
+    return b.dontKnow + b.unseen;
+  }, [quizDocs, documents]);
 
   const onPaste = () => setPasteOpen(true);
 
@@ -68,6 +75,16 @@ export function HomeView() {
     { title: "粘贴源码", desc: "快速收入片段", icon: FileCode2, onClick: onPaste },
     { title: "网页剪藏", desc: "剪贴板 → Markdown", icon: Globe, onClick: () => void onClipperMd() },
     { title: "导入文件夹", desc: "保留目录结构", icon: FolderInput, onClick: () => folderRef.current?.click() },
+    ...(quizBadge > 0
+      ? [
+          {
+            title: "待复习",
+            desc: `${quizBadge} 道题待处理`,
+            icon: BookOpenCheck,
+            onClick: () => setQuizReviewOpen(true),
+          },
+        ]
+      : []),
   ];
 
   return (
