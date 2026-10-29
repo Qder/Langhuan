@@ -840,7 +840,7 @@ export const HTML_LOCATE_BRIDGE = `
 
 export function injectLocateBridge(srcDoc: string): string {
   // strip any previous bridge
-  let html = srcDoc.replace(/<script[^>]*data-lh-bridge=["']1["'][^>]*>[\s\S]*?<\/script>/gi, "");
+  const html = srcDoc.replace(/<script[^>]*data-lh-bridge=["']1["'][^>]*>[\s\S]*?<\/script>/gi, "");
 
   // Only the last </body> outside script/style/textarea (Bug 5).
   const idx = findLastBodyCloseIndex(html);

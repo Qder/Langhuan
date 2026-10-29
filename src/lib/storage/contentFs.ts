@@ -194,7 +194,7 @@ export async function scanLibrary(): Promise<LibrarySnapshot> {
   const seenAssetPaths = new Set<string>();
 
   for (const raw of files) {
-    let rel = safeRelPath(raw);
+    const rel = safeRelPath(raw);
     if (!rel) continue;
     if (isTextDocPath(rel)) {
       const abs = absFromRel(rel);

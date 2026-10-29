@@ -48,7 +48,7 @@ export function locateInMarkdown(opts: {
 
     const { plain, map } = buildMdPlainMap(slice);
     const occ = pickOccurrence(plain, text, anchorPlainOffset);
-    let idx = findNth(plain, text, occ);
+    const idx = findNth(plain, text, occ);
     // also try collapsed whitespace match
     if (idx < 0) {
       const collapsedSel = collapseWs(text);
