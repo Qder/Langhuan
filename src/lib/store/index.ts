@@ -75,6 +75,7 @@ import { scheduleContentPersist } from "./helpers/persistSchedule";
 import { ensureUniquePath } from "./helpers/paths";
 import { softNavigate } from "./helpers/navigation";
 import { filteredDocuments } from "./helpers/filteredDocuments";
+import { createUiSlice } from "./slices/uiSlice";
 
 export type {
   PendingReveal,
@@ -89,91 +90,41 @@ export { filteredDocuments };
 
 export const useStore = create<LanghuanState>()(
   persist(
-    (set, get) => ({
-      hydrated: false,
-      documents: [],
-      drafts: {},
-      trash: [],
-      emptyFolders: [],
-      activeId: null,
-      viewMode: "preview",
-      theme: "xuan",
-      tagFilters: [],
-      sidebarOpen: false,
-      commandOpen: false,
-      status: null,
-      pendingReveal: null,
-      pendingPreviewLocate: null,
-      treeRevealRequest: null,
-      pendingNav: null,
-      splitRatio: 0.5,
-      splitSourceFirst: true,
-      sidebarWidth: 280,
-      outlineWidth: 240,
-      outlineRailOpen: true,
-      sidebarPanel: "docs",
-      htmlImmersive: false,
-      htmlSidebarPeek: false,
-      htmlScrollPercent: 0,
-      syncScrollByDoc: {},
-      scrollSyncEvent: null,
-      editorCaret: null,
-      htmlPreviewPrefs: {},
-      htmlReloadToken: 0,
-      lastBackupAt: null,
-      autosaveEnabled: true,
-      backupDialogOpen: false,
-      versionDialogOpen: false,
-      storageUsage: null,
-      fsBoundName: null,
-      fsLastSyncAt: null,
-      fsSyncDialogOpen: false,
-      savedSearches: [],
-      statusFilter: null,
-      graphDialogOpen: false,
-      propsDialogOpen: false,
-      clipUrlDialogOpen: false,
-      templateDialogOpen: false,
-      assets: [],
-      annotations: [],
-      readingPrefs: { ...DEFAULT_READING_PREFS },
-      mdFocusMode: false,
-      openTabs: [],
-      pinnedTabs: [],
-      secondaryId: null,
-      focusedPane: "primary",
-      docSplitRatio: 0.5,
-      treeSelection: [],
-      batchMode: false,
-      customShortcuts: {},
-      exportDialogOpen: false,
-      shortcutsDialogOpen: false,
-
-      setHydrated: (v) => set({ hydrated: v }),
-      setTheme: (t) => {
-        const id = normalizeTheme(t);
-        set({ theme: id });
-        applyThemeToDocument(id);
-        try {
-          if (typeof localStorage !== "undefined") {
-            localStorage.setItem(THEME_STORAGE_KEY, id);
-          }
-        } catch {
-          /* ignore */
-        }
-      },
-      toggleTheme: () => {
-        const next = nextTheme(get().theme);
-        get().setTheme(next);
-        get().setStatus(`已切换到${themeLabel(next)}`);
-      },
-      setSidebarOpen: (v) => set({ sidebarOpen: v }),
-      setCommandOpen: (v) => set({ commandOpen: v }),
-      setTagFilters: (tags) => {
+    (...a) => {
+      const [set, get] = a;
+      return ({
+        ...createUiSlice(...a),
+        documents: [],
+        drafts: {},
+        trash: [],
+        emptyFolders: [],
+        activeId: null,
+        viewMode: "preview",
+        tagFilters: [],
+        pendingReveal: null,
+        pendingPreviewLocate: null,
+        treeRevealRequest: null,
+        pendingNav: null,
+        htmlScrollPercent: 0,
+        syncScrollByDoc: {},
+        scrollSyncEvent: null,
+        storageUsage: null,
+        savedSearches: [],
+        statusFilter: null,
+        assets: [],
+        annotations: [],
+        openTabs: [],
+        pinnedTabs: [],
+        secondaryId: null,
+        focusedPane: "primary",
+        docSplitRatio: 0.5,
+        treeSelection: [],
+        batchMode: false,
+        setTagFilters: (tags) => {
         const uniq = [...new Set(tags.map((t) => t.trim()).filter(Boolean))];
         set({ tagFilters: uniq });
       },
-      toggleTagFilter: (tag) => {
+        toggleTagFilter: (tag) => {
         const t = tag.trim();
         if (!t) return;
         const cur = get().tagFilters;
@@ -181,8 +132,8 @@ export const useStore = create<LanghuanState>()(
           tagFilters: cur.includes(t) ? cur.filter((x) => x !== t) : [...cur, t],
         });
       },
-      clearTagFilters: () => set({ tagFilters: [] }),
-      setViewMode: (m) => {
+        clearTagFilters: () => set({ tagFilters: [] }),
+        setViewMode: (m) => {
         const prev = get().viewMode;
         const pending = get().pendingReveal;
         // Opening source/split with a memorized preview locate: bump nonce so
@@ -200,80 +151,31 @@ export const useStore = create<LanghuanState>()(
         }
         set({ viewMode: m });
       },
-      setSplitRatio: (r) => {
-        const clamped = Math.min(0.8, Math.max(0.2, r));
-        set({ splitRatio: clamped });
-      },
-      setSplitSourceFirst: (v) => set({ splitSourceFirst: v }),
-      toggleSplitSourceFirst: () => {
-        const next = !get().splitSourceFirst;
-        set({ splitSourceFirst: next });
-        get().setStatus(next ? "分栏：源码在左" : "分栏：预览在左");
-      },
-      setSidebarWidth: (w) => {
-        const clamped = Math.min(360, Math.max(240, Math.round(w)));
-        set({ sidebarWidth: clamped });
-      },
-      setOutlineWidth: (w) => {
-        const clamped = Math.min(360, Math.max(160, Math.round(w)));
-        set({ outlineWidth: clamped });
-      },
-      setOutlineRailOpen: (v) => set({ outlineRailOpen: v }),
-      toggleOutlineRail: () => {
-        const next = !get().outlineRailOpen;
-        set({ outlineRailOpen: next });
-        get().setStatus(next ? "已显示大纲栏" : "已隐藏大纲栏");
-      },
-      setSidebarPanel: (p) => set({ sidebarPanel: p }),
-      setHtmlImmersive: (v) =>
-        set({
-          htmlImmersive: v,
-          htmlSidebarPeek: v ? false : get().htmlSidebarPeek,
-        }),
-      toggleHtmlImmersive: () => {
-        const next = !get().htmlImmersive;
-        get().setHtmlImmersive(next);
-        get().setStatus(next ? "已进入沉浸模式" : "已退出沉浸模式");
-      },
-      setHtmlSidebarPeek: (v) => set({ htmlSidebarPeek: v }),
-      setHtmlScrollPercent: (n) => {
+        setHtmlScrollPercent: (n) => {
         const clamped = Math.max(0, Math.min(100, Number.isFinite(n) ? n : 0));
         set({ htmlScrollPercent: clamped });
       },
-      getSyncScrollEnabled: (docId) => {
+        getSyncScrollEnabled: (docId) => {
         const v = get().syncScrollByDoc[docId];
         return v !== false;
       },
-      setSyncScrollEnabled: (docId, enabled) => {
+        setSyncScrollEnabled: (docId, enabled) => {
         set((s) => ({
           syncScrollByDoc: { ...s.syncScrollByDoc, [docId]: enabled },
         }));
       },
-      toggleSyncScroll: (docId) => {
+        toggleSyncScroll: (docId) => {
         const cur = get().getSyncScrollEnabled(docId);
         get().setSyncScrollEnabled(docId, !cur);
         get().setStatus(!cur ? "已开启同步滚动" : "已关闭同步滚动");
       },
-      publishScrollSync: (ev) => {
+        publishScrollSync: (ev) => {
         set({
           scrollSyncEvent: { ...ev, nonce: Date.now() },
         });
       },
-      clearScrollSyncEvent: () => set({ scrollSyncEvent: null }),
-      setEditorCaret: (c) => set({ editorCaret: c }),
-      getHtmlPreviewPrefs: (id) =>
-        normalizeHtmlPrefs(get().htmlPreviewPrefs[id] || DEFAULT_HTML_PREVIEW_PREFS),
-      setHtmlPreviewPrefs: (id, patch) => {
-        const cur = normalizeHtmlPrefs(get().htmlPreviewPrefs[id]);
-        const next = normalizeHtmlPrefs({ ...cur, ...patch });
-        set((s) => ({
-          htmlPreviewPrefs: { ...s.htmlPreviewPrefs, [id]: next },
-        }));
-      },
-      bumpHtmlReload: () => set((s) => ({ htmlReloadToken: s.htmlReloadToken + 1 })),
-      setStatus: (message) => set({ status: { message, at: Date.now() } }),
-
-      applyLocateResult: (result, opts) => {
+        clearScrollSyncEvent: () => set({ scrollSyncEvent: null }),
+        applyLocateResult: (result, opts) => {
         if (result.precision === "none") {
           get().setStatus(result.message);
           return;
@@ -317,10 +219,8 @@ export const useStore = create<LanghuanState>()(
           status: { message: result.message, at: Date.now() },
         });
       },
-
-      clearPendingReveal: () => set({ pendingReveal: null }),
-
-      requestPreviewLocate: (offset, opts) => {
+        clearPendingReveal: () => set({ pendingReveal: null }),
+        requestPreviewLocate: (offset, opts) => {
         set({
           pendingPreviewLocate: {
             offset,
@@ -330,9 +230,8 @@ export const useStore = create<LanghuanState>()(
           },
         });
       },
-
-      clearPendingPreviewLocate: () => set({ pendingPreviewLocate: null }),
-      requestTreeReveal: (docId) => {
+        clearPendingPreviewLocate: () => set({ pendingPreviewLocate: null }),
+        requestTreeReveal: (docId) => {
         if (!docId) return;
         set({
           treeRevealRequest: { docId, nonce: Date.now() },
@@ -340,8 +239,7 @@ export const useStore = create<LanghuanState>()(
           sidebarOpen: true,
         });
       },
-
-      openHome: () =>
+        openHome: () =>
         set({
           activeId: null,
           htmlImmersive: false,
@@ -350,7 +248,7 @@ export const useStore = create<LanghuanState>()(
           editorCaret: null,
           focusedPane: "primary",
         }),
-      openDoc: (id) => {
+        openDoc: (id) => {
         set((s) => {
           const tabs = s.openTabs.includes(id) ? s.openTabs : [...s.openTabs, id];
           return {
@@ -365,10 +263,9 @@ export const useStore = create<LanghuanState>()(
           };
         });
       },
-
-      requestOpenDoc: (id) => softNavigate(get, set, { kind: "doc", id }),
-      requestOpenHome: () => softNavigate(get, set, { kind: "home" }),
-      resolvePendingNav: (action) => {
+        requestOpenDoc: (id) => softNavigate(get, set, { kind: "doc", id }),
+        requestOpenHome: () => softNavigate(get, set, { kind: "home" }),
+        resolvePendingNav: (action) => {
         const pending = get().pendingNav;
         if (!pending) return;
         if (action === "cancel") {
@@ -384,34 +281,28 @@ export const useStore = create<LanghuanState>()(
         if (pending.kind === "home") get().openHome();
         else get().openDoc(pending.id);
       },
-
-      getActive: () => {
+        getActive: () => {
         const { activeId, documents } = get();
         return documents.find((d) => d.id === activeId) || null;
       },
-
-      getContent: (id) => {
+        getContent: (id) => {
         const { drafts, documents } = get();
         const raw = id in drafts ? drafts[id] : documents.find((d) => d.id === id)?.content ?? "";
         return normalizeNewlines(raw);
       },
-
-      isDirty: (id) => {
+        isDirty: (id) => {
         const { drafts, documents } = get();
         if (!(id in drafts)) return false;
         const doc = documents.find((d) => d.id === id);
         return !!doc && drafts[id] !== doc.content;
       },
-
-      anyDirty: () => {
+        anyDirty: () => {
         const { drafts, documents } = get();
         return documents.some((d) => d.id in drafts && drafts[d.id] !== d.content);
       },
-
-      setDraft: (id, content) =>
+        setDraft: (id, content) =>
         set((s) => ({ drafts: { ...s.drafts, [id]: content } })),
-
-      saveDoc: (id) => {
+        saveDoc: (id) => {
         const target = id || get().activeId;
         if (!target) return;
         const content = get().getContent(target);
@@ -435,8 +326,7 @@ export const useStore = create<LanghuanState>()(
         void get().refreshStorageUsage();
         scheduleContentPersist(get, set, doc);
       },
-
-      discardDraft: (id) => {
+        discardDraft: (id) => {
         const target = id || get().activeId;
         if (!target) return;
         set((s) => ({
@@ -444,8 +334,7 @@ export const useStore = create<LanghuanState>()(
         }));
         get().setStatus("已放弃未保存修改");
       },
-
-      createDoc: ({ type, path, content, open = true }) => {
+        createDoc: ({ type, path, content, open = true }) => {
         const ext = type === "md" ? ".md" : ".html";
         const defaultPath = type === "md" ? `未命名笔记${ext}` : `未命名页面${ext}`;
         const p = ensureUniquePath(path || defaultPath, get().documents);
@@ -485,8 +374,7 @@ export const useStore = create<LanghuanState>()(
         scheduleContentPersist(get, set, doc);
         return doc;
       },
-
-      createFolder: (name, parentPath = "") => {
+        createFolder: (name, parentPath = "") => {
         const segment = sanitizeFolderSegment(name);
         if (!segment) {
           get().setStatus("文件夹名无效（不能为空、. / ..，也不能含 / \\ 或控制字符）");
@@ -526,8 +414,7 @@ export const useStore = create<LanghuanState>()(
         }
         return full;
       },
-
-      importFiles: (files, opts) => {
+        importFiles: (files, opts) => {
         let n = 0;
         const docs = [...get().documents];
         const created: Document[] = [];
@@ -561,8 +448,7 @@ export const useStore = create<LanghuanState>()(
         void get().refreshStorageUsage();
         return n;
       },
-
-      importAssets: async (files, opts) => {
+        importAssets: async (files, opts) => {
         let m = 0;
         const docs = get().documents;
         const nextAssets = [...get().assets];
@@ -637,8 +523,7 @@ export const useStore = create<LanghuanState>()(
         }
         return m;
       },
-
-      renameDoc: (id, newPath) => {
+        renameDoc: (id, newPath) => {
         const prev = get().documents.find((d) => d.id === id);
         if (!prev) return;
         const path = ensureUniquePath(newPath.replace(/\\/g, "/"), get().documents, id);
@@ -698,8 +583,7 @@ export const useStore = create<LanghuanState>()(
           }
         }
       },
-
-      deleteDoc: (id) => {
+        deleteDoc: (id) => {
         const doc = get().documents.find((d) => d.id === id);
         if (!doc) return;
         const item: TrashItem = { doc, deletedAt: Date.now() };
@@ -731,8 +615,7 @@ export const useStore = create<LanghuanState>()(
         });
         void get().refreshStorageUsage();
       },
-
-      deleteFolder: (folderPath) => {
+        deleteFolder: (folderPath) => {
         const folder = normalizeFolderPath(folderPath);
         if (!folder) {
           get().setStatus("不能删除库根目录");
@@ -797,8 +680,7 @@ export const useStore = create<LanghuanState>()(
         void get().refreshStorageUsage();
         return n;
       },
-
-      restoreFromTrash: (id) => {
+        restoreFromTrash: (id) => {
         const item = get().trash.find((t) => t.doc.id === id);
         if (!item) return;
         let path = item.doc.path;
@@ -827,8 +709,7 @@ export const useStore = create<LanghuanState>()(
           });
         void get().refreshStorageUsage();
       },
-
-      purgeTrashItem: (id) => {
+        purgeTrashItem: (id) => {
         const item = get().trash.find((t) => t.doc.id === id);
         set((s) => ({ trash: s.trash.filter((t) => t.doc.id !== id) }));
         if (item) void clearVersions(item.doc.id);
@@ -838,8 +719,7 @@ export const useStore = create<LanghuanState>()(
         });
         void get().refreshStorageUsage();
       },
-
-      emptyTrash: () => {
+        emptyTrash: () => {
         const ids = get().trash.map((t) => t.doc.id);
         set({ trash: [] });
         for (const id of ids) {
@@ -851,8 +731,7 @@ export const useStore = create<LanghuanState>()(
         get().setStatus("回收站已清空");
         void get().refreshStorageUsage();
       },
-
-      purgeExpiredTrash: () => {
+        purgeExpiredTrash: () => {
         const cutoff = Date.now() - TRASH_RETENTION_DAYS * 24 * 60 * 60 * 1000;
         const expired = get().trash.filter((t) => t.deletedAt < cutoff);
         if (!expired.length) return 0;
@@ -867,16 +746,14 @@ export const useStore = create<LanghuanState>()(
         void get().refreshStorageUsage();
         return expired.length;
       },
-
-      toggleStar: (id) => {
+        toggleStar: (id) => {
         set((s) => ({
           documents: s.documents.map((d) => (d.id === id ? { ...d, starred: !d.starred } : d)),
         }));
         const doc = get().documents.find((d) => d.id === id);
         scheduleContentPersist(get, set, doc);
       },
-
-      setDocTags: (id, tags) => {
+        setDocTags: (id, tags) => {
         const doc = get().documents.find((d) => d.id === id);
         if (!doc) return;
         const cur = get().getContent(id);
@@ -893,8 +770,7 @@ export const useStore = create<LanghuanState>()(
           scheduleContentPersist(get, set, get().documents.find((d) => d.id === id));
         }
       },
-
-      resetSeed: () => {
+        resetSeed: () => {
         const seeds = createSeedDocuments();
         set({
           documents: seeds,
@@ -909,13 +785,11 @@ export const useStore = create<LanghuanState>()(
           });
         void get().refreshStorageUsage();
       },
-
-      storageBytes: () => {
+        storageBytes: () => {
         const { documents, drafts, trash } = get();
         return measureLibraryBytes(documents, drafts, trash);
       },
-
-      refreshStorageUsage: async () => {
+        refreshStorageUsage: async () => {
         const { documents, drafts, trash } = get();
         try {
           const usage = await computeStorageUsage(documents, drafts, trash);
@@ -924,19 +798,7 @@ export const useStore = create<LanghuanState>()(
           /* ignore */
         }
       },
-
-      setLastBackupAt: (t) => set({ lastBackupAt: t }),
-      setAutosaveEnabled: (v) => {
-        set({ autosaveEnabled: v });
-        get().setStatus(v ? "已开启自动保存" : "已关闭自动保存");
-      },
-      setBackupDialogOpen: (v) => set({ backupDialogOpen: v }),
-      setVersionDialogOpen: (v) => set({ versionDialogOpen: v }),
-      setFsSyncDialogOpen: (v) => set({ fsSyncDialogOpen: v }),
-      setFsBoundName: (name) => set({ fsBoundName: name }),
-      setFsLastSyncAt: (t) => set({ fsLastSyncAt: t }),
-
-      setDocMeta: (id, patch) => {
+        setDocMeta: (id, patch) => {
         const doc = get().documents.find((d) => d.id === id);
         if (!doc) return;
         const cur = get().getContent(id);
@@ -953,9 +815,8 @@ export const useStore = create<LanghuanState>()(
           scheduleContentPersist(get, set, get().documents.find((d) => d.id === id));
         }
       },
-
-      setSavedSearches: (list) => set({ savedSearches: list }),
-      addSavedSearch: (name, query) => {
+        setSavedSearches: (list) => set({ savedSearches: list }),
+        addSavedSearch: (name, query) => {
         const n = name.trim();
         const q = query.trim();
         if (!n || !q) return;
@@ -968,16 +829,10 @@ export const useStore = create<LanghuanState>()(
         set((s) => ({ savedSearches: [item, ...s.savedSearches].slice(0, 30) }));
         get().setStatus(`已保存搜索「${n}」`);
       },
-      removeSavedSearch: (id) =>
+        removeSavedSearch: (id) =>
         set((s) => ({ savedSearches: s.savedSearches.filter((x) => x.id !== id) })),
-
-      setStatusFilter: (v) => set({ statusFilter: v }),
-      setGraphDialogOpen: (v) => set({ graphDialogOpen: v }),
-      setPropsDialogOpen: (v) => set({ propsDialogOpen: v }),
-      setClipUrlDialogOpen: (v) => set({ clipUrlDialogOpen: v }),
-      setTemplateDialogOpen: (v) => set({ templateDialogOpen: v }),
-
-      openDailyNote: () => {
+        setStatusFilter: (v) => set({ statusFilter: v }),
+        openDailyNote: () => {
         const spec = dailyNoteSpec();
         const existing = get().documents.find((d) => d.path === spec.path);
         if (existing) {
@@ -987,8 +842,7 @@ export const useStore = create<LanghuanState>()(
         }
         return get().createDoc({ type: "md", path: spec.path, content: spec.content, open: true });
       },
-
-      createFromTemplate: (templateId, title) => {
+        createFromTemplate: (templateId, title) => {
         const tpl = BUILTIN_TEMPLATES.find((t) => t.id === templateId);
         if (!tpl) {
           get().setStatus("未找到模板");
@@ -997,8 +851,7 @@ export const useStore = create<LanghuanState>()(
         const spec = applyTemplate(tpl, { title: title || tpl.name });
         return get().createDoc({ type: "md", path: spec.path, content: spec.content, open: true });
       },
-
-      applySyncedDocuments: (docs) => {
+        applySyncedDocuments: (docs) => {
         const prevDrafts = get().drafts;
         const nextIds = new Set(docs.map((d) => d.id));
         const drafts = Object.fromEntries(
@@ -1014,16 +867,14 @@ export const useStore = create<LanghuanState>()(
         void bulkWriteLibrary({ documents: docs, assets: get().assets }).catch(() => {});
         void get().refreshStorageUsage();
       },
-
-      exportPayload: () => ({
+        exportPayload: () => ({
         documents: get().documents,
         trash: get().trash,
         assets: get().assets,
         annotations: get().annotations,
         readingPrefs: get().readingPrefs,
       }),
-
-      importLibrary: (payload, mode) => {
+        importLibrary: (payload, mode) => {
         if (mode === "replace") {
           const oldIds = get().documents.map((d) => d.id);
           const assets = payload.assets || [];
@@ -1111,33 +962,13 @@ export const useStore = create<LanghuanState>()(
         void get().refreshStorageUsage();
         return n;
       },
-
-      setReadingPrefs: (patch) => {
-        const next = normalizeReadingPrefs({ ...get().readingPrefs, ...patch });
-        set({
-          readingPrefs: next,
-          mdFocusMode: next.focusMode,
-        });
-      },
-      setMdFocusMode: (v) => {
-        set({
-          mdFocusMode: v,
-          readingPrefs: { ...get().readingPrefs, focusMode: v },
-        });
-      },
-      toggleMdFocusMode: () => {
-        const next = !get().mdFocusMode;
-        get().setMdFocusMode(next);
-        get().setStatus(next ? "已进入专注模式" : "已退出专注模式");
-      },
-
-      addAnnotation: (input) => {
+        addAnnotation: (input) => {
         const ann = createAnnotation(input);
         set((s) => ({ annotations: [...s.annotations, ann] }));
         get().setStatus("已添加划线批注");
         return ann;
       },
-      updateAnnotation: (id, patch) => {
+        updateAnnotation: (id, patch) => {
         set((s) => ({
           annotations: s.annotations.map((a) => {
             if (a.id !== id) return a;
@@ -1148,12 +979,11 @@ export const useStore = create<LanghuanState>()(
           }),
         }));
       },
-      removeAnnotation: (id) => {
+        removeAnnotation: (id) => {
         set((s) => ({ annotations: s.annotations.filter((a) => a.id !== id) }));
         get().setStatus("已删除批注");
       },
-
-      ingestImageFile: async (docId, file, filename) => {
+        ingestImageFile: async (docId, file, filename) => {
         const doc = get().documents.find((d) => d.id === docId);
         if (!doc) return null;
         const mime = (file as File).type || "image/png";
@@ -1215,8 +1045,7 @@ export const useStore = create<LanghuanState>()(
         }
         return { href, snippet, asset: meta };
       },
-
-      removeAsset: (id) => {
+        removeAsset: (id) => {
         const victim = get().assets.find((a) => a.id === id);
         void deleteAssetBlob(id);
         const assets = get().assets.filter((a) => a.id !== id);
@@ -1228,9 +1057,7 @@ export const useStore = create<LanghuanState>()(
         get().setStatus("已删除附件");
         void get().refreshStorageUsage();
       },
-
-
-      openTab: (id) => {
+        openTab: (id) => {
         if (!get().documents.some((d) => d.id === id)) return;
         set((s) => ({
           openTabs: s.openTabs.includes(id) ? s.openTabs : [...s.openTabs, id],
@@ -1238,8 +1065,7 @@ export const useStore = create<LanghuanState>()(
           focusedPane: "primary",
         }));
       },
-
-      closeTab: (id) => {
+        closeTab: (id) => {
         const { openTabs, pinnedTabs, activeId, secondaryId } = get();
         if (pinnedTabs.includes(id)) {
           get().setStatus("已固定的标签请先取消固定");
@@ -1257,8 +1083,7 @@ export const useStore = create<LanghuanState>()(
           secondaryId: secondaryId === id ? null : secondaryId,
         });
       },
-
-      closeTabsInMode: (targetId, mode) => {
+        closeTabsInMode: (targetId, mode) => {
         const { openTabs, pinnedTabs, activeId, secondaryId } = get();
         if (!openTabs.includes(targetId)) return;
         const ids = tabsToClose(openTabs, pinnedTabs, targetId, mode);
@@ -1272,8 +1097,7 @@ export const useStore = create<LanghuanState>()(
           secondaryId: secondaryId && closed.has(secondaryId) ? null : secondaryId,
         });
       },
-
-      togglePinTab: (id) => {
+        togglePinTab: (id) => {
         set((s) => ({
           pinnedTabs: s.pinnedTabs.includes(id)
             ? s.pinnedTabs.filter((t) => t !== id)
@@ -1281,8 +1105,7 @@ export const useStore = create<LanghuanState>()(
           openTabs: s.openTabs.includes(id) ? s.openTabs : [...s.openTabs, id],
         }));
       },
-
-      reorderTabs: (from, to) => {
+        reorderTabs: (from, to) => {
         set((s) => {
           if (from < 0 || to < 0 || from >= s.openTabs.length || to >= s.openTabs.length) return s;
           const next = [...s.openTabs];
@@ -1291,15 +1114,13 @@ export const useStore = create<LanghuanState>()(
           return { openTabs: next };
         });
       },
-
-      setSecondaryId: (id) => set({ secondaryId: id }),
-      setFocusedPane: (p) => set({ focusedPane: p }),
-      setDocSplitRatio: (r) => {
+        setSecondaryId: (id) => set({ secondaryId: id }),
+        setFocusedPane: (p) => set({ focusedPane: p }),
+        setDocSplitRatio: (r) => {
         const clamped = Math.min(0.8, Math.max(0.2, r));
         set({ docSplitRatio: clamped });
       },
-
-      openInSplit: (id) => {
+        openInSplit: (id) => {
         if (!get().documents.some((d) => d.id === id)) return;
         const cur = get().activeId;
         set((s) => {
@@ -1315,8 +1136,7 @@ export const useStore = create<LanghuanState>()(
         });
         get().setStatus("已在分屏打开");
       },
-
-      toggleDocSplit: () => {
+        toggleDocSplit: () => {
         const { secondaryId, activeId, openTabs } = get();
         if (secondaryId) {
           set({ secondaryId: null, focusedPane: "primary" });
@@ -1331,20 +1151,18 @@ export const useStore = create<LanghuanState>()(
         set({ secondaryId: other, focusedPane: "secondary" });
         get().setStatus("已开启文档分屏");
       },
-
-      setTreeSelection: (ids) => set({ treeSelection: [...new Set(ids)] }),
-      toggleTreeSelected: (id) => {
+        setTreeSelection: (ids) => set({ treeSelection: [...new Set(ids)] }),
+        toggleTreeSelected: (id) => {
         set((s) => ({
           treeSelection: s.treeSelection.includes(id)
             ? s.treeSelection.filter((x) => x !== id)
             : [...s.treeSelection, id],
         }));
       },
-      clearTreeSelection: () => set({ treeSelection: [] }),
-      setBatchMode: (v) =>
+        clearTreeSelection: () => set({ treeSelection: [] }),
+        setBatchMode: (v) =>
         set({ batchMode: v, treeSelection: v ? get().treeSelection : [] }),
-
-      moveDocsToFolder: (ids, folderPath) => {
+        moveDocsToFolder: (ids, folderPath) => {
         const folder = folderPath.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
         let n = 0;
         for (const id of ids) {
@@ -1360,8 +1178,7 @@ export const useStore = create<LanghuanState>()(
         get().clearTreeSelection();
         return n;
       },
-
-      batchDelete: (ids) => {
+        batchDelete: (ids) => {
         let n = 0;
         for (const id of [...ids]) {
           if (get().documents.some((d) => d.id === id)) {
@@ -1373,8 +1190,7 @@ export const useStore = create<LanghuanState>()(
         if (n) get().setStatus(`已将 ${n} 篇移入回收站`);
         return n;
       },
-
-      batchSetTags: (ids, tags, mode) => {
+        batchSetTags: (ids, tags, mode) => {
         const clean = [...new Set(tags.map((t) => t.trim()).filter(Boolean))];
         let n = 0;
         for (const id of ids) {
@@ -1389,21 +1205,7 @@ export const useStore = create<LanghuanState>()(
         if (n) get().setStatus(`已为 ${n} 篇更新标签`);
         return n;
       },
-
-      setCustomShortcuts: (patch) => {
-        set((s) => ({
-          customShortcuts: { ...s.customShortcuts, ...patch },
-        }));
-        get().setStatus("已更新快捷键");
-      },
-      resetCustomShortcuts: () => {
-        set({ customShortcuts: {} });
-        get().setStatus("已恢复默认快捷键");
-      },
-      setExportDialogOpen: (v) => set({ exportDialogOpen: v }),
-      setShortcutsDialogOpen: (v) => set({ shortcutsDialogOpen: v }),
-
-      assetsForDoc: (docId) => {
+        assetsForDoc: (docId) => {
         const doc = get().documents.find((d) => d.id === docId);
         const all = get().assets;
         if (!doc) return all.filter((a) => a.docId === docId);
@@ -1415,8 +1217,7 @@ export const useStore = create<LanghuanState>()(
             a.path.includes("/assets/")
         );
       },
-
-      hydrateFromContent: async () => {
+        hydrateFromContent: async () => {
         try {
           const snap = await fetchLibrary();
           const pending = takeIdbLibrary();
@@ -1491,7 +1292,8 @@ export const useStore = create<LanghuanState>()(
           }
         }
       },
-    }),
+      });
+    },
     {
       name: STORE_KEY,
       storage: idbJSONStorage,
