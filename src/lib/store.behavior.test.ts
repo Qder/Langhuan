@@ -138,6 +138,7 @@ const EXPECTED_STATE_KEYS = [
   "lastBackupAt",
   "mdFocusMode",
   "moveDocsToFolder",
+  "moveFolder",
   "openDailyNote",
   "openDoc",
   "openHome",
@@ -160,6 +161,7 @@ const EXPECTED_STATE_KEYS = [
   "removeAsset",
   "removeSavedSearch",
   "renameDoc",
+  "renameFolder",
   "reorderTabs",
   "requestOpenDoc",
   "requestOpenHome",
@@ -363,6 +365,7 @@ describe("store shape snapshot", () => {
         "ingestImageFile",
         "isDirty",
         "moveDocsToFolder",
+        "moveFolder",
         "openDailyNote",
         "openDoc",
         "openHome",
@@ -376,6 +379,7 @@ describe("store shape snapshot", () => {
         "removeAsset",
         "removeSavedSearch",
         "renameDoc",
+        "renameFolder",
         "reorderTabs",
         "requestOpenDoc",
         "requestOpenHome",
@@ -521,6 +525,42 @@ describe("store behavior snapshots", () => {
     const again = useStore.getState().createFolder("图论/最短路", "algo");
     expect(again).toBe("algo/图论/最短路");
     expect(useStore.getState().status?.message).toMatch(/已存在/);
+  });
+
+
+  it("renameFolder / moveFolder rewrite docs and emptyFolders", () => {
+    useStore.getState().createFolder("src/util", "");
+    const d = useStore.getState().createDoc({
+      type: "md",
+      path: "src/util/a.md",
+      content: "hello",
+      open: true,
+    });
+    // util may be pruned from emptyFolders because it has a doc; keep a nested empty
+    useStore.getState().createFolder("空", "src/util");
+
+    const renamed = useStore.getState().renameFolder("src", "source");
+    expect(renamed).toBe("source");
+    expect(useStore.getState().documents.find((x) => x.id === d.id)?.path).toBe(
+      "source/util/a.md"
+    );
+    expect(useStore.getState().emptyFolders).toEqual(
+      expect.arrayContaining(["source/util/空"])
+    );
+    expect(useStore.getState().activeId).toBe(d.id);
+    expect(useStore.getState().getActive()?.path).toBe("source/util/a.md");
+
+    const moved = useStore.getState().moveFolder("source/util", "archive");
+    expect(moved).toBe("archive/util");
+    expect(useStore.getState().documents.find((x) => x.id === d.id)?.path).toBe(
+      "archive/util/a.md"
+    );
+    expect(useStore.getState().emptyFolders).toEqual(
+      expect.arrayContaining(["archive/util/空"])
+    );
+
+    expect(useStore.getState().moveFolder("archive/util", "archive/util/x")).toBeNull();
+    expect(useStore.getState().status?.message).toMatch(/自身/);
   });
 
   it("draft / dirty / saveDoc / discardDraft + version push on save", () => {

@@ -7,8 +7,10 @@ import {
   listFolderPaths,
   normalizeFolderPath,
   parentFolderForNew,
+  isSelfOrDescendantFolder,
   parseFolderInput,
   pruneEmptyFolders,
+  remapEmptyFolders,
   removeFolderAndDescendants,
   sanitizeFolderSegment,
 } from "./folders";
@@ -151,5 +153,24 @@ describe("listFolderPaths / folderExists", () => {
     expect(folderExists("空夹", [], ["空夹"])).toBe(true);
     expect(folderExists("没有", [], [])).toBe(false);
     expect(folderExists("", [], [])).toBe(true);
+  });
+});
+
+describe("remapEmptyFolders / isSelfOrDescendantFolder", () => {
+  it("rewrites folder and descendants", () => {
+    expect(
+      remapEmptyFolders(
+        ["算法", "算法/图论", "其他"],
+        "算法",
+        "数据结构"
+      )
+    ).toEqual(["其他", "数据结构", "数据结构/图论"]);
+  });
+
+  it("detects self and descendant parents", () => {
+    expect(isSelfOrDescendantFolder("a/b", "a/b")).toBe(true);
+    expect(isSelfOrDescendantFolder("a/b", "a/b/c")).toBe(true);
+    expect(isSelfOrDescendantFolder("a/b", "a")).toBe(false);
+    expect(isSelfOrDescendantFolder("a/b", "")).toBe(false);
   });
 });

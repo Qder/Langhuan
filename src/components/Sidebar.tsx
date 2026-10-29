@@ -37,6 +37,7 @@ import { collectTagCounts } from "@/lib/tags";
 import { dirname, titleOf, cn, relativeTime, basename } from "@/lib/utils";
 import { buildTree, isPathUnderFolder, type FolderTreeNode } from "@/lib/folders";
 import { CreateFolderDialog } from "./CreateFolderDialog";
+import { MoveFolderDialog, RenameFolderDialog } from "./FolderOpsDialogs";
 import { formatBytes } from "@/lib/storage/usage";
 import { ImportFolderDialog, type PendingImportAsset, type PendingImportDoc } from "./ImportFolderDialog";
 import { importClipboardAs } from "@/lib/clipboardImport";
@@ -108,9 +109,17 @@ function FileTree({
   void compact;
   const deep = depth > 3;
 
+  const moveFolder = useStore((s) => s.moveFolder);
+
   const onDropToFolder = async (folderPath: string, e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    const folderSrc = e.dataTransfer.getData("application/x-langhuan-folder");
+    if (folderSrc) {
+      if (folderSrc === folderPath) return;
+      moveFolder(folderSrc, folderPath);
+      return;
+    }
     const docId = e.dataTransfer.getData("application/x-langhuan-doc");
     if (docId) {
       const selected = useStore.getState().treeSelection;
@@ -167,6 +176,11 @@ function FileTree({
             <button
               type="button"
               data-tree-folder={f.path}
+              draggable
+              onDragStart={(e) => {
+                e.dataTransfer.setData("application/x-langhuan-folder", f.path);
+                e.dataTransfer.effectAllowed = "move";
+              }}
               onClick={() => onToggle(f.path)}
               onContextMenu={(e) => {
                 e.preventDefault();
@@ -538,6 +552,8 @@ export function Sidebar() {
 
   const [createFolderOpen, setCreateFolderOpen] = React.useState(false);
   const [createFolderParent, setCreateFolderParent] = React.useState("");
+  const [renameFolderPath, setRenameFolderPath] = React.useState<string | null>(null);
+  const [moveFolderPath, setMoveFolderPath] = React.useState<string | null>(null);
 
   const onCreateFolder = React.useCallback((parentOverride?: string) => {
     // Topbar / Plus: library root. Context menu: that folder (editable in dialog).
@@ -586,8 +602,18 @@ export function Sidebar() {
         onSelect: () => setTemplateDialogOpen(true),
       },
     ];
-    // 库根不可删；仅真实文件夹显示「删除」
+    // 库根不可删；仅真实文件夹显示「重命名 / 移动 / 删除」
     if (folderPath) {
+      items.push({
+        id: "rename-folder",
+        label: "重命名",
+        onSelect: () => setRenameFolderPath(folderPath),
+      });
+      items.push({
+        id: "move-folder",
+        label: "移动到…",
+        onSelect: () => setMoveFolderPath(folderPath),
+      });
       const docCount = documents.filter((d) =>
         isPathUnderFolder(d.path, folderPath)
       ).length;
@@ -606,6 +632,8 @@ export function Sidebar() {
     createInFolder,
     onCreateFolder,
     setTemplateDialogOpen,
+    setRenameFolderPath,
+    setMoveFolderPath,
   ]);
 
   const fileMenuItems: ContextMenuItem[] = React.useMemo(() => {
@@ -1504,6 +1532,24 @@ export function Sidebar() {
           onClose={() => setCreateFolderOpen(false)}
           defaultParent={createFolderParent}
           onCreated={onFolderCreated}
+        />
+      ) : null}
+      {renameFolderPath ? (
+        <RenameFolderDialog
+          key={`rename:${renameFolderPath}`}
+          open
+          folderPath={renameFolderPath}
+          onClose={() => setRenameFolderPath(null)}
+          onDone={onFolderCreated}
+        />
+      ) : null}
+      {moveFolderPath ? (
+        <MoveFolderDialog
+          key={`move:${moveFolderPath}`}
+          open
+          folderPath={moveFolderPath}
+          onClose={() => setMoveFolderPath(null)}
+          onDone={onFolderCreated}
         />
       ) : null}
       <Dialog

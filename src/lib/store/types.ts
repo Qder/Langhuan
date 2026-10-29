@@ -225,6 +225,10 @@ export type LanghuanState = {
     opts?: { quiet?: boolean }
   ) => Promise<number>;
   renameDoc: (id: string, newPath: string) => void;
+  /** Rename a folder (single segment). Rewrites doc path prefixes; keeps ids. */
+  renameFolder: (oldPath: string, newSegment: string) => string | null;
+  /** Move a folder under newParentPath ("" = library root). Refuses self/descendant. */
+  moveFolder: (oldPath: string, newParentPath: string) => string | null;
   /** Soft-delete → recycle bin. */
   deleteDoc: (id: string) => void;
   /**

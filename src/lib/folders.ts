@@ -230,3 +230,38 @@ export function folderExists(
   }
   return false;
 }
+
+/** Remap emptyFolders entries when a folder is renamed/moved (prefix replace). */
+export function remapEmptyFolders(
+  emptyFolders: string[],
+  oldPath: string,
+  newPath: string
+): string[] {
+  const old = normalizeFolderPath(oldPath);
+  const neu = normalizeFolderPath(newPath);
+  if (!old) return emptyFolders.map(normalizeFolderPath).filter(Boolean);
+  const prefix = old + "/";
+  return emptyFolders
+    .map(normalizeFolderPath)
+    .filter(Boolean)
+    .map((f) => {
+      if (f === old) return neu;
+      if (f.startsWith(prefix)) return neu + f.slice(old.length);
+      return f;
+    })
+    .filter((v, i, arr) => arr.indexOf(v) === i)
+    .sort((a, b) => a.localeCompare(b, "zh"));
+}
+
+/** True if candidateParent is oldPath itself or a descendant of oldPath. */
+export function isSelfOrDescendantFolder(
+  oldPath: string,
+  candidateParent: string
+): boolean {
+  const old = normalizeFolderPath(oldPath);
+  const cand = normalizeFolderPath(candidateParent);
+  if (!old) return true;
+  if (!cand) return false;
+  if (cand === old) return true;
+  return cand.startsWith(old + "/");
+}

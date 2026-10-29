@@ -5,14 +5,19 @@ import type { Document, FocusedPane } from "../../types";
 import { getDocMeta } from "../../docMeta";
 import { docLinkNames, rewriteWikiLinksOnRename } from "../../wikilink";
 import { isImportableLibraryPath, libraryDocTypeFromPath, normalizeImportedPath } from "../../importable";
-import { basename, normalizeNewlines, titleOf, uid } from "../../utils";
+import { basename, dirname, normalizeNewlines, titleOf, uid } from "../../utils";
 import { pushVersion } from "../../storage/versions";
 import { ensureLibraryDir } from "../../storage/fsSync";
 import { ensureContentFolder } from "../../storage/contentApi";
 import {
+  folderExists,
+  isSelfOrDescendantFolder,
+  joinFolderPath,
   normalizeFolderPath,
   parseFolderInput,
   pruneEmptyFolders,
+  remapEmptyFolders,
+  sanitizeFolderSegment,
 } from "../../folders";
 import { BUILTIN_TEMPLATES, applyTemplate, dailyNoteSpec } from "../../templates";
 import { ensureUniquePath } from "../helpers/paths";
@@ -42,6 +47,8 @@ type DocsSliceKeys =
   | "createFolder"
   | "importFiles"
   | "renameDoc"
+  | "renameFolder"
+  | "moveFolder"
   | "openDailyNote"
   | "createFromTemplate";
 
@@ -334,6 +341,97 @@ export const createDocsSlice: StateCreator<
             if (d.id !== id && d.type === "md") scheduleContentPersist(get, set, d);
           }
         }
+      },
+
+  renameFolder: (oldPath, newSegment) => {
+        const old = normalizeFolderPath(oldPath);
+        if (!old) {
+          get().setStatus("不能重命名库根目录");
+          return null;
+        }
+        const segment = sanitizeFolderSegment(newSegment);
+        if (!segment) {
+          get().setStatus("文件夹名无效（不能为空、. / ..，也不能含 / \\ 或控制字符）");
+          return null;
+        }
+        const parent = dirname(old);
+        const neu = joinFolderPath(parent, segment);
+        if (!neu) {
+          get().setStatus("文件夹名无效");
+          return null;
+        }
+        if (neu === old) return old;
+        const docPaths = get().documents.map((d) => d.path);
+        if (folderExists(neu, docPaths, get().emptyFolders)) {
+          get().setStatus(`目标已存在 ${neu}`);
+          return null;
+        }
+        const prefix = old + "/";
+        const under = get().documents.filter((d) =>
+          d.path.replace(/\\/g, "/").startsWith(prefix)
+        );
+        for (const d of under) {
+          const rel = d.path.replace(/\\/g, "/").slice(old.length);
+          get().renameDoc(d.id, neu + rel);
+        }
+        set((s) => ({
+          emptyFolders: pruneEmptyFolders(
+            remapEmptyFolders(s.emptyFolders, old, neu),
+            get().documents.map((d) => d.path)
+          ),
+          sidebarPanel: "docs",
+        }));
+        get().setStatus(`已重命名文件夹为 ${neu}`);
+        if (get().fsBoundName) {
+          void ensureLibraryDir(neu).catch(() => {});
+        }
+        void ensureContentFolder(neu).catch(() => {});
+        return neu;
+      },
+  moveFolder: (oldPath, newParentPath) => {
+        const old = normalizeFolderPath(oldPath);
+        if (!old) {
+          get().setStatus("不能移动库根目录");
+          return null;
+        }
+        const newParent = normalizeFolderPath(newParentPath || "");
+        if (isSelfOrDescendantFolder(old, newParent)) {
+          get().setStatus("不能将文件夹移入自身或其子目录");
+          return null;
+        }
+        const leaf = basename(old);
+        const neu = joinFolderPath(newParent, leaf);
+        if (!neu) {
+          get().setStatus("目标路径无效");
+          return null;
+        }
+        if (neu === old) return old;
+        const docPaths = get().documents.map((d) => d.path);
+        if (folderExists(neu, docPaths, get().emptyFolders)) {
+          get().setStatus(`目标已存在 ${neu}`);
+          return null;
+        }
+        const prefix = old + "/";
+        const under = get().documents.filter((d) =>
+          d.path.replace(/\\/g, "/").startsWith(prefix)
+        );
+        for (const d of under) {
+          const rel = d.path.replace(/\\/g, "/").slice(old.length);
+          get().renameDoc(d.id, neu + rel);
+        }
+        set((s) => ({
+          emptyFolders: pruneEmptyFolders(
+            remapEmptyFolders(s.emptyFolders, old, neu),
+            get().documents.map((d) => d.path)
+          ),
+          sidebarPanel: "docs",
+        }));
+        get().setStatus(`已移动文件夹到 ${neu}`);
+        if (get().fsBoundName) {
+          void ensureLibraryDir(neu).catch(() => {});
+        }
+        void ensureContentFolder(neu).catch(() => {});
+        return neu;
       },
   openDailyNote: () => {
         const spec = dailyNoteSpec();
