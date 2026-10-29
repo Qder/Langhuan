@@ -2,78 +2,20 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type {
-  AssetMeta,
-  Document,
-  FocusedPane,
-  TrashItem,
-} from "../types";
+import type { AssetMeta, Document, TrashItem } from "../types";
 import type { ShortcutMap } from "../shortcuts";
 import { DEFAULT_SHORTCUTS, normalizeShortcuts } from "../shortcuts";
-import { createAnnotation, updateAnnotationNote } from "../annotations";
 import type { ReadingPrefs } from "../readingPrefs";
 import { DEFAULT_READING_PREFS, normalizeReadingPrefs } from "../readingPrefs";
 import {
   THEME_STORAGE_KEY,
   applyThemeToDocument,
-  nextTheme,
   normalizeTheme,
-  themeLabel,
 } from "../theme";
-import {
-  deleteAssetBlob,
-  putAssetBlob,
-  saveAssetMetaList,
-} from "../assets/store";
-import {
-  markdownImageSnippet,
-  relativeAssetHref,
-  suggestAssetPath,
-  extFromMime,
-  sanitizeAssetFilename,
-} from "../assets/paths";
-import { applyDocMeta, getDocMeta } from "../docMeta";
-import type { SavedSearch } from "../searchQuery";
-import { docLinkNames, rewriteWikiLinksOnRename } from "../wikilink";
-import { DEFAULT_HTML_PREVIEW_PREFS, normalizeHtmlPrefs } from "../htmlPreviewPrefs";
-import { createSeedDocuments } from "../seed";
-import { isImportableImagePath, isImportableLibraryPath, libraryDocTypeFromPath, mimeForImportableImage, normalizeImportedPath } from "../importable";
-import { getTags, setHtmlTags, setMdTags } from "../tags";
-import { basename, dirname, titleOf, uniquePath, uid, normalizeNewlines } from "../utils";
 import { idbJSONStorage, STORE_KEY } from "../storage/idbPersist";
-import { pushVersion, clearVersions } from "../storage/versions";
-import { TRASH_RETENTION_DAYS } from "../storage/constants";
-import {
-  computeStorageUsage,
-  measureLibraryBytes,
-} from "../storage/usage";
-import { ensureLibraryDir } from "../storage/fsSync";
-import {
-  blobToBase64,
-  bulkWriteLibrary,
-  deleteLibraryAsset,
-  deleteLibraryDoc,
-  ensureContentFolder,
-  fetchLibrary,
-  putLibraryAsset,
-  purgeLibraryTrash,
-  restoreLibraryTrash,
-} from "../storage/contentApi";
-import { stashIdbLibrary, takeIdbLibrary } from "../storage/contentMigration";
-import {
-  isPathUnderFolder,
-  joinFolderPath,
-  normalizeFolderPath,
-  pruneEmptyFolders,
-  removeFolderAndDescendants,
-  sanitizeFolderSegment,
-} from "../folders";
-import { BUILTIN_TEMPLATES, applyTemplate, dailyNoteSpec } from "../templates";
-import { nextActiveAfterClose, tabsToClose } from "../tabClose";
+import { stashIdbLibrary } from "../storage/contentMigration";
+import { pruneEmptyFolders } from "../folders";
 import type { LanghuanState } from "./types";
-import { scheduleContentPersist } from "./helpers/persistSchedule";
-import { ensureUniquePath } from "./helpers/paths";
-import { softNavigate } from "./helpers/navigation";
 import { filteredDocuments } from "./helpers/filteredDocuments";
 import { createUiSlice } from "./slices/uiSlice";
 import { createLocateSlice } from "./slices/locateSlice";
@@ -98,15 +40,15 @@ export { filteredDocuments };
 export const useStore = create<LanghuanState>()(
   persist(
     (...a) => ({
-        ...createUiSlice(...a),
-        ...createLocateSlice(...a),
-        ...createSearchMetaSlice(...a),
-        ...createTrashSlice(...a),
-        ...createTabsSlice(...a),
-        ...createAssetsSlice(...a),
-        ...createSyncBackupSlice(...a),
-        ...createDocsSlice(...a),
-      }),
+      ...createUiSlice(...a),
+      ...createLocateSlice(...a),
+      ...createSearchMetaSlice(...a),
+      ...createTrashSlice(...a),
+      ...createTabsSlice(...a),
+      ...createAssetsSlice(...a),
+      ...createSyncBackupSlice(...a),
+      ...createDocsSlice(...a),
+    }),
     {
       name: STORE_KEY,
       storage: idbJSONStorage,
@@ -241,4 +183,3 @@ export const useStore = create<LanghuanState>()(
     }
   )
 );
-
