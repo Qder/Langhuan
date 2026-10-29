@@ -294,3 +294,112 @@ export function summarizeScan(results: DocFindResult[]): {
 export function hitKey(hit: Pick<FindHit, "docId" | "start">): string {
   return `${hit.docId}:${hit.start}`;
 }
+
+export type ApplyFindReplaceDeps = {
+  getContent: (id: string) => string;
+  /** Saved on-disk body (not draft). */
+  getSavedContent: (id: string) => string | undefined;
+  getPath: (id: string) => string | undefined;
+  isDirty: (id: string) => boolean;
+  pushVersion: (input: {
+    docId: string;
+    content: string;
+    path: string;
+  }) => void | Promise<unknown>;
+  setDraft: (id: string, content: string) => void;
+  saveDoc: (id: string) => void;
+};
+
+export type ApplyFindReplaceInput = {
+  query: FindReplaceQuery;
+  results: DocFindResult[];
+  /** Selected preview hit keys (`docId:start`). */
+  selectedKeys: ReadonlySet<string>;
+  /**
+   * When a doc's preview was truncated and every preview hit is selected,
+   * true means replace all matches in that doc (not only the previewed ones).
+   */
+  replaceAllInTruncatedDocs: boolean;
+  /** Dirty docs: "replace" uses live getContent; "skip" leaves them untouched. */
+  dirtyPolicy: "replace" | "skip";
+};
+
+export type ApplyFindReplaceResult = {
+  replaced: number;
+  skippedDocs: number;
+  docsTouched: number;
+  dirtyReplaced: number;
+};
+
+/**
+ * Apply selected replacements. Always snapshots the saved body via pushVersion
+ * before rewriting. Uses getContent (draft-aware) as the replace base.
+ */
+export async function applyFindReplace(
+  input: ApplyFindReplaceInput,
+  deps: ApplyFindReplaceDeps
+): Promise<ApplyFindReplaceResult> {
+  const byDoc = new Map<string, DocFindResult>();
+  for (const r of input.results) byDoc.set(r.docId, r);
+
+  let replaced = 0;
+  let skippedDocs = 0;
+  let docsTouched = 0;
+  let dirtyReplaced = 0;
+
+  for (const [docId, result] of byDoc) {
+    const selectedStarts: number[] = [];
+    let selectedPreviewCount = 0;
+    for (const h of result.hits) {
+      if (input.selectedKeys.has(hitKey(h))) {
+        selectedStarts.push(h.start);
+        selectedPreviewCount += 1;
+      }
+    }
+    if (!selectedStarts.length) continue;
+
+    const dirty = deps.isDirty(docId);
+    if (dirty && input.dirtyPolicy === "skip") {
+      skippedDocs += 1;
+      continue;
+    }
+
+    const live = deps.getContent(docId);
+    const saved = deps.getSavedContent(docId);
+    const path = deps.getPath(docId) || result.path;
+    if (saved != null) {
+      await deps.pushVersion({ docId, content: saved, path });
+    }
+
+    const allPreviewSelected =
+      selectedPreviewCount === result.hits.length && result.hits.length > 0;
+    const replaceAll =
+      result.truncated && allPreviewSelected && input.replaceAllInTruncatedDocs;
+
+    const { content: next, count } = replaceLiteralInContent(
+      live,
+      {
+        find: input.query.find,
+        replaceWith: input.query.replaceWith,
+        caseSensitive: input.query.caseSensitive,
+        wholeWord: input.query.wholeWord,
+        includeFrontMatter: input.query.includeFrontMatter,
+        docType: result.docType,
+      },
+      replaceAll ? null : selectedStarts
+    );
+
+    if (!count || next === live) {
+      skippedDocs += 1;
+      continue;
+    }
+
+    deps.setDraft(docId, next);
+    deps.saveDoc(docId);
+    replaced += count;
+    docsTouched += 1;
+    if (dirty) dirtyReplaced += 1;
+  }
+
+  return { replaced, skippedDocs, docsTouched, dirtyReplaced };
+}
