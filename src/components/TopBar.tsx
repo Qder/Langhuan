@@ -38,6 +38,9 @@ import {
   extractOutline,
   OUTLINE_SPY_THRESHOLD_PX,
   resolveActiveHeadingId,
+  measureHeadingContentTops,
+  headingViewportTops,
+  type HeadingContentTop,
 } from "@/lib/outline";
 import { findBacklinks } from "@/lib/search";
 import { useMediaQuery } from "@/lib/useMediaQuery";
@@ -123,6 +126,7 @@ export function TopBar() {
   const [deleteOpen, setDeleteOpen] = React.useState(false);
   const [tocOpen, setTocOpen] = React.useState(false);
   const [activeHeading, setActiveHeading] = React.useState("");
+  const headingTopsCacheRef = React.useRef<HeadingContentTop[] | null>(null);
   const tocBtnRef = React.useRef<HTMLButtonElement>(null);
   const tocPanelRef = React.useRef<HTMLDivElement>(null);
   const [tagsOpen, setTagsOpen] = React.useState(false);
@@ -171,31 +175,47 @@ export function TopBar() {
   const assetCount = active ? assetsForDoc(active.id).length : 0;
   const asideAvailable = hasDocAsideContent(outline, backlinks, mentionCount, annotationCount, assetCount);
 
-  // Track active heading for popover outline (same scroll root as MD reader)
+  // Track active heading for popover outline (cached tops; same root as MD reader)
   React.useEffect(() => {
     if (!tocOpen && wide) return;
     const root = document.getElementById("reader-scroll");
     if (!root) return;
+    headingTopsCacheRef.current = null;
     let raf = 0;
-    const measure = () => {
-      raf = 0;
+    const ensureHeads = () => {
+      if (headingTopsCacheRef.current) return headingTopsCacheRef.current;
       const article = root.querySelector("article");
-      const scope = article ?? root;
-      const heads = [...scope.querySelectorAll<HTMLElement>("h1[id],h2[id],h3[id]")];
-      const current = resolveActiveHeadingId(
-        heads.map((h) => ({ id: h.id, top: h.getBoundingClientRect().top })),
-        OUTLINE_SPY_THRESHOLD_PX
-      );
+      const scope = (article as HTMLElement | null) ?? root;
+      const measured = measureHeadingContentTops(root, scope);
+      headingTopsCacheRef.current = measured;
+      return measured;
+    };
+    const update = () => {
+      raf = 0;
+      const cached = ensureHeads();
+      const rootTop = root.getBoundingClientRect().top;
+      const heads = headingViewportTops(cached, root.scrollTop, rootTop);
+      const current = resolveActiveHeadingId(heads, OUTLINE_SPY_THRESHOLD_PX);
       setActiveHeading((prev) => (prev === current ? prev : current));
     };
     const onScroll = () => {
       if (raf) return;
-      raf = requestAnimationFrame(measure);
+      raf = requestAnimationFrame(update);
     };
+    // Invalidate when article size changes (async images/mermaid)
+    const article = root.querySelector("article");
+    const ro =
+      typeof ResizeObserver !== "undefined" && article
+        ? new ResizeObserver(() => {
+            headingTopsCacheRef.current = null;
+          })
+        : null;
+    if (ro && article) ro.observe(article);
     root.addEventListener("scroll", onScroll, { passive: true });
-    measure();
+    update();
     return () => {
       root.removeEventListener("scroll", onScroll);
+      ro?.disconnect();
       if (raf) cancelAnimationFrame(raf);
     };
   }, [tocOpen, wide, active?.id]);

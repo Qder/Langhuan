@@ -3,6 +3,7 @@ import {
   extractOutline,
   outlineHeadingText,
   resolveActiveHeadingId,
+  headingViewportTops,
 } from "./outline";
 
 describe("extractOutline", () => {
@@ -60,3 +61,17 @@ describe("resolveActiveHeadingId", () => {
     expect(resolveActiveHeadingId([], 120)).toBe("");
   });
 });
+
+describe("headingViewportTops", () => {
+  it("converts content tops to viewport Y", () => {
+    const heads = [
+      { id: "a", contentTop: 100 },
+      { id: "b", contentTop: 300 },
+    ];
+    expect(headingViewportTops(heads, 50, 10)).toEqual([
+      { id: "a", top: 60 },
+      { id: "b", top: 260 },
+    ]);
+  });
+});
+

@@ -25,6 +25,9 @@ import {
   extractOutline,
   OUTLINE_SPY_THRESHOLD_PX,
   resolveActiveHeadingId,
+  measureHeadingContentTops,
+  headingViewportTops,
+  type HeadingContentTop,
 } from "@/lib/outline";
 import { getTags, parseFrontmatter } from "@/lib/tags";
 import { useMediaQuery } from "@/lib/useMediaQuery";
@@ -514,6 +517,8 @@ export function MarkdownReader({ doc }: { doc: Document }) {
   /** Cached sorted anchor arrays; invalidated on body/layout/fonts changes. */
   const anchorsCacheRef = React.useRef<SortedAnchorArrays | null>(null);
   const anchorsInvalidateRaf = React.useRef(0);
+  /** Heading content tops; same invalidate schedule as anchors. */
+  const headingTopsCacheRef = React.useRef<HeadingContentTop[] | null>(null);
   const [previewFlash, setPreviewFlash] = React.useState<HTMLElement | null>(null);
   const [menu, setMenu] = React.useState<{
     x: number;
@@ -523,27 +528,32 @@ export function MarkdownReader({ doc }: { doc: Document }) {
     srcLine?: number;
   } | null>(null);
 
-  // Outline scroll-spy: highlight the heading currently in view.
+  // Outline scroll-spy: cached content tops; scroll only does math (no layout reads).
   React.useEffect(() => {
     const root = document.getElementById("reader-scroll");
     if (!root) return;
     let raf = 0;
-    const measure = () => {
-      raf = 0;
+    const ensureHeads = () => {
+      if (headingTopsCacheRef.current) return headingTopsCacheRef.current;
       const scope = articleRef.current ?? root;
-      const heads = [...scope.querySelectorAll<HTMLElement>("h1[id],h2[id],h3[id]")];
-      const current = resolveActiveHeadingId(
-        heads.map((h) => ({ id: h.id, top: h.getBoundingClientRect().top })),
-        OUTLINE_SPY_THRESHOLD_PX
-      );
+      const measured = measureHeadingContentTops(root, scope);
+      headingTopsCacheRef.current = measured;
+      return measured;
+    };
+    const update = () => {
+      raf = 0;
+      const cached = ensureHeads();
+      const rootTop = root.getBoundingClientRect().top;
+      const heads = headingViewportTops(cached, root.scrollTop, rootTop);
+      const current = resolveActiveHeadingId(heads, OUTLINE_SPY_THRESHOLD_PX);
       setActiveHeading((prev) => (prev === current ? prev : current));
     };
     const onScroll = () => {
       if (raf) return;
-      raf = requestAnimationFrame(measure);
+      raf = requestAnimationFrame(update);
     };
     root.addEventListener("scroll", onScroll, { passive: true });
-    measure();
+    update();
     return () => {
       root.removeEventListener("scroll", onScroll);
       if (raf) cancelAnimationFrame(raf);
@@ -585,6 +595,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
 
   const invalidateAnchorCache = React.useCallback(() => {
     anchorsCacheRef.current = null;
+    headingTopsCacheRef.current = null;
   }, []);
 
   const ensureSortedAnchors = React.useCallback((): SortedAnchorArrays | null => {

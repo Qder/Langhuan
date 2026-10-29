@@ -46,3 +46,47 @@ export function resolveActiveHeadingId(
 
 /** Default viewport threshold under the topbar for MD outline spy. */
 export const OUTLINE_SPY_THRESHOLD_PX = 120;
+
+
+/** Heading position in scroll-root content coordinates (stable across scroll). */
+export type HeadingContentTop = { id: string; contentTop: number };
+
+/**
+ * Batch-measure h1–h3[id] tops relative to scrollRoot content origin.
+ * One root rect + all heading rects, then derive contentTop (no RW interleave).
+ */
+export function measureHeadingContentTops(
+  scrollRoot: HTMLElement,
+  scope: HTMLElement
+): HeadingContentTop[] {
+  const rootRect = scrollRoot.getBoundingClientRect();
+  const nodes = scope.querySelectorAll<HTMLElement>("h1[id],h2[id],h3[id]");
+  const n = nodes.length;
+  const rects: DOMRect[] = new Array(n);
+  for (let i = 0; i < n; i++) {
+    rects[i] = nodes[i].getBoundingClientRect();
+  }
+  const scrollTop = scrollRoot.scrollTop;
+  const out: HeadingContentTop[] = [];
+  for (let i = 0; i < n; i++) {
+    const id = nodes[i].id;
+    if (!id) continue;
+    out.push({
+      id,
+      contentTop: rects[i].top - rootRect.top + scrollTop,
+    });
+  }
+  return out;
+}
+
+/** Convert cached content tops to viewport Y for resolveActiveHeadingId. */
+export function headingViewportTops(
+  headings: HeadingContentTop[],
+  scrollTop: number,
+  rootViewportTop: number
+): HeadingRect[] {
+  return headings.map((h) => ({
+    id: h.id,
+    top: h.contentTop - scrollTop + rootViewportTop,
+  }));
+}
