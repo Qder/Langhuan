@@ -213,7 +213,7 @@ export type LanghuanState = {
     content?: string;
     open?: boolean;
   }) => Document;
-  /** Create an empty folder under parent (default root). Returns path or null if rejected. */
+  /** Create folder(s) under parent (default root). `name` may be nested (`a/b/c`). Returns path or null if rejected. */
   createFolder: (name: string, parentPath?: string) => string | null;
   importFiles: (
     files: { path: string; content: string }[],

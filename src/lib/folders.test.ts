@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   buildTree,
+  folderExists,
   isPathUnderFolder,
   joinFolderPath,
+  listFolderPaths,
   normalizeFolderPath,
   parentFolderForNew,
+  parseFolderInput,
   pruneEmptyFolders,
   removeFolderAndDescendants,
   sanitizeFolderSegment,
@@ -91,5 +94,62 @@ describe("removeFolderAndDescendants", () => {
 
   it("leaves list alone for root path", () => {
     expect(removeFolderAndDescendants(["a", "b"], "")).toEqual(["a", "b"]);
+  });
+});
+
+describe("parseFolderInput", () => {
+  const cases: {
+    raw: string;
+    parent?: string;
+    ok: boolean;
+    fullPath?: string;
+    segments?: string[];
+  }[] = [
+    { raw: "算法/图论", ok: true, fullPath: "算法/图论", segments: ["算法", "图论"] },
+    { raw: "/算法/图论", ok: true, fullPath: "算法/图论", segments: ["算法", "图论"] },
+    { raw: "算法/", ok: true, fullPath: "算法", segments: ["算法"] },
+    { raw: "  算法/图论  ", ok: true, fullPath: "算法/图论", segments: ["算法", "图论"] },
+    { raw: "算法\\图论", ok: true, fullPath: "算法/图论", segments: ["算法", "图论"] },
+    { raw: "a//b", ok: false },
+    { raw: ".", ok: false },
+    { raw: "..", ok: false },
+    { raw: "a/../b", ok: false },
+    { raw: "", ok: false },
+    { raw: "   ", ok: false },
+    { raw: "图论", parent: "算法", ok: true, fullPath: "算法/图论", segments: ["图论"] },
+    { raw: "子/孙", parent: "算法", ok: true, fullPath: "算法/子/孙", segments: ["子", "孙"] },
+    {
+      raw: "/绝对/路径",
+      parent: "算法",
+      ok: true,
+      fullPath: "绝对/路径",
+      segments: ["绝对", "路径"],
+    },
+  ];
+
+  it.each(cases)("parse %# $raw parent=$parent", ({ raw, parent, ok, fullPath, segments }) => {
+    const r = parseFolderInput(raw, parent ?? "");
+    expect(r.ok).toBe(ok);
+    if (ok && r.ok) {
+      expect(r.fullPath).toBe(fullPath);
+      expect(r.segments).toEqual(segments);
+    } else if (!ok && !r.ok) {
+      expect(r.reason.length).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe("listFolderPaths / folderExists", () => {
+  it("lists folders from docs and emptyFolders", () => {
+    expect(
+      listFolderPaths([{ path: "已有/a.md" }], ["空夹", "已有/子空夹"])
+    ).toEqual(["空夹", "已有", "已有/子空夹"]);
+  });
+
+  it("folderExists covers docs and empty entries", () => {
+    expect(folderExists("已有", ["已有/a.md"], [])).toBe(true);
+    expect(folderExists("空夹", [], ["空夹"])).toBe(true);
+    expect(folderExists("没有", [], [])).toBe(false);
+    expect(folderExists("", [], [])).toBe(true);
   });
 });

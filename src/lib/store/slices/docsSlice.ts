@@ -10,10 +10,9 @@ import { pushVersion } from "../../storage/versions";
 import { ensureLibraryDir } from "../../storage/fsSync";
 import { ensureContentFolder } from "../../storage/contentApi";
 import {
-  joinFolderPath,
   normalizeFolderPath,
+  parseFolderInput,
   pruneEmptyFolders,
-  sanitizeFolderSegment,
 } from "../../folders";
 import { BUILTIN_TEMPLATES, applyTemplate, dailyNoteSpec } from "../../templates";
 import { ensureUniquePath } from "../helpers/paths";
@@ -195,42 +194,50 @@ export const createDocsSlice: StateCreator<
         return doc;
       },
   createFolder: (name, parentPath = "") => {
-        const segment = sanitizeFolderSegment(name);
-        if (!segment) {
-          get().setStatus("文件夹名无效（不能为空、. / ..，也不能含 / \\ 或控制字符）");
+        const parsed = parseFolderInput(name, parentPath);
+        if (!parsed.ok) {
+          get().setStatus(parsed.reason);
           return null;
         }
-        const parent = normalizeFolderPath(parentPath || "");
-        const full = joinFolderPath(parent, segment);
-        if (!full) {
-          get().setStatus("文件夹名无效");
-          return null;
-        }
+        const full = parsed.fullPath;
         const docs = get().documents;
-        const prefix = full + "/";
-        const coveredByDoc = docs.some((d) => d.path.replace(/\\/g, "/").startsWith(prefix));
-        const alreadyEmpty = get().emptyFolders.some(
-          (f) => normalizeFolderPath(f) === full
+        const docPaths = docs.map((d) => d.path.replace(/\\/g, "/"));
+        const existingEmpty = new Set(
+          get().emptyFolders.map((f) => normalizeFolderPath(f)).filter(Boolean)
         );
-        if (coveredByDoc || alreadyEmpty) {
+        const layerExists = (layer: string) => {
+          const prefix = layer + "/";
+          if (existingEmpty.has(layer)) return true;
+          return docPaths.some((d) => d.startsWith(prefix));
+        };
+        const parts = full.split("/").filter(Boolean);
+        const toAdd: string[] = [];
+        for (let i = 0; i < parts.length; i++) {
+          const layer = parts.slice(0, i + 1).join("/");
+          if (!layerExists(layer)) toAdd.push(layer);
+        }
+        if (toAdd.length === 0) {
           get().setStatus(`文件夹已存在 ${full}`);
           return full;
         }
         set((s) => ({
           emptyFolders: pruneEmptyFolders(
-            [...s.emptyFolders, full],
+            [...s.emptyFolders, ...toAdd],
             s.documents.map((d) => d.path)
           ),
           sidebarPanel: "docs",
         }));
         get().setStatus(`已新建文件夹 ${full}`);
-        void ensureContentFolder(full).catch(() => {
-          /* best-effort */
-        });
-        if (get().fsBoundName) {
-          void ensureLibraryDir(full).catch(() => {
+        for (let i = 0; i < parts.length; i++) {
+          const layer = parts.slice(0, i + 1).join("/");
+          void ensureContentFolder(layer).catch(() => {
             /* best-effort */
           });
+          if (get().fsBoundName) {
+            void ensureLibraryDir(layer).catch(() => {
+              /* best-effort */
+            });
+          }
         }
         return full;
       },

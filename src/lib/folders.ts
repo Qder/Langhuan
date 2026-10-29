@@ -131,3 +131,102 @@ export function removeFolderAndDescendants(
     .filter((v, i, arr) => arr.indexOf(v) === i)
     .sort((a, b) => a.localeCompare(b, "zh"));
 }
+
+export type ParseFolderInputOk = {
+  ok: true;
+  segments: string[];
+  fullPath: string;
+};
+
+export type ParseFolderInputErr = {
+  ok: false;
+  reason: string;
+};
+
+export type ParseFolderInputResult = ParseFolderInputOk | ParseFolderInputErr;
+
+/**
+ * Parse user folder input that may contain nested segments (`算法/图论`).
+ * Leading `/` (or `\`) ignores parentPath and starts from library root.
+ * Each segment still goes through sanitizeFolderSegment.
+ */
+export function parseFolderInput(
+  raw: string,
+  parentPath = ""
+): ParseFolderInputResult {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return { ok: false, reason: "路径不能为空" };
+  }
+  const fromRoot = trimmed.startsWith("/") || trimmed.startsWith("\\");
+  const normalized = trimmed.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+  if (!normalized) {
+    return { ok: false, reason: "路径不能为空" };
+  }
+  const parts = normalized.split("/");
+  const segments: string[] = [];
+  for (const part of parts) {
+    if (part === "") {
+      return { ok: false, reason: "路径中不能有空段" };
+    }
+    if (part === "." || part === "..") {
+      return { ok: false, reason: "路径中不能包含 . 或 .." };
+    }
+    const seg = sanitizeFolderSegment(part);
+    if (!seg) {
+      return {
+        ok: false,
+        reason: "文件夹名无效（不能为空、. / ..，也不能含 / \\ 或控制字符）",
+      };
+    }
+    segments.push(seg);
+  }
+  const parent = fromRoot ? "" : normalizeFolderPath(parentPath || "");
+  const fullPath = parent ? `${parent}/${segments.join("/")}` : segments.join("/");
+  return { ok: true, segments, fullPath };
+}
+
+/** Collect every folder path present in the doc tree + emptyFolders (sorted). */
+export function listFolderPaths(
+  docs: { path: string; type?: string }[],
+  emptyFolders: string[] = []
+): string[] {
+  const tree = buildTree(
+    docs.map((d) => ({
+      id: d.path,
+      path: d.path,
+      type: d.type || "md",
+    })),
+    emptyFolders
+  );
+  const out: string[] = [];
+  const walk = (node: FolderTreeNode) => {
+    for (const child of node.children.values()) {
+      out.push(child.path);
+      walk(child);
+    }
+  };
+  walk(tree);
+  return out.sort((a, b) => a.localeCompare(b, "zh"));
+}
+
+/** True if folder path already exists (has docs underneath or in emptyFolders). */
+export function folderExists(
+  folderPath: string,
+  docPaths: string[],
+  emptyFolders: string[]
+): boolean {
+  const folder = normalizeFolderPath(folderPath);
+  if (!folder) return true; // library root always "exists"
+  if (emptyFolders.map(normalizeFolderPath).includes(folder)) return true;
+  const prefix = folder + "/";
+  if (docPaths.some((d) => d.replace(/\\/g, "/").startsWith(prefix))) return true;
+  if (
+    emptyFolders
+      .map(normalizeFolderPath)
+      .some((f) => f.startsWith(prefix))
+  ) {
+    return true;
+  }
+  return false;
+}

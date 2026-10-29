@@ -497,6 +497,32 @@ describe("store behavior snapshots", () => {
     expect(useStore.getState().emptyFolders.includes("proj")).toBe(false);
   });
 
+  it("createFolder accepts nested paths and only fills missing layers", () => {
+    const full = useStore.getState().createFolder("a/b/c", "");
+    expect(full).toBe("a/b/c");
+    const empties = useStore.getState().emptyFolders;
+    expect(empties).toEqual(expect.arrayContaining(["a", "a/b", "a/b/c"]));
+
+    // existing middle layer: only add deeper missing
+    useStore.getState().createDoc({
+      type: "md",
+      path: "algo/readme.md",
+      content: "x",
+      open: false,
+    });
+    // prune may drop "a" etc still; create under algo
+    const nested = useStore.getState().createFolder("图论/最短路", "algo");
+    expect(nested).toBe("algo/图论/最短路");
+    const after = useStore.getState().emptyFolders;
+    expect(after).toEqual(expect.arrayContaining(["algo/图论", "algo/图论/最短路"]));
+    // algo itself has a doc so should not stay in emptyFolders
+    expect(after.includes("algo")).toBe(false);
+
+    const again = useStore.getState().createFolder("图论/最短路", "algo");
+    expect(again).toBe("algo/图论/最短路");
+    expect(useStore.getState().status?.message).toMatch(/已存在/);
+  });
+
   it("draft / dirty / saveDoc / discardDraft + version push on save", () => {
     const doc = useStore.getState().createDoc({
       type: "md",
