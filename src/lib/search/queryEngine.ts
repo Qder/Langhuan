@@ -1,28 +1,13 @@
 import type { Document } from "../types";
 import { parseSearchQuery, segmentTerms } from "../searchQuery";
-import { getTags } from "../tags";
 import type { SearchIndex } from "./index";
 import { scoreDocumentRanked } from "./rank";
 import { buildSnippet } from "./snippets";
+import { docPassesParsedFilters, hasActiveFilters } from "./filters";
 import type { SearchHit } from "./types";
 
 /** Snippets are only needed for visible palette rows; skip deep tail. */
 const SNIPPET_TOP_K = 80;
-
-function passesFilters(
-  doc: { id: string; path: string; type: Document["type"] },
-  raw: Document | undefined,
-  parsed: ReturnType<typeof parseSearchQuery>
-): boolean {
-  if (parsed.type && doc.type !== parsed.type) return false;
-  if (parsed.path && !doc.path.toLowerCase().includes(parsed.path.toLowerCase())) return false;
-  if (parsed.tags.length) {
-    if (!raw) return false;
-    const tags = getTags(raw);
-    if (!parsed.tags.every((t) => tags.includes(t))) return false;
-  }
-  return true;
-}
 
 /**
  * Index-backed search with ranked scoring (see rank.ts).
@@ -34,16 +19,17 @@ export function searchWithIndex(
 ): SearchHit[] {
   const parsed = parseSearchQuery(query);
   const terms = segmentTerms(parsed.text).map((t) => t.toLowerCase());
-  const hasFilters = parsed.tags.length > 0 || !!parsed.path || !!parsed.type;
-  if (!terms.length && !hasFilters) return [];
+  const phrases = parsed.phrases.map((p) => p.toLowerCase());
+  const scoreTerms = [...terms, ...phrases];
+  if (!scoreTerms.length && !hasActiveFilters(parsed)) return [];
 
   const byId = new Map(docs.map((d) => [d.id, d]));
 
   let candidateIds: Set<string>;
-  if (!terms.length) {
+  if (!scoreTerms.length) {
     candidateIds = new Set(index.allDocs().map((d) => d.id));
   } else {
-    const perTerm = terms.map((t) => index.candidatesForTerm(t));
+    const perTerm = scoreTerms.map((t) => index.candidatesForTerm(t));
     const counts = new Map<string, number>();
     for (const set of perTerm) {
       for (const id of set) counts.set(id, (counts.get(id) || 0) + 1);
@@ -56,11 +42,11 @@ export function searchWithIndex(
     const indexed = index.getDoc(id);
     const raw = byId.get(id);
     if (!indexed || !raw) continue;
-    if (!passesFilters(indexed, raw, parsed)) continue;
+    if (!docPassesParsedFilters(raw, parsed, indexed)) continue;
 
     let score: number;
-    if (terms.length) {
-      score = scoreDocumentRanked(indexed.fields, terms, indexed.updatedAt);
+    if (scoreTerms.length) {
+      score = scoreDocumentRanked(indexed.fields, scoreTerms, indexed.updatedAt);
       if (score <= 0) continue;
     } else {
       score = 1;
@@ -81,7 +67,7 @@ export function searchWithIndex(
   for (let i = 0; i < top; i++) {
     const indexed = index.getDoc(hits[i].id);
     if (!indexed) continue;
-    const snip = buildSnippet(indexed.fields.body, terms.length ? terms : [], 40);
+    const snip = buildSnippet(indexed.fields.body, scoreTerms.length ? scoreTerms : [], 40);
     hits[i].snippet = snip.text;
     hits[i].marks = snip.marks;
   }

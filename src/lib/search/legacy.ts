@@ -7,6 +7,7 @@ import { getDocMeta } from "../docMeta";
 import { getTags } from "../tags";
 import { stripHtml, titleOf } from "../utils";
 import { parseSearchQuery, segmentTerms } from "../searchQuery";
+import { docPassesParsedFilters, hasActiveFilters } from "./filters";
 import type { SearchHit } from "./types";
 
 function scoreField(hay: string, terms: string[], weight: number): number {
@@ -44,17 +45,13 @@ function snippetAround(text: string, terms: string[]): string {
 export function searchDocumentsLegacy(docs: Document[], query: string): SearchHit[] {
   const parsed = parseSearchQuery(query);
   const terms = segmentTerms(parsed.text);
-  const hasFilters = parsed.tags.length > 0 || !!parsed.path || !!parsed.type;
-  if (!terms.length && !hasFilters) return [];
+  // Phrases also act as required terms for scoring snippets
+  const scoreTerms = [...terms, ...parsed.phrases.map((p) => p.toLowerCase())];
+  if (!scoreTerms.length && !hasActiveFilters(parsed)) return [];
 
   const hits: SearchHit[] = [];
   for (const d of docs) {
-    if (parsed.type && d.type !== parsed.type) continue;
-    if (parsed.path && !d.path.toLowerCase().includes(parsed.path.toLowerCase())) continue;
-    if (parsed.tags.length) {
-      const tags = getTags(d);
-      if (!parsed.tags.every((t) => tags.includes(t))) continue;
-    }
+    if (!docPassesParsedFilters(d, parsed)) continue;
 
     const title = titleOf(d.path);
     const meta = getDocMeta(d);
@@ -66,13 +63,14 @@ export function searchDocumentsLegacy(docs: Document[], query: string): SearchHi
         : d.content.replace(/^---[\s\S]*?---\s*/, "");
 
     let score = 0;
-    if (terms.length) {
-      score += scoreField(title, terms, 10);
-      score += scoreField(aliases, terms, 8);
-      score += scoreField(d.path, terms, 6);
-      score += scoreField(tags, terms, 5);
-      score += scoreField(body, terms, 1);
-      if (score <= 0) continue;
+    if (scoreTerms.length) {
+      score += scoreField(title, scoreTerms, 10);
+      score += scoreField(aliases, scoreTerms, 8);
+      score += scoreField(d.path, scoreTerms, 6);
+      score += scoreField(tags, scoreTerms, 5);
+      score += scoreField(body, scoreTerms, 1);
+      if (score <= 0 && (terms.length > 0 || parsed.phrases.length > 0)) continue;
+      if (score <= 0) score = 1; // filter-only after title: etc. without free text
     } else {
       score = 1;
     }
@@ -82,7 +80,10 @@ export function searchDocumentsLegacy(docs: Document[], query: string): SearchHi
       path: d.path,
       type: d.type,
       score,
-      snippet: snippetAround(body.replace(/\s+/g, " ").trim(), terms.length ? terms : [""]),
+      snippet: snippetAround(
+        body.replace(/\s+/g, " ").trim(),
+        scoreTerms.length ? scoreTerms : [""]
+      ),
     });
   }
   return hits.sort((a, b) => b.score - a.score || a.path.localeCompare(b.path, "zh"));
