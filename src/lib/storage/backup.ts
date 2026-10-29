@@ -4,6 +4,7 @@ import JSZip from "jszip";
 import type { AssetMeta, Document, TrashItem } from "../types";
 import type { Annotation } from "../annotations";
 import type { ReadingPrefs } from "../readingPrefs";
+import type { QuizDoc } from "../quiz";
 import { getTags } from "../tags";
 import { getAssetBlob, putAssetBlob, base64ToBlob, blobToBase64 } from "../assets/store";
 
@@ -30,6 +31,7 @@ export type BackupManifest = {
   assets?: AssetMeta[];
   annotations?: Annotation[];
   readingPrefs?: ReadingPrefs;
+  quizDocs?: QuizDoc[];
 };
 
 export type BackupPayload = {
@@ -38,6 +40,7 @@ export type BackupPayload = {
   assets?: AssetMeta[];
   annotations?: Annotation[];
   readingPrefs?: ReadingPrefs;
+  quizDocs?: QuizDoc[];
 };
 
 function safeZipPath(path: string): string {
@@ -94,6 +97,22 @@ export async function buildLibraryZip(payload: BackupPayload): Promise<Blob> {
     folder.file("annotations.json", JSON.stringify(payload.annotations, null, 2));
   }
 
+  if (payload.quizDocs?.length) {
+    folder.file(
+      "quiz.json",
+      JSON.stringify(
+        {
+          format: "langhuan-quiz",
+          version: 1,
+          updatedAt: Date.now(),
+          docs: payload.quizDocs,
+        },
+        null,
+        2
+      )
+    );
+  }
+
   const manifest: BackupManifest = {
     format: "langhuan-backup",
     version: BACKUP_MANIFEST_VERSION,
@@ -104,6 +123,7 @@ export async function buildLibraryZip(payload: BackupPayload): Promise<Blob> {
     assets,
     annotations: payload.annotations,
     readingPrefs: payload.readingPrefs,
+    quizDocs: payload.quizDocs,
   };
   folder.file("manifest.json", JSON.stringify(manifest, null, 2));
 
@@ -240,12 +260,31 @@ export async function parseLibraryZip(file: Blob): Promise<BackupPayload> {
       }
     }
 
+    let quizDocs: QuizDoc[] | undefined = manifest.quizDocs;
+    const quizName = names.find(
+      (n) => n === "quiz.json" || n.endsWith("/quiz.json")
+    );
+    if (quizName) {
+      try {
+        const parsed = JSON.parse(await zip.files[quizName].async("string")) as {
+          docs?: QuizDoc[];
+        };
+        if (Array.isArray(parsed.docs)) quizDocs = parsed.docs;
+        else if (Array.isArray(parsed as unknown as QuizDoc[])) {
+          quizDocs = parsed as unknown as QuizDoc[];
+        }
+      } catch {
+        /* keep manifest copy */
+      }
+    }
+
     return {
       documents,
       trash,
       assets,
       annotations,
       readingPrefs: manifest.readingPrefs,
+      quizDocs,
     };
   }
 

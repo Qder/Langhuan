@@ -40,6 +40,7 @@ type UiSliceKeys =
   | "propsDialogOpen"
   | "clipUrlDialogOpen"
   | "templateDialogOpen"
+  | "quizReviewOpen"
   | "fsSyncDialogOpen"
   | "autosaveEnabled"
   | "lastBackupAt"
@@ -79,6 +80,7 @@ type UiSliceKeys =
   | "setPropsDialogOpen"
   | "setClipUrlDialogOpen"
   | "setTemplateDialogOpen"
+  | "setQuizReviewOpen"
   | "setFsSyncDialogOpen"
   | "setAutosaveEnabled"
   | "setLastBackupAt"
@@ -120,6 +122,7 @@ export const createUiSlice: StateCreator<
   propsDialogOpen: false,
   clipUrlDialogOpen: false,
   templateDialogOpen: false,
+  quizReviewOpen: false,
   fsSyncDialogOpen: false,
   autosaveEnabled: true,
   lastBackupAt: null,
@@ -229,6 +232,7 @@ export const createUiSlice: StateCreator<
   setPropsDialogOpen: (v) => set({ propsDialogOpen: v }),
   setClipUrlDialogOpen: (v) => set({ clipUrlDialogOpen: v }),
   setTemplateDialogOpen: (v) => set({ templateDialogOpen: v }),
+  setQuizReviewOpen: (v) => set({ quizReviewOpen: v }),
   setFsSyncDialogOpen: (v) => set({ fsSyncDialogOpen: v }),
   setAutosaveEnabled: (v) => {
         set({ autosaveEnabled: v });

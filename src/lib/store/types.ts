@@ -12,6 +12,7 @@ import type {
 } from "../types";
 import type { ShortcutMap } from "../shortcuts";
 import type { Annotation, AnnotationInput } from "../annotations";
+import type { QuizDoc, QuizItemState } from "../quiz";
 import type { ReadingPrefs } from "../readingPrefs";
 import type { DocMeta, DocStatus } from "../docMeta";
 import type { SavedSearch } from "../searchQuery";
@@ -152,6 +153,10 @@ export type LanghuanState = {
   assets: AssetMeta[];
   /** Side annotations keyed by list (not mutating body). */
   annotations: Annotation[];
+  /** HTML quiz practice state (not in document body). */
+  quizDocs: QuizDoc[];
+  /** Quiz review dialog. */
+  quizReviewOpen: boolean;
   /** MD reading prefs (font / width / focus). */
   readingPrefs: ReadingPrefs;
   /** MD focus/zen (mirrors readingPrefs.focusMode for quick toggle). */
@@ -276,6 +281,12 @@ export type LanghuanState = {
   addAnnotation: (input: AnnotationInput) => Annotation;
   updateAnnotation: (id: string, patch: { note?: string; color?: Annotation["color"] }) => void;
   removeAnnotation: (id: string) => void;
+  setQuizReviewOpen: (v: boolean) => void;
+  upsertQuizDoc: (doc: QuizDoc) => void;
+  setQuizItemState: (docId: string, itemId: string, state: QuizItemState) => void;
+  setQuizForce: (docId: string, force: boolean) => void;
+  syncQuizForDoc: (docId: string) => QuizDoc | null;
+  persistQuizStore: () => void;
   /** Persist a pasted/dropped image; returns markdown snippet to insert. */
   ingestImageFile: (
     docId: string,

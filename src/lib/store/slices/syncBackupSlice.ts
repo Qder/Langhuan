@@ -15,6 +15,8 @@ import {
   blobToBase64,
   bulkWriteLibrary,
   fetchLibrary,
+  fetchQuizStore,
+  putQuizStore,
 } from "../../storage/contentApi";
 import { takeIdbLibrary } from "../../storage/contentMigration";
 import { ensureUniquePath } from "../helpers/paths";
@@ -74,6 +76,7 @@ export const createSyncBackupSlice: StateCreator<
         assets: get().assets,
         annotations: get().annotations,
         readingPrefs: get().readingPrefs,
+        quizDocs: get().quizDocs,
       }),
   importLibrary: (payload, mode) => {
         if (mode === "replace") {
@@ -86,6 +89,7 @@ export const createSyncBackupSlice: StateCreator<
             activeId: null,
             assets,
             annotations: payload.annotations || [],
+            quizDocs: payload.quizDocs || [],
             readingPrefs: payload.readingPrefs
               ? normalizeReadingPrefs(payload.readingPrefs)
               : get().readingPrefs,
@@ -152,10 +156,22 @@ export const createSyncBackupSlice: StateCreator<
             ...payload.annotations.filter((a) => !ids.has(a.id)),
           ];
         }
+        let nextQuiz = get().quizDocs;
+        if (payload.quizDocs?.length) {
+          const byId = new Map(nextQuiz.map((d) => [d.docId, d]));
+          for (const q of payload.quizDocs) {
+            const ex = byId.get(q.docId);
+            if (!ex || (q.updatedAt || 0) >= (ex.updatedAt || 0)) {
+              byId.set(q.docId, q);
+            }
+          }
+          nextQuiz = [...byId.values()];
+        }
         set({
           documents: nextDocs,
           assets: nextAssets,
           annotations: nextAnn,
+          quizDocs: nextQuiz,
         });
         void saveAssetMetaList(nextAssets);
         void bulkWriteLibrary({ documents: nextDocs }).catch(() => {});
@@ -174,6 +190,35 @@ export const createSyncBackupSlice: StateCreator<
               trash: snap.trash,
             });
             void saveAssetMetaList(snap.assets);
+            void fetchQuizStore()
+              .then((qs) => {
+                if (qs.docs?.length) {
+                  const local = get().quizDocs || [];
+                  const byId = new Map(local.map((d) => [d.docId, d]));
+                  for (const d of qs.docs) {
+                    const ex = byId.get(d.docId);
+                    if (!ex || (d.updatedAt || 0) >= (ex.updatedAt || 0)) {
+                      byId.set(d.docId, d);
+                    }
+                  }
+                  const merged = [...byId.values()];
+                  set({ quizDocs: merged });
+                  void putQuizStore({
+                    format: "langhuan-quiz",
+                    version: 1,
+                    updatedAt: Date.now(),
+                    docs: merged,
+                  });
+                } else if ((get().quizDocs || []).length) {
+                  void putQuizStore({
+                    format: "langhuan-quiz",
+                    version: 1,
+                    updatedAt: Date.now(),
+                    docs: get().quizDocs,
+                  });
+                }
+              })
+              .catch(() => {});
             get().setStatus(`已从 content/ 载入 ${snap.documents.length} 篇`);
             void get().refreshStorageUsage();
             return;

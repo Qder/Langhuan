@@ -74,6 +74,7 @@ export const useStore = create<LanghuanState>()(
         savedSearches: s.savedSearches,
         statusFilter: s.statusFilter,
         annotations: s.annotations,
+        quizDocs: s.quizDocs,
         readingPrefs: s.readingPrefs,
         mdFocusMode: s.mdFocusMode,
         openTabs: s.openTabs,
@@ -124,6 +125,7 @@ export const useStore = create<LanghuanState>()(
         if (!("statusFilter" in p)) p.statusFilter = null;
         if (!Array.isArray(p.assets)) p.assets = [];
         if (!Array.isArray(p.annotations)) p.annotations = [];
+        if (!Array.isArray(p.quizDocs)) p.quizDocs = [];
         p.readingPrefs = normalizeReadingPrefs(
           (p.readingPrefs as Partial<ReadingPrefs>) || DEFAULT_READING_PREFS
         );

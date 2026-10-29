@@ -4,6 +4,13 @@ import type { StateCreator } from "zustand";
 import type { AssetMeta } from "../../types";
 import { createAnnotation, updateAnnotationNote } from "../../annotations";
 import {
+  setQuizItemState as applyQuizItemState,
+  syncQuizDocFromSource,
+  upsertQuizDoc,
+  type QuizDoc,
+} from "../../quiz";
+import { putQuizStore } from "../../storage/contentApi";
+import {
   deleteAssetBlob,
   putAssetBlob,
   saveAssetMetaList,
@@ -30,13 +37,19 @@ import type { LanghuanState } from "../types";
 type AssetsSliceKeys =
   | "assets"
   | "annotations"
+  | "quizDocs"
   | "importAssets"
   | "ingestImageFile"
   | "removeAsset"
   | "assetsForDoc"
   | "addAnnotation"
   | "updateAnnotation"
-  | "removeAnnotation";
+  | "removeAnnotation"
+  | "upsertQuizDoc"
+  | "setQuizItemState"
+  | "setQuizForce"
+  | "syncQuizForDoc"
+  | "persistQuizStore";
 
 export type AssetsSlice = Pick<LanghuanState, AssetsSliceKeys>;
 
@@ -48,6 +61,7 @@ export const createAssetsSlice: StateCreator<
 > = (set, get) => ({
   assets: [],
   annotations: [],
+  quizDocs: [],
   importAssets: async (files, opts) => {
         let m = 0;
         const docs = get().documents;
@@ -229,5 +243,48 @@ export const createAssetsSlice: StateCreator<
   removeAnnotation: (id) => {
         set((s) => ({ annotations: s.annotations.filter((a) => a.id !== id) }));
         get().setStatus("已删除批注");
+      },
+  persistQuizStore: () => {
+        const docs = get().quizDocs;
+        void putQuizStore({
+          format: "langhuan-quiz",
+          version: 1,
+          updatedAt: Date.now(),
+          docs,
+        });
+      },
+  upsertQuizDoc: (doc) => {
+        set((s) => ({ quizDocs: upsertQuizDoc(s.quizDocs, doc) }));
+        get().persistQuizStore();
+      },
+  setQuizItemState: (docId, itemId, state) => {
+        set((s) => {
+          const prev = s.quizDocs.find((d) => d.docId === docId);
+          if (!prev) return {};
+          const next = applyQuizItemState(prev, itemId, state);
+          return { quizDocs: upsertQuizDoc(s.quizDocs, next) };
+        });
+        get().persistQuizStore();
+      },
+  setQuizForce: (docId, force) => {
+        set((s) => {
+          const prev = s.quizDocs.find((d) => d.docId === docId);
+          const now = Date.now();
+          const next: QuizDoc = prev
+            ? { ...prev, forceQuiz: force, updatedAt: now }
+            : { docId, items: [], updatedAt: now, forceQuiz: force };
+          return { quizDocs: upsertQuizDoc(s.quizDocs, next) };
+        });
+        get().persistQuizStore();
+      },
+  syncQuizForDoc: (docId) => {
+        const content = get().getContent(docId);
+        const prev = get().quizDocs.find((d) => d.docId === docId);
+        const synced = syncQuizDocFromSource(docId, content, prev);
+        if (synced) {
+          set((s) => ({ quizDocs: upsertQuizDoc(s.quizDocs, synced) }));
+          get().persistQuizStore();
+        }
+        return synced;
       },
 });

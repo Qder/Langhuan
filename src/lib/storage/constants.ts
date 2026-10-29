@@ -27,3 +27,5 @@ export const FS_HANDLE_KEY = "langhuan-fs-dir-handle";
 export const FS_INDEX_DIR = ".langhuan";
 
 export const FS_INDEX_FILE = "index.json";
+
+export const FS_QUIZ_FILE = "quiz.json";

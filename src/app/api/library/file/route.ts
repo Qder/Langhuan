@@ -5,8 +5,13 @@ import {
   hardDeletePath,
   readFileBytes,
   softDeleteDoc,
+  writeQuizStore,
   writeTextDoc,
+  QUIZ_INDEX_FILE,
 } from "@/lib/storage/contentFs";
+import { FS_INDEX_DIR } from "@/lib/storage/constants";
+import { normalizeQuizStore } from "@/lib/quiz";
+import { safeRelPath } from "@/lib/storage/pathSanitize";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -51,6 +56,18 @@ export async function PUT(req: NextRequest) {
     }
     if (!body.path || typeof body.content !== "string") {
       return NextResponse.json({ ok: false, error: "缺少 path/content" }, { status: 400 });
+    }
+    const rel = safeRelPath(body.path);
+    // Meta file: content/.langhuan/quiz.json — do not index as a library document.
+    if (rel === `${FS_INDEX_DIR}/${QUIZ_INDEX_FILE}` || rel === QUIZ_INDEX_FILE) {
+      try {
+        const parsed = normalizeQuizStore(JSON.parse(body.content));
+        await writeQuizStore(parsed);
+        return NextResponse.json({ ok: true, quiz: true, path: `${FS_INDEX_DIR}/${QUIZ_INDEX_FILE}` });
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        return NextResponse.json({ ok: false, error: message || "quiz.json 无效" }, { status: 400 });
+      }
     }
     const document = await writeTextDoc({
       path: body.path,

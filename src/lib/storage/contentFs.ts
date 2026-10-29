@@ -6,7 +6,12 @@ import { promises as fs } from "fs";
 import path from "path";
 import type { AssetMeta, Document, TrashItem } from "../types";
 import { libraryDocTypeFromPath, normalizeImportedPath } from "../importable";
-import { FS_INDEX_DIR, FS_INDEX_FILE } from "./constants";
+import { FS_INDEX_DIR, FS_INDEX_FILE, FS_QUIZ_FILE } from "./constants";
+import {
+  emptyQuizStore,
+  normalizeQuizStore,
+  type QuizStoreFile,
+} from "../quiz";
 import { safeRelPath } from "./pathSanitize";
 import { normalizeNewlines } from "../utils";
 
@@ -15,6 +20,7 @@ export { safeRelPath };
 export const CONTENT_DIRNAME = "content";
 export const ASSETS_INDEX_FILE = "assets.json";
 export const TRASH_INDEX_FILE = "trash.json";
+export const QUIZ_INDEX_FILE = FS_QUIZ_FILE;
 
 export type FsIndexEntry = {
   id: string;
@@ -126,6 +132,29 @@ export async function writeTrashIndex(list: TrashItem[]): Promise<void> {
   const file = path.join(metaDir(), TRASH_INDEX_FILE);
   await fs.writeFile(file, JSON.stringify(list, null, 2) + "\n", "utf8");
 }
+
+export async function readQuizStore(): Promise<QuizStoreFile> {
+  const file = path.join(metaDir(), QUIZ_INDEX_FILE);
+  try {
+    const raw = await fs.readFile(file, "utf8");
+    return normalizeQuizStore(JSON.parse(raw));
+  } catch {
+    return emptyQuizStore();
+  }
+}
+
+export async function writeQuizStore(store: QuizStoreFile): Promise<void> {
+  await ensureContentTree();
+  const file = path.join(metaDir(), QUIZ_INDEX_FILE);
+  const payload: QuizStoreFile = {
+    format: "langhuan-quiz",
+    version: 1,
+    updatedAt: store.updatedAt || Date.now(),
+    docs: Array.isArray(store.docs) ? store.docs : [],
+  };
+  await fs.writeFile(file, JSON.stringify(payload, null, 2) + "\n", "utf8");
+}
+
 
 async function walkFiles(dir: string, prefix: string, out: string[]): Promise<void> {
   let entries;

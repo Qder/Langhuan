@@ -1,6 +1,12 @@
 "use client";
 
 import type { AssetMeta, Document, TrashItem } from "../types";
+import {
+  emptyQuizStore,
+  normalizeQuizStore,
+  type QuizStoreFile,
+} from "../quiz";
+import { FS_INDEX_DIR, FS_QUIZ_FILE } from "./constants";
 
 export type LibrarySnapshot = {
   documents: Document[];
@@ -238,3 +244,67 @@ export async function blobToBase64(blob: Blob): Promise<string> {
   }
   return btoa(binary);
 }
+
+const QUIZ_REL = `${FS_INDEX_DIR}/${FS_QUIZ_FILE}`;
+
+/** Load content/.langhuan/quiz.json via existing file API (no new endpoint). */
+export async function fetchQuizStore(): Promise<QuizStoreFile> {
+  if (isTauriRuntime()) {
+    try {
+      const file = await tauriInvoke<{ base64: string }>("library_read_file", {
+        path: QUIZ_REL,
+      });
+      const json = atob(file.base64);
+      return normalizeQuizStore(JSON.parse(json));
+    } catch {
+      return emptyQuizStore();
+    }
+  }
+  const res = await fetch(`/api/library/file?path=${encodeURIComponent(QUIZ_REL)}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) return emptyQuizStore();
+  try {
+    const text = await res.text();
+    return normalizeQuizStore(JSON.parse(text));
+  } catch {
+    return emptyQuizStore();
+  }
+}
+
+/** Persist quiz metadata to content/.langhuan/quiz.json via file PUT. */
+export async function putQuizStore(store: QuizStoreFile): Promise<void> {
+  const payload: QuizStoreFile = {
+    format: "langhuan-quiz",
+    version: 1,
+    updatedAt: store.updatedAt || Date.now(),
+    docs: store.docs || [],
+  };
+  const content = JSON.stringify(payload, null, 2) + "\n";
+  if (isTauriRuntime()) {
+    try {
+      await tauriInvoke("library_put_doc", {
+        args: {
+          path: QUIZ_REL,
+          content,
+          id: "meta_quiz",
+          starred: false,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        },
+      });
+    } catch {
+      /* best-effort */
+    }
+    return;
+  }
+  const res = await fetch("/api/library/file", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path: QUIZ_REL, content }),
+  });
+  if (!res.ok) {
+    /* best-effort — IDB still holds quizDocs */
+  }
+}
+
