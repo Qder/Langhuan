@@ -10,16 +10,20 @@ vi.mock("idb-keyval", () => ({
   del: vi.fn(async () => undefined),
 }));
 
-const pushVersion = vi.fn(async () => undefined);
-const clearVersions = vi.fn(async () => undefined);
+const pushVersion = vi.fn(async (_payload?: unknown) => undefined);
+const clearVersions = vi.fn(async (_id?: unknown) => undefined);
 vi.mock("./storage/versions", () => ({
-  pushVersion: (...a: unknown[]) => pushVersion(...a),
-  clearVersions: (...a: unknown[]) => clearVersions(...a),
+  pushVersion: (payload: unknown) => pushVersion(payload),
+  clearVersions: (id: unknown) => clearVersions(id),
 }));
 
 vi.mock("./storage/contentApi", () => ({
   blobToBase64: vi.fn(async () => "YmFzZTY0"),
-  bulkWriteLibrary: vi.fn(async (x: any) => ({
+  bulkWriteLibrary: vi.fn(async (x: {
+    documents?: unknown[];
+    assets?: unknown[];
+    trash?: unknown[];
+  }) => ({
     documents: x?.documents ?? [],
     assets: x?.assets ?? [],
     trash: x?.trash ?? [],
@@ -507,7 +511,7 @@ describe("store behavior snapshots", () => {
     expect(useStore.getState().isDirty(doc.id)).toBe(false);
     expect(useStore.getState().documents[0]?.content).toBe("changed");
     expect(pushVersion).toHaveBeenCalled();
-    expect(pushVersion.mock.calls[0]?.[0]).toMatchObject({
+    expect(pushVersion.mock.calls.at(0)?.at(0)).toMatchObject({
       docId: doc.id,
       content: "orig",
       path: "d.md",
