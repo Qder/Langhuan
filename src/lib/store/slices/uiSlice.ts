@@ -42,6 +42,7 @@ type UiSliceKeys =
   | "templateDialogOpen"
   | "quizReviewOpen"
   | "linkHealthOpen"
+  | "findReplaceOpen"
   | "pendingQuizReveal"
   | "fsSyncDialogOpen"
   | "autosaveEnabled"
@@ -84,6 +85,7 @@ type UiSliceKeys =
   | "setTemplateDialogOpen"
   | "setQuizReviewOpen"
   | "setLinkHealthOpen"
+  | "setFindReplaceOpen"
   | "setPendingQuizReveal"
   | "setFsSyncDialogOpen"
   | "setAutosaveEnabled"
@@ -128,6 +130,7 @@ export const createUiSlice: StateCreator<
   templateDialogOpen: false,
   quizReviewOpen: false,
   linkHealthOpen: false,
+  findReplaceOpen: false,
   pendingQuizReveal: null,
   fsSyncDialogOpen: false,
   autosaveEnabled: true,
@@ -240,6 +243,7 @@ export const createUiSlice: StateCreator<
   setTemplateDialogOpen: (v) => set({ templateDialogOpen: v }),
   setQuizReviewOpen: (v) => set({ quizReviewOpen: v }),
   setLinkHealthOpen: (v) => set({ linkHealthOpen: v }),
+  setFindReplaceOpen: (v) => set({ findReplaceOpen: v }),
   setPendingQuizReveal: (v) => set({ pendingQuizReveal: v }),
   setFsSyncDialogOpen: (v) => set({ fsSyncDialogOpen: v }),
   setAutosaveEnabled: (v) => {

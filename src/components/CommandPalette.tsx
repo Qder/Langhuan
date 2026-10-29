@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { BookOpenCheck, Archive, HeartPulse, BookmarkPlus, CalendarDays, ClipboardPaste, Columns2, Download, FilePlus2, FileText, FolderSync, Globe, History, Home, Keyboard, LayoutTemplate, Network, Palette, Search, SlidersHorizontal, Trash2, Maximize2, Blend, Type } from "lucide-react";
+import { BookOpenCheck, Archive, HeartPulse, Replace, BookmarkPlus, CalendarDays, ClipboardPaste, Columns2, Download, FilePlus2, FileText, FolderSync, Globe, History, Home, Keyboard, LayoutTemplate, Network, Palette, Search, SlidersHorizontal, Trash2, Maximize2, Blend, Type } from "lucide-react";
 import { Dialog } from "./ui/dialog";
 import { useStore } from "@/lib/store";
 import { themeLabel } from "@/lib/theme";
@@ -43,6 +43,7 @@ export function CommandPalette() {
   const setGraphDialogOpen = useStore((s) => s.setGraphDialogOpen);
   const setQuizReviewOpen = useStore((s) => s.setQuizReviewOpen);
   const setLinkHealthOpen = useStore((s) => s.setLinkHealthOpen);
+  const setFindReplaceOpen = useStore((s) => s.setFindReplaceOpen);
   const setClipUrlDialogOpen = useStore((s) => s.setClipUrlDialogOpen);
   const setPropsDialogOpen = useStore((s) => s.setPropsDialogOpen);
   const setExportDialogOpen = useStore((s) => s.setExportDialogOpen);
@@ -242,6 +243,13 @@ export function CommandPalette() {
         hint: "失效双链 / 缺图 / 孤立 / 同名",
         icon: <HeartPulse className="h-4 w-4 text-[var(--accent)]" />,
         run: () => setLinkHealthOpen(true),
+      },
+      {
+        key: "cmd-find-replace",
+        label: "查找替换",
+        hint: "字面量 · 当前/文件夹/全库",
+        icon: <Replace className="h-4 w-4 text-[var(--accent)]" />,
+        run: () => setFindReplaceOpen(true),
       },
       {
         key: "cmd-quiz-review",

@@ -9,7 +9,8 @@ export type ShortcutAction =
   | "focusMode"
   | "toggleDocSplit"
   | "closeTab"
-  | "exportActive";
+  | "exportActive"
+  | "findReplace";
 
 export type ShortcutMap = Record<ShortcutAction, string>;
 
@@ -24,6 +25,7 @@ export const DEFAULT_SHORTCUTS: ShortcutMap = {
   toggleDocSplit: "mod+\\",
   closeTab: "mod+w",
   exportActive: "mod+shift+e",
+  findReplace: "mod+shift+h",
 };
 
 export const SHORTCUT_LABELS: Record<ShortcutAction, string> = {
@@ -36,6 +38,7 @@ export const SHORTCUT_LABELS: Record<ShortcutAction, string> = {
   toggleDocSplit: "文档分屏",
   closeTab: "关闭当前标签",
   exportActive: "导出当前文档",
+  findReplace: "查找替换",
 };
 
 export function normalizeShortcuts(

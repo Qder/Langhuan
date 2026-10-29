@@ -159,6 +159,8 @@ export type LanghuanState = {
   quizReviewOpen: boolean;
   /** Link & image health scan dialog. */
   linkHealthOpen: boolean;
+  /** Library find & replace dialog. */
+  findReplaceOpen: boolean;
   /** After opening a quiz doc from review list, scroll+highlight this item. */
   pendingQuizReveal: { docId: string; itemId: string } | null;
   /** MD reading prefs (font / width / focus). */
@@ -287,6 +289,7 @@ export type LanghuanState = {
   removeAnnotation: (id: string) => void;
   setQuizReviewOpen: (v: boolean) => void;
   setLinkHealthOpen: (v: boolean) => void;
+  setFindReplaceOpen: (v: boolean) => void;
   setPendingQuizReveal: (v: { docId: string; itemId: string } | null) => void;
   upsertQuizDoc: (doc: QuizDoc) => void;
   setQuizItemState: (docId: string, itemId: string, state: QuizItemState) => void;

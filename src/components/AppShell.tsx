@@ -24,6 +24,7 @@ import { TemplateDialog } from "./TemplateDialog";
 import { ExportDialog } from "./ExportDialog";
 import { QuizReviewDialog } from "./QuizReviewDialog";
 import { LinkHealthDialog } from "./LinkHealthDialog";
+import { FindReplaceDialog } from "./FindReplaceDialog";
 import { ShortcutsDialog } from "./ShortcutsDialog";
 import { CreateDocDialogHost } from "./CreateDocDialog";
 import { openCreateDocDialog } from "@/lib/createDocDialogBus";
@@ -56,6 +57,7 @@ export function AppShell() {
   const toggleDocSplit = useStore((s) => s.toggleDocSplit);
   const closeTab = useStore((s) => s.closeTab);
   const setExportDialogOpen = useStore((s) => s.setExportDialogOpen);
+  const setFindReplaceOpen = useStore((s) => s.setFindReplaceOpen);
 
   const shortcuts = React.useMemo(
     () => normalizeShortcuts(customShortcuts),
@@ -153,6 +155,11 @@ export function AppShell() {
         setExportDialogOpen(true);
         return;
       }
+      if (matchShortcut(e, shortcuts.findReplace) && !typing) {
+        e.preventDefault();
+        setFindReplaceOpen(true);
+        return;
+      }
 
       const active = getActive();
       if (active?.type === "html" && !typing) {
@@ -202,6 +209,7 @@ export function AppShell() {
     toggleDocSplit,
     closeTab,
     setExportDialogOpen,
+    setFindReplaceOpen,
   ]);
 
   if (!hydrated) {
@@ -252,6 +260,7 @@ export function AppShell() {
       <ExportDialog />
       <QuizReviewDialog />
       <LinkHealthDialog />
+      <FindReplaceDialog />
       <ShortcutsDialog />
       <CreateDocDialogHost />
       <RegisterSW />
