@@ -12,3 +12,15 @@ export function lineAtOffset(source: string, offset: number): number {
   }
   return line;
 }
+
+/** How many lines the body is shifted by YAML frontmatter (0 when none). */
+export function frontmatterLineOffset(content: string): number {
+  const off = frontmatterOffset(content);
+  if (!off) return 0;
+  // newlines in the prefix == line delta for 1-based body lines
+  let lines = 0;
+  for (let i = 0; i < off; i++) {
+    if (content[i] === "\n") lines += 1;
+  }
+  return lines;
+}

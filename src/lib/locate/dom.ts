@@ -65,8 +65,37 @@ export function getPreviewSelectionInfo(root: ParentNode): {
 
 export function srcAttrs(
   fmOffset: number,
-  node: { position?: { start?: { offset?: number }; end?: { offset?: number } } } | undefined
-): { "data-src-start": number; "data-src-end": number } | Record<string, never> {
+  node:
+    | {
+        position?: { start?: { offset?: number }; end?: { offset?: number } };
+        properties?: Record<string, unknown>;
+      }
+    | undefined
+): {
+  "data-src-start": number;
+  "data-src-end": number;
+  "data-src-line"?: number;
+} | Record<string, never> {
+  const props = node?.properties;
+  // Prefer stamps from rehypeSrcPositions — never add fmOffset twice.
+  if (
+    props &&
+    typeof props["data-src-start"] === "number" &&
+    typeof props["data-src-end"] === "number"
+  ) {
+    const out: {
+      "data-src-start": number;
+      "data-src-end": number;
+      "data-src-line"?: number;
+    } = {
+      "data-src-start": props["data-src-start"] as number,
+      "data-src-end": props["data-src-end"] as number,
+    };
+    if (typeof props["data-src-line"] === "number") {
+      out["data-src-line"] = props["data-src-line"] as number;
+    }
+    return out;
+  }
   const start = node?.position?.start?.offset;
   const end = node?.position?.end?.offset;
   if (typeof start !== "number" || typeof end !== "number") return {};

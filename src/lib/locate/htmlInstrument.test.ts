@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   collectLhInsertions,
+  findLastBodyCloseIndex,
   instrumentHtmlSrcDoc,
+  isInsideForbiddenRawText,
   stripInstrumentation,
 } from "./htmlInstrument";
 
@@ -84,5 +86,24 @@ describe("stripInstrumentation", () => {
     expect(out).not.toContain("data-lh=");
     expect(out).not.toContain("data-lh-bridge");
     expect(out).toContain("<p>x</p>");
+  });
+});
+
+
+describe("findLastBodyCloseIndex", () => {
+  it("skips </body> inside script", () => {
+    const html = `<body>a</body><script>var t="</body>";</script>`;
+    const idx = findLastBodyCloseIndex(html);
+    expect(idx).toBe(html.toLowerCase().indexOf("</body>"));
+    expect(isInsideForbiddenRawText(html, html.lastIndexOf("</body>"))).toBe(true);
+  });
+});
+
+describe("stripInstrumentation export safety", () => {
+  it("removes data-lh and bridge", () => {
+    const html = `<div data-lh="1-2">x</div><script data-lh-bridge="1">noop()</script>`;
+    const out = stripInstrumentation(html);
+    expect(out).not.toContain("data-lh");
+    expect(out).not.toContain("data-lh-bridge");
   });
 });

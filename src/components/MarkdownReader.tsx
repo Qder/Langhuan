@@ -32,6 +32,7 @@ import { countWords, readingMinutes, relativeTime, cn, titleOf } from "@/lib/uti
 import type { Document } from "@/lib/types";
 import {
   frontmatterOffset,
+  frontmatterLineOffset,
   lineAtOffset,
   getPreviewSelectionInfo,
   isTrivialSelection,
@@ -207,6 +208,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
   const wide = useMediaQuery("(min-width: 1280px)");
   const content = getContent(doc.id);
   const fmOffset = frontmatterOffset(content);
+  const fmLineOffset = frontmatterLineOffset(content);
   const { body } = parseFrontmatter(content);
   const tags = getTags({ ...doc, content });
   const words = countWords(body);
@@ -623,7 +625,32 @@ export function MarkdownReader({ doc }: { doc: Document }) {
     props: Record<string, unknown>,
     children: React.ReactNode
   ) => {
-    const attrs = srcAttrs(fmOffset, node);
+    // Prefer data-src-* already stamped by rehypeSrcPositions (via props or hast).
+    const hastProps = (node as { properties?: Record<string, unknown> } | undefined)?.properties;
+    const fromHast =
+      hastProps &&
+      typeof hastProps["data-src-start"] === "number" &&
+      typeof hastProps["data-src-end"] === "number"
+        ? {
+            "data-src-start": hastProps["data-src-start"] as number,
+            "data-src-end": hastProps["data-src-end"] as number,
+            ...(typeof hastProps["data-src-line"] === "number"
+              ? { "data-src-line": hastProps["data-src-line"] as number }
+              : {}),
+          }
+        : null;
+    const fromProps =
+      typeof props["data-src-start"] === "number" &&
+      typeof props["data-src-end"] === "number"
+        ? {
+            "data-src-start": props["data-src-start"] as number,
+            "data-src-end": props["data-src-end"] as number,
+            ...(typeof props["data-src-line"] === "number"
+              ? { "data-src-line": props["data-src-line"] as number }
+              : {}),
+          }
+        : null;
+    const attrs = fromHast || fromProps || srcAttrs(fmOffset, node);
     return React.createElement(Tag, { ...props, ...attrs }, children);
   };
 
@@ -800,9 +827,10 @@ export function MarkdownReader({ doc }: { doc: Document }) {
               rehypeKatex,
               rehypeSlug,
               rehypeRaw,
+              // Bug 3: stamp data-src-* BEFORE sanitize/highlight drop positions.
+              rehypeSrcPositions(fmOffset, fmLineOffset),
               [rehypeSanitize, mdSanitizeSchema],
               [rehypeHighlight, { plainText: ["mermaid"] }],
-              rehypeSrcPositions(fmOffset),
             ]}
             components={{
               p: ({ node, children, ...props }) =>

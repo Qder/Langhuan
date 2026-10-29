@@ -52,8 +52,12 @@ export type HtmlLocatePayload = {
   range?: { start: number; end: number };
   tag?: string;
   textSnippet?: string;
-  /** True when the clicked node itself had data-lh; false when only an ancestor did. */
+  /** True when the clicked node itself had data-lh; messaging only — not for routing. */
   annotatedSelf?: boolean;
+  /** 1-based ordinal among equal visible texts (multi-hit disambiguation). */
+  occurrence?: number;
+  /** Element id when available (script/JSON disambiguation). */
+  id?: string;
   /** Modifiers for focus/select behavior */
   metaKey?: boolean;
   ctrlKey?: boolean;

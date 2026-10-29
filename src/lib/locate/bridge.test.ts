@@ -218,3 +218,60 @@ describe("buildInstrumentedSrcDoc", () => {
     expect(msg?.type).toBe("lh-scroll-anchors");
   });
 });
+
+
+describe("buildInstrumentedSrcDoc raw offset contract", () => {
+  it("data-lh values are offsets into raw source even with onclick + colorize", () => {
+    const raw = `<!DOCTYPE html>
+<html><body>
+<h2 onclick="alert(1)">Hello</h2>
+<script>
+function colorize(src) {
+  return src.replace(/</g,"&lt;");
+}
+</script>
+<p class="x">Tail</p>
+</body></html>`;
+    const out = buildInstrumentedSrcDoc(raw);
+    expect(out).toContain('data-lh-bridge="1"');
+    expect(out.toLowerCase()).not.toMatch(/onclick\s*=/);
+    const m = out.match(/<h2[^>]*data-lh="(\d+)-(\d+)"/);
+    expect(m).toBeTruthy();
+    const start = Number(m![1]);
+    const end = Number(m![2]);
+    expect(raw.slice(start, start + 3)).toBe("<h2");
+    expect(raw.slice(end - 5, end)).toBe("</h2>");
+    const mp = out.match(/<p[^>]*data-lh="(\d+)-(\d+)"/);
+    expect(mp).toBeTruthy();
+    const ps = Number(mp![1]);
+    expect(raw.slice(ps, ps + 2)).toBe("<p");
+  });
+
+  it("ignores prepared second arg (must not use processed offsets)", () => {
+    const raw = `<body><div id="a">A</div></body>`;
+    const prepared = raw.replace("<div", "<div   ");
+    const out = buildInstrumentedSrcDoc(raw, prepared);
+    const m = out.match(/data-lh="(\d+)-(\d+)"/);
+    expect(m).toBeTruthy();
+    const start = Number(m![1]);
+    expect(raw.slice(start, start + 4)).toBe("<div");
+  });
+});
+
+describe("injectLocateBridge safe body close (Bug 5)", () => {
+  it("does not inject before </body> that sits inside a trailing script", () => {
+    const html = `<html><body>
+<main>ok</main>
+</body>
+<script>const x = "</body>";</script>
+</html>`;
+    const out = injectLocateBridge(html);
+    const bridgeIdx = out.indexOf('data-lh-bridge="1"');
+    expect(bridgeIdx).toBeGreaterThan(-1);
+    const realBody = out.toLowerCase().indexOf("</body>");
+    expect(bridgeIdx).toBeLessThan(realBody);
+    const scriptRegion = out.slice(out.indexOf("<script>const x"));
+    expect(scriptRegion).toContain("</body>");
+    expect(scriptRegion).not.toContain("data-lh-bridge");
+  });
+});

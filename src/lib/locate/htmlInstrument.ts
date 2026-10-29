@@ -112,6 +112,37 @@ export function instrumentHtmlSrcDoc(
   return { html, count: insertions.length };
 }
 
+
+/** True if index sits inside <script>, <style>, or <textarea> element content. */
+export function isInsideForbiddenRawText(source: string, index: number): boolean {
+  const before = source.slice(0, index);
+  for (const tag of ["script", "style", "textarea"] as const) {
+    const opens = [...before.matchAll(new RegExp(`<${tag}\\b[^>]*>`, "gi"))];
+    const closes = [...before.matchAll(new RegExp(`</${tag}\\s*>`, "gi"))];
+    if (opens.length > closes.length) return true;
+  }
+  return false;
+}
+
+/**
+ * Index of the last `</body>` that is NOT inside script/style/textarea.
+ * Returns -1 when none. Avoids injecting the locate bridge into a JS string
+ * that merely contains the characters "</body>".
+ */
+export function findLastBodyCloseIndex(html: string): number {
+  const lower = html.toLowerCase();
+  const marker = "</body>";
+  let from = 0;
+  let last = -1;
+  while (from < lower.length) {
+    const idx = lower.indexOf(marker, from);
+    if (idx < 0) break;
+    if (!isInsideForbiddenRawText(html, idx)) last = idx;
+    from = idx + marker.length;
+  }
+  return last;
+}
+
 /** Strip data-lh and the locate bridge from HTML (safety for export paths). */
 export function stripInstrumentation(html: string): string {
   let out = html.replace(/\sdata-lh=(["'])\d+-\d+\1/gi, "");

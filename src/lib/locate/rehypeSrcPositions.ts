@@ -25,9 +25,13 @@ const BLOCK_TAGS = new Set([
 
 /**
  * Copy mdast/hast source offsets onto DOM data attributes, shifted by frontmatter length.
- * Also stamps data-src-line (1-based start line) and splits fenced code into per-line spans.
+ * Also stamps data-src-line (1-based in **full** source = body line + fmLineOffset)
+ * and splits fenced code into per-line spans.
+ *
+ * Must run BEFORE rehype-sanitize / rehype-highlight so positions are not dropped.
+ * Do not call twice with fmOffset already baked into properties.
  */
-export function rehypeSrcPositions(fmOffset: number) {
+export function rehypeSrcPositions(fmOffset: number, fmLineOffset = 0) {
   return () => (tree: Root) => {
     visit(tree, "element", (node: Element) => {
       const tag = node.tagName.toLowerCase();
@@ -36,20 +40,30 @@ export function rehypeSrcPositions(fmOffset: number) {
         (tag === "code" && typeof node.properties?.className !== "undefined") ||
         tag === "code";
       if (!want) return;
+      node.properties = node.properties || {};
+      // Prefer existing stamps (never double-add fmOffset).
+      if (
+        typeof node.properties["data-src-start"] === "number" &&
+        typeof node.properties["data-src-end"] === "number"
+      ) {
+        if (tag === "code" && node.children?.length) {
+          annotateCodeLines(node, fmOffset, fmLineOffset);
+        }
+        return;
+      }
       const start = node.position?.start?.offset;
       const end = node.position?.end?.offset;
       const startLine = node.position?.start?.line;
       if (typeof start !== "number" || typeof end !== "number") return;
-      node.properties = node.properties || {};
       node.properties["data-src-start"] = start + fmOffset;
       node.properties["data-src-end"] = end + fmOffset;
       if (typeof startLine === "number") {
-        node.properties["data-src-line"] = startLine;
+        node.properties["data-src-line"] = startLine + fmLineOffset;
       }
 
-      // Per-line spans inside fenced <pre><code>
+      // Per-line spans inside fenced <pre><code> — before highlight wraps tokens.
       if (tag === "code" && node.children?.length) {
-        annotateCodeLines(node, fmOffset);
+        annotateCodeLines(node, fmOffset, fmLineOffset);
       }
     });
   };
@@ -59,9 +73,18 @@ export function rehypeSrcPositions(fmOffset: number) {
  * Split text children of a code element into <span data-src-line data-src-start data-src-end>
  * so clicking a code line can locate that exact source line.
  */
-function annotateCodeLines(codeNode: Element, fmOffset: number) {
-  const absStart = codeNode.position?.start?.offset;
-  const startLine = codeNode.position?.start?.line;
+function annotateCodeLines(codeNode: Element, fmOffset: number, fmLineOffset = 0) {
+  // Prefer already-absolute stamps on the code node.
+  const stampedStart = codeNode.properties?.["data-src-start"];
+  const stampedLine = codeNode.properties?.["data-src-line"];
+  const absStart =
+    typeof stampedStart === "number"
+      ? stampedStart - fmOffset
+      : codeNode.position?.start?.offset;
+  const startLine =
+    typeof stampedLine === "number"
+      ? stampedLine - fmLineOffset
+      : codeNode.position?.start?.line;
   if (typeof absStart !== "number" || typeof startLine !== "number") return;
 
   // Only rewrite when children are plain text (before highlight plugin wraps spans).
@@ -90,7 +113,7 @@ function annotateCodeLines(codeNode: Element, fmOffset: number) {
       type: "element",
       tagName: "span",
       properties: {
-        "data-src-line": lineNo,
+        "data-src-line": lineNo + fmLineOffset,
         "data-src-start": lineStart + fmOffset,
         "data-src-end": lineEnd + fmOffset,
         className: ["lh-code-line"],

@@ -374,18 +374,167 @@ function collapseHtmlWs(s: string): string {
 }
 
 /**
- * Locate a click that landed on a script-generated node (no data-lh on self).
- * Rules:
- * 1. Always have a container range (nearest annotated ancestor).
- * 2. Search script/JSON for clicked text:
- *    - unique match → that match + 「脚本数据中的第 N 行」
- *    - multiple → nearest to container + 「近似」
- *    - none → container only + 「内容由脚本生成，仅定位到所在容器」
+ * Match visible click text inside an annotated ancestor's raw slice.
+ * Returns precision "none" when the text is not found in the slice
+ * (caller should then try script search / container).
+ * Never uses a full-document first indexOf.
+ */
+export function locateStaticInRange(opts: {
+  source: string;
+  text: string;
+  container: { start: number; end: number };
+  /** 1-based visible ordinal among equal texts in the slice (default 1). */
+  occurrence?: number;
+}): LocateResult {
+  const source = normalizeNewlines(opts.source);
+  const { start: c0, end: c1 } = opts.container;
+  const slice = source.slice(c0, c1);
+  const text = (opts.text || "").replace(/\u00a0/g, " ").trim();
+  if (!text || c1 <= c0) {
+    return { start: 0, end: 0, precision: "none", message: "" };
+  }
+
+  const { visible, map, rawVisible, rawMap } = buildHtmlVisibleMap(slice);
+  const occ = Math.max(1, opts.occurrence ?? 1);
+
+  const findOcc = (hay: string, needle: string, nth: number): number => {
+    if (!needle) return -1;
+    let from = 0;
+    let seen = 0;
+    while (from <= hay.length) {
+      const idx = hay.indexOf(needle, from);
+      if (idx < 0) return -1;
+      seen += 1;
+      if (seen === nth) return idx;
+      from = idx + Math.max(1, needle.length);
+    }
+    return -1;
+  };
+
+  // Prefer raw-visible (preserves more spacing), then collapsed.
+  let idx = findOcc(rawVisible, text, occ);
+  if (idx >= 0) {
+    const start = c0 + rawMap[idx];
+    const endIdx = Math.min(idx + text.length, rawMap.length - 1);
+    const end = c0 + rawMap[endIdx];
+    const line = lineAtOffset(source, start);
+    return {
+      start,
+      end: Math.max(end, start + text.length),
+      precision: "exact",
+      line,
+      message: `已定位到第 ${line} 行`,
+    };
+  }
+
+  const collapsedSel = collapseHtmlWs(text);
+  idx = findOcc(visible, collapsedSel, occ);
+  if (idx >= 0 && collapsedSel.length > 0) {
+    const start = c0 + map[idx];
+    const endIdx = Math.min(idx + collapsedSel.length, map.length - 1);
+    const end = c0 + map[endIdx];
+    const line = lineAtOffset(source, start);
+    return {
+      start,
+      end: Math.max(end, start + 1),
+      precision: "exact",
+      line,
+      message: `已定位到第 ${line} 行`,
+    };
+  }
+
+  return { start: 0, end: 0, precision: "none", message: "" };
+}
+
+/**
+ * Preview click routing (Bug 2):
+ * 1. If ancestor range exists → static match of visible text inside that slice
+ * 2. Else / miss → script/JSON search (locateDynamicHtml)
+ * 3. Else → whole ancestor range + 「仅定位到所在容器」
+ * `annotatedSelf` is for messaging only — not used for branching.
+ */
+export function locatePreviewClick(opts: {
+  source: string;
+  text: string;
+  container: { start: number; end: number } | null;
+  occurrence?: number;
+  id?: string;
+  tag?: string;
+  /** Messaging only; when true and text trivial, may return the whole range. */
+  annotatedSelf?: boolean;
+}): LocateResult {
+  const source = normalizeNewlines(opts.source);
+  const text = (opts.text || "").replace(/\u00a0/g, " ");
+  const container = opts.container;
+
+  if (container) {
+    const staticHit = locateStaticInRange({
+      source,
+      text,
+      container,
+      occurrence: opts.occurrence,
+    });
+    if (staticHit.precision !== "none") {
+      // Click locate: validated the annotated element — select whole tag range
+      // (验收: 点 h2 中字 → 源码选中该 h2 含标签, 误差 0).
+      const line = lineAtOffset(source, container.start);
+      return {
+        start: container.start,
+        end: container.end,
+        precision: "exact",
+        line,
+        message: `已定位到第 ${line} 行`,
+      };
+    }
+
+    // Clicked the annotated element itself with little/no text → whole tag range.
+    if (opts.annotatedSelf && isTrivialSelection(text)) {
+      const line = lineAtOffset(source, container.start);
+      return {
+        start: container.start,
+        end: container.end,
+        precision: "exact",
+        line,
+        message: `已定位到第 ${line} 行`,
+      };
+    }
+  }
+
+  const dyn = locateDynamicHtml({
+    source,
+    text,
+    container,
+    occurrence: opts.occurrence,
+    id: opts.id,
+    tag: opts.tag,
+  });
+  if (dyn.precision !== "none") return dyn;
+
+  if (container) {
+    const line = lineAtOffset(source, container.start);
+    return {
+      start: container.start,
+      end: container.end,
+      precision: "container",
+      line,
+      message: `仅定位到所在容器（第 ${line} 行）`,
+    };
+  }
+  return dyn;
+}
+
+/**
+ * Locate text inside script/style (JSON/data arrays, etc.).
+ * Multi-hit disambiguation: occurrence (1-based) or id/tag near the hit —
+ * never "closest to container / #main".
  */
 export function locateDynamicHtml(opts: {
   source: string;
   text: string;
   container: { start: number; end: number } | null;
+  occurrence?: number;
+  id?: string;
+  tag?: string;
 }): LocateResult {
   const { source: rawSource, text, container } = opts;
   const source = normalizeNewlines(rawSource);
@@ -437,11 +586,37 @@ export function locateDynamicHtml(opts: {
   for (const h of allHits) {
     if (!uniqueStarts.has(h.start)) uniqueStarts.set(h.start, h);
   }
-  const unique = [...uniqueStarts.values()];
+  // Stable document order (not distance-to-container).
+  const unique = [...uniqueStarts.values()].sort((a, b) => a.start - b.start);
 
+  let chosen: Hit | undefined;
+
+  // 1) visible ordinal
+  const occ = opts.occurrence;
+  if (occ != null && occ >= 1 && occ <= unique.length) {
+    chosen = unique[occ - 1];
+  }
+
+  // 2) id / tag token near the hit inside script
+  if (!chosen && (opts.id || opts.tag)) {
+    const tokens = [opts.id, opts.tag].filter(Boolean) as string[];
+    for (const h of unique) {
+      const window = source.slice(Math.max(0, h.start - 120), Math.min(source.length, h.end + 120));
+      if (tokens.some((t) => t && window.includes(t))) {
+        chosen = h;
+        break;
+      }
+    }
+  }
+
+  // 3) unique → that one; else first in document order (ordinal 1) with fuzzy note
+  if (!chosen) {
+    chosen = unique[0];
+  }
+
+  const h = chosen;
+  const line = lineAtOffset(source, h.start);
   if (unique.length === 1) {
-    const h = unique[0];
-    const line = lineAtOffset(source, h.start);
     return {
       start: h.start,
       end: h.end,
@@ -450,17 +625,15 @@ export function locateDynamicHtml(opts: {
       message: `脚本数据中的第 ${line} 行`,
     };
   }
-
-  const origin = container?.start ?? 0;
-  unique.sort((a, b) => Math.abs(a.start - origin) - Math.abs(b.start - origin));
-  const h = unique[0];
-  const line = lineAtOffset(source, h.start);
   return {
     start: h.start,
     end: h.end,
-    precision: "fuzzy",
+    precision: occ != null && occ >= 1 && occ <= unique.length ? "script" : "fuzzy",
     line,
-    message: `脚本生成，近似定位到第 ${line} 行`,
+    message:
+      occ != null && occ >= 1 && occ <= unique.length
+        ? `脚本数据中的第 ${line} 行（第 ${occ} 处）`
+        : `脚本生成，定位到第 ${line} 行（共 ${unique.length} 处，取第 ${unique.indexOf(h) + 1} 处）`,
   };
 }
 

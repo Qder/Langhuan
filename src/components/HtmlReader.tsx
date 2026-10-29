@@ -16,6 +16,8 @@ import {
   isTrivialSelection,
   locateDynamicHtml,
   locateInHtml,
+  locatePreviewClick,
+  locateStaticInRange,
   parseBridgeMessage,
   previewTopToSourceOffset,
   lineAtOffset,
@@ -73,9 +75,11 @@ export function HtmlReader({ doc }: { doc: Document }) {
   const [stageSize, setStageSize] = React.useState({ w: 0, h: 0 });
 
   const srcDoc = React.useMemo(
-    () => buildInstrumentedSrcDoc(content, prepareHtmlPreview(content)),
+    () => buildInstrumentedSrcDoc(content),
     [content]
   );
+  /** When static anchors do not cover the viewport, disable percent / weak sync. */
+  const anchorsWeakRef = React.useRef(false);
   const ignoreScrollUntil = React.useRef(0);
   const machineDrive = React.useRef<"preview" | "editor" | null>(null);
   const resetTimer = React.useRef<number | null>(null);
@@ -98,6 +102,7 @@ export function HtmlReader({ doc }: { doc: Document }) {
     setLoaded(false);
     setPageBg("transparent");
     setHtmlScrollPercent(0);
+    anchorsWeakRef.current = false;
   }, [content, htmlReloadToken, doc.id, setHtmlScrollPercent]);
 
   const runLocate = React.useCallback(
@@ -107,20 +112,16 @@ export function HtmlReader({ doc }: { doc: Document }) {
     ) => {
       let result: LocateResult;
 
-      if (payload.range && payload.annotatedSelf) {
-        const line = content.slice(0, payload.range.start).split("\n").length;
-        result = {
-          start: payload.range.start,
-          end: payload.range.end,
-          precision: "exact",
-          line,
-          message: `已定位到第 ${line} 行`,
-        };
-      } else if (payload.range && !payload.annotatedSelf) {
-        result = locateDynamicHtml({
+      if (payload.range) {
+        // Bug 2: annotatedSelf is messaging-only. Always: static-in-slice → script → container.
+        result = locatePreviewClick({
           source: content,
           text: payload.textSnippet || payload.text || "",
           container: payload.range,
+          occurrence: payload.occurrence,
+          id: payload.id,
+          tag: payload.tag,
+          annotatedSelf: payload.annotatedSelf,
         });
       } else {
         if (isTrivialSelection(payload.text || "")) {
@@ -160,22 +161,31 @@ export function HtmlReader({ doc }: { doc: Document }) {
         return;
       }
 
-      // Prefer text match so we select the dragged span, not the whole data-lh element.
+      // Prefer text-level match (dragged span), not the whole annotated tag.
       let result = locateInHtml({
         source: content,
         text,
         before: payload.before || "",
         after: payload.after || "",
       });
-
+      if (result.precision === "none" && payload.range) {
+        result = locateStaticInRange({
+          source: content,
+          text,
+          container: payload.range,
+          occurrence: payload.occurrence,
+        });
+      }
       if (result.precision === "none" && payload.range) {
         result = locateDynamicHtml({
           source: content,
           text,
           container: payload.range,
+          occurrence: payload.occurrence,
+          id: payload.id,
+          tag: payload.tag,
         });
       }
-
       if (result.precision === "none" && payload.range) {
         const line = content.slice(0, payload.range.start).split("\n").length;
         result = {
@@ -183,7 +193,7 @@ export function HtmlReader({ doc }: { doc: Document }) {
           end: payload.range.end,
           precision: "container",
           line,
-          message: `脚本生成，已定位到所在容器（第 ${line} 行）`,
+          message: `仅定位到所在容器（第 ${line} 行）`,
         };
       }
 
@@ -290,9 +300,18 @@ export function HtmlReader({ doc }: { doc: Document }) {
               ]
             : anchors;
         const covered = anchorsCoverViewport(data.viewportTop, coverageAnchors);
+        anchorsWeakRef.current = !covered;
         const offset = covered
           ? previewTopToSourceOffset(data.viewportTop, anchors)
           : null;
+
+        // Bug 4: when static anchors do not cover the viewport, do NOT fall back
+        // to percent sync (avoids random jumps on dynamic pages). Click locate
+        // still works via locatePreviewClick.
+        if (!covered) {
+          if (percent != null) setHtmlScrollPercent(percent);
+          return;
+        }
 
         publishScrollSync({
           docId: doc.id,
@@ -354,7 +373,8 @@ export function HtmlReader({ doc }: { doc: Document }) {
     const wantScroll = pendingPreviewLocate.scroll === true;
     const wantAnnounce = pendingPreviewLocate.announce === true;
     const win = iframeRef.current?.contentWindow;
-    if (win) {
+    // Bug 4: on dynamic pages with weak anchors, skip {o,o+1} shell matching.
+    if (win && !anchorsWeakRef.current) {
       // Block preview→source sync while we touch the iframe.
       ignoreScrollUntil.current = Date.now() + (wantScroll ? 350 : 200);
       machineDrive.current = "editor";
@@ -374,7 +394,7 @@ export function HtmlReader({ doc }: { doc: Document }) {
       }
       if (wantAnnounce) setStatus("已在预览中定位");
     } else if (wantAnnounce) {
-      setStatus("未能在预览中定位");
+      setStatus(anchorsWeakRef.current ? "动态页已关闭同步滚动" : "未能在预览中定位");
     }
     clearPendingPreviewLocate();
   }, [pendingPreviewLocate, clearPendingPreviewLocate, setStatus]);
@@ -386,6 +406,8 @@ export function HtmlReader({ doc }: { doc: Document }) {
     if (scrollSyncEvent.from !== "editor") return;
     if (!getSyncScrollEnabled(doc.id)) return;
     if (viewModeStore !== "split") return;
+    // Bug 4: do not send {o,o+1} against a huge dynamic shell when anchors are weak.
+    if (anchorsWeakRef.current) return;
     const win = iframeRef.current?.contentWindow;
     if (!win) return;
     if (machineDrive.current === "preview") return;

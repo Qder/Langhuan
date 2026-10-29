@@ -7,7 +7,12 @@ import {
   type BridgeInboundType,
 } from "./types";
 
-import { instrumentHtmlSrcDoc } from "./htmlInstrument";
+import {
+  findLastBodyCloseIndex,
+  instrumentHtmlSrcDoc,
+} from "./htmlInstrument";
+import { prepareHtmlPreview } from "../fixHtmlPreview";
+import { normalizeNewlines } from "../utils";
 
 const BRIDGE_TYPE_SET = new Set<string>(BRIDGE_INBOUND_TYPES);
 
@@ -156,7 +161,13 @@ export const HTML_LOCATE_BRIDGE = `
       rect: { top: rect.top, left: rect.left, bottom: rect.bottom, right: rect.right },
       range: lh || undefined,
       tag: lhEl && lhEl.tagName ? lhEl.tagName.toLowerCase() : undefined,
-      annotatedSelf: !!(lhEl && range.startContainer && lhEl.contains(range.startContainer))
+      // Messaging only: true when the selection's start element itself has data-lh
+      // (not merely nested inside an annotated ancestor).
+      annotatedSelf: !!(function () {
+        var n = range.startContainer;
+        var el = n && n.nodeType === 1 ? n : (n && n.parentElement);
+        return !!(el && el.getAttribute && el.getAttribute("data-lh"));
+      })()
     };
   }
 
@@ -624,6 +635,24 @@ export const HTML_LOCATE_BRIDGE = `
     // Overlay is drawn only by inbound highlightRange / scrollToRange
     // (source→preview sync or after explicit 「定位源码」), never on click.
 
+    var occurrence = 1;
+    try {
+      if (snippet && lhEl) {
+        var scope = document.body || document.documentElement;
+        var all = scope.querySelectorAll("*");
+        var seen = 0;
+        var wantTag = lhEl.tagName ? lhEl.tagName.toLowerCase() : "";
+        for (var oi = 0; oi < all.length; oi++) {
+          var cand = all[oi];
+          if ((cand.tagName || "").toLowerCase() !== wantTag) continue;
+          var ct = (cand.innerText || cand.textContent || "").trim();
+          if (ct !== snippet) continue;
+          seen++;
+          if (cand === lhEl || cand.contains(target)) { occurrence = seen; break; }
+        }
+      }
+    } catch (eOcc) {}
+
     parent.postMessage({
       type: "lh-locate",
       text: snippet,
@@ -633,7 +662,9 @@ export const HTML_LOCATE_BRIDGE = `
       tagPath: tagPath(lhEl || target),
       range: lh || undefined,
       tag: lhEl && lhEl.tagName ? lhEl.tagName.toLowerCase() : undefined,
+      id: (lhEl && lhEl.id) || (target && target.id) || undefined,
       annotatedSelf: selfAnnotated,
+      occurrence: occurrence,
       metaKey: !!e.metaKey,
       ctrlKey: !!e.ctrlKey,
       detail: e.detail || 1
@@ -686,10 +717,8 @@ export function injectLocateBridge(srcDoc: string): string {
   // strip any previous bridge
   let html = srcDoc.replace(/<script[^>]*data-lh-bridge=["']1["'][^>]*>[\s\S]*?<\/script>/gi, "");
 
-  // Prefer the last </body>: pages may embed "</body>" inside <script> JSON/examples
-  const lower = html.toLowerCase();
-  const marker = "</body>";
-  const idx = lower.lastIndexOf(marker);
+  // Only the last </body> outside script/style/textarea (Bug 5).
+  const idx = findLastBodyCloseIndex(html);
   if (idx >= 0) {
     return html.slice(0, idx) + `${HTML_LOCATE_BRIDGE}\n` + html.slice(idx);
   }
@@ -697,23 +726,22 @@ export function injectLocateBridge(srcDoc: string): string {
 }
 
 /**
- * Build preview srcDoc: instrument data-lh on a copy, then inject bridge.
- * `rawSource` must be the user's original HTML (offsets relative to it).
- * `prepared` is optionally already run through prepareHtmlPreview; if omitted,
- * instrumentation runs on rawSource directly.
+ * Build preview srcDoc for iframe only (never saved/exported).
+ *
+ * Offset contract (Bug 1): parse5 + `data-lh` values are computed on **raw**
+ * LF-normalized source (`getContent()`). Preview may then be mutated by
+ * `prepareHtmlPreview` (colorize rewrite / strip handlers / DOMPurify);
+ * attribute numbers still point at raw. Locate must use the same raw string.
+ *
+ * Second arg kept optional for call-site compatibility and is ignored — passing
+ * a prepared string here previously caused processed offsets.
  */
-export function buildInstrumentedSrcDoc(rawSource: string, prepared?: string): string {
-  // Instrument the prepared markup when helpers were rewritten, but offsets must
-  // still match rawSource. If prepareHtmlPreview only replaces colorize bodies,
-  // offsets after the replacement shift — so we instrument rawSource first when
-  // prepared === rawSource, otherwise instrument prepared and accept that
-  // dynamic pages with colorize rewrites are rare for locate.
-  const base = prepared ?? rawSource;
-  // Prefer instrumenting the same string that will be shown, BUT rewrite
-  // data-lh values only from parse of the same string. Callers should pass
-  // the string whose offsets they will use for locate (typically raw).
-  const { html } = instrumentHtmlSrcDoc(base);
-  return injectLocateBridge(html);
+export function buildInstrumentedSrcDoc(rawSource: string, _prepared?: string): string {
+  void _prepared;
+  const raw = normalizeNewlines(rawSource);
+  const { html: instrumented } = instrumentHtmlSrcDoc(raw);
+  const preview = prepareHtmlPreview(instrumented);
+  return injectLocateBridge(preview);
 }
 
 
