@@ -31,7 +31,7 @@ npm start
 npm run tauri:dev
 ```
 
-浏览器用法不变：`npm run dev`。详见 [STATUS-tauri.md](./STATUS-tauri.md)。
+浏览器用法不变：`npm run dev`。详见 [STATUS-tauri.md](./docs/status/STATUS-tauri.md)。
 
 生产 `npm run tauri:build` 目前可编过 Rust；安装包内前端仍为占位页，完整离线 UI 待后续。
 
