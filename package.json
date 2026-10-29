@@ -13,7 +13,11 @@
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
     "typecheck": "tsc --noEmit",
-    "check": "npm run typecheck && npm run lint && npm run test"
+    "check": "npm run typecheck && npm run lint && npm run test",
+    "gen:bridge": "node scripts/gen-bridge.mjs",
+    "predev": "npm run gen:bridge",
+    "prebuild": "npm run gen:bridge",
+    "pretest": "npm run gen:bridge"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.4",
