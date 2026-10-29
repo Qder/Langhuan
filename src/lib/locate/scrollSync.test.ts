@@ -10,10 +10,13 @@ import {
   maybeResetActive,
   parseDataLh,
   previewTopToSourceOffset,
+  previewTopToSourceOffsetSorted,
+  buildSortedAnchorArrays,
   scrollTopFromPercent,
   shouldAcceptDrive,
   shouldUpdateScrollTop,
   sourceOffsetToPreviewTop,
+  sourceOffsetToPreviewTopSorted,
   clampDocPos,
   ACTIVE_RESET_MS,
   IGNORE_WINDOW_MS,
@@ -180,5 +183,55 @@ describe("clampDocPos", () => {
     expect(clampDocPos(NaN, 100)).toBe(0);
     expect(clampDocPos(Infinity, 100)).toBe(0);
     expect(clampDocPos(12.9, 100)).toBe(12);
+  });
+});
+
+describe("sorted anchor helpers match unsorted API", () => {
+  const anchors: Anchor[] = [
+    {
+      id: "c",
+      start: 200,
+      end: 220,
+      startLine: 10,
+      endLine: 11,
+      previewTop: 400,
+      previewHeight: 40,
+    },
+    {
+      id: "a",
+      start: 0,
+      end: 10,
+      startLine: 1,
+      endLine: 1,
+      previewTop: 0,
+      previewHeight: 40,
+    },
+    {
+      id: "b",
+      start: 100,
+      end: 120,
+      startLine: 5,
+      endLine: 6,
+      previewTop: 200,
+      previewHeight: 40,
+    },
+  ];
+
+  it("previewTopToSourceOffsetSorted matches previewTopToSourceOffset", () => {
+    const sorted = buildSortedAnchorArrays(anchors);
+    for (const top of [-10, 0, 50, 100, 200, 300, 400, 999]) {
+      expect(
+        previewTopToSourceOffsetSorted(top, sorted.previewTops, sorted.startsByPreview)
+      ).toBe(previewTopToSourceOffset(top, anchors));
+    }
+  });
+
+  it("sourceOffsetToPreviewTopSorted matches sourceOffsetToPreviewTop", () => {
+    const sorted = buildSortedAnchorArrays(anchors);
+    for (const off of [-5, 0, 50, 100, 150, 200, 999]) {
+      expect(
+        sourceOffsetToPreviewTopSorted(off, sorted.starts, sorted.previewTopsByStart)
+      ).toBe(sourceOffsetToPreviewTop(off, anchors));
+    }
   });
 });

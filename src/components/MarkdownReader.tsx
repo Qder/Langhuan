@@ -37,12 +37,14 @@ import {
   getPreviewSelectionInfo,
   isTrivialSelection,
   locateInMarkdown,
-  previewTopToSourceOffset,
-  sourceOffsetToPreviewTop,
+  previewTopToSourceOffsetSorted,
+  sourceOffsetToPreviewTopSorted,
+  buildSortedAnchorArrays,
+  measureMdAnchorsInDom,
   shouldUpdateScrollTop,
   srcAttrs,
-  measureAnchorsFromElements,
 } from "@/lib/locate";
+import type { SortedAnchorArrays } from "@/lib/locate/scrollSync";
 import type { LocateResult } from "@/lib/locate";
 import { rehypeSrcPositions } from "@/lib/locate/rehypeSrcPositions";
 import { PreviewContextMenu, type ContextMenuItem } from "./locate/PreviewContextMenu";
@@ -221,6 +223,9 @@ export function MarkdownReader({ doc }: { doc: Document }) {
   const ignoreScrollUntil = React.useRef(0);
   const machineDrive = React.useRef<"preview" | "editor" | null>(null);
   const resetTimer = React.useRef<number | null>(null);
+  /** Cached sorted anchor arrays; invalidated on body/layout/fonts changes. */
+  const anchorsCacheRef = React.useRef<SortedAnchorArrays | null>(null);
+  const anchorsInvalidateRaf = React.useRef(0);
   const [previewFlash, setPreviewFlash] = React.useState<HTMLElement | null>(null);
   const [menu, setMenu] = React.useState<{
     x: number;
@@ -290,34 +295,60 @@ export function MarkdownReader({ doc }: { doc: Document }) {
     setMenu(null);
   }, [content, applyLocateResult, setStatus]);
 
-  const measureMdAnchors = React.useCallback(() => {
+  const invalidateAnchorCache = React.useCallback(() => {
+    anchorsCacheRef.current = null;
+  }, []);
+
+  const ensureSortedAnchors = React.useCallback((): SortedAnchorArrays | null => {
+    if (anchorsCacheRef.current) return anchorsCacheRef.current;
     return probeSection("measureMdAnchors", () => {
       const root = document.getElementById("reader-scroll");
       const article = articleRef.current;
-      if (!root || !article) return [];
-      const rootRect = root.getBoundingClientRect();
-      const nodes = [...article.querySelectorAll<HTMLElement>("[data-src-start]")];
-      return measureAnchorsFromElements(
-        nodes.map((el, i) => {
-          const start = Number(el.getAttribute("data-src-start"));
-          const end = Number(el.getAttribute("data-src-end") || start);
-          const line = Number(el.getAttribute("data-src-line") || 1);
-          const rect = el.getBoundingClientRect();
-          return {
-            id: `md-${i}`,
-            start,
-            end,
-            startLine: line,
-            endLine: line,
-            top: rect.top - rootRect.top + root.scrollTop,
-            height: rect.height,
-          };
-        })
-      );
+      if (!root || !article) return null;
+      const anchors = measureMdAnchorsInDom(root, article);
+      const sorted = buildSortedAnchorArrays(anchors);
+      anchorsCacheRef.current = sorted;
+      return sorted;
     });
   }, []);
 
-  // Preview scroll → editor (anchor interpolate)
+  // Invalidate anchor cache when body changes, container resizes, or fonts load.
+  React.useEffect(() => {
+    invalidateAnchorCache();
+  }, [body, invalidateAnchorCache]);
+
+  React.useEffect(() => {
+    const root = document.getElementById("reader-scroll");
+    const article = articleRef.current;
+    if (!root && !article) return;
+    const schedule = () => {
+      if (anchorsInvalidateRaf.current) return;
+      anchorsInvalidateRaf.current = requestAnimationFrame(() => {
+        anchorsInvalidateRaf.current = 0;
+        invalidateAnchorCache();
+      });
+    };
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(schedule) : null;
+    if (ro && root) ro.observe(root);
+    if (ro && article) ro.observe(article);
+    let fontsGone = false;
+    const fonts = typeof document !== "undefined" ? document.fonts : undefined;
+    if (fonts?.ready) {
+      void fonts.ready.then(() => {
+        if (!fontsGone) invalidateAnchorCache();
+      });
+    }
+    return () => {
+      fontsGone = true;
+      ro?.disconnect();
+      if (anchorsInvalidateRaf.current) {
+        cancelAnimationFrame(anchorsInvalidateRaf.current);
+        anchorsInvalidateRaf.current = 0;
+      }
+    };
+  }, [body, invalidateAnchorCache]);
+
+  // Preview scroll → editor (cached anchors; binary search only — no layout reads)
   React.useEffect(() => {
     const root = document.getElementById("reader-scroll");
     if (!root) return;
@@ -337,8 +368,13 @@ export function MarkdownReader({ doc }: { doc: Document }) {
           resetTimer.current = window.setTimeout(() => {
             machineDrive.current = null;
           }, 150);
-          const anchors = measureMdAnchors();
-          const offset = previewTopToSourceOffset(root.scrollTop, anchors);
+          const sorted = ensureSortedAnchors();
+          if (!sorted) return;
+          const offset = previewTopToSourceOffsetSorted(
+            root.scrollTop,
+            sorted.previewTops,
+            sorted.startsByPreview
+          );
           if (offset == null) return;
           publishScrollSync({
             docId: doc.id,
@@ -353,9 +389,9 @@ export function MarkdownReader({ doc }: { doc: Document }) {
       root.removeEventListener("scroll", onScroll);
       if (raf) cancelAnimationFrame(raf);
     };
-  }, [doc.id, getSyncScrollEnabled, measureMdAnchors, publishScrollSync, body]);
+  }, [doc.id, getSyncScrollEnabled, ensureSortedAnchors, publishScrollSync, body]);
 
-  // Editor → preview scroll (bus; no React re-render on scroll)
+  // Editor → preview scroll (bus; cached anchors)
   React.useEffect(() => {
     return subscribeScrollSync((ev) => {
       if (ev.docId !== doc.id) return;
@@ -367,10 +403,14 @@ export function MarkdownReader({ doc }: { doc: Document }) {
       if (machineDrive.current === "preview") return;
       machineDrive.current = "editor";
       ignoreScrollUntil.current = Date.now() + 100;
-      const anchors = measureMdAnchors();
+      const sorted = ensureSortedAnchors();
       const so = ev.sourceOffset;
-      if (so == null || !Number.isFinite(so)) return;
-      const top = sourceOffsetToPreviewTop(so, anchors);
+      if (!sorted || so == null || !Number.isFinite(so)) return;
+      const top = sourceOffsetToPreviewTopSorted(
+        so,
+        sorted.starts,
+        sorted.previewTopsByStart
+      );
       if (top != null && shouldUpdateScrollTop(root.scrollTop, top)) {
         root.scrollTop = top;
       }
@@ -379,7 +419,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
         machineDrive.current = null;
       }, 150);
     });
-  }, [doc.id, getSyncScrollEnabled, measureMdAnchors]);
+  }, [doc.id, getSyncScrollEnabled, ensureSortedAnchors]);
 
   // Click preview block → locate source only in split (highlight).
   // Preview-only: plain click must NOT remember locate — use右键「定位源码」。
