@@ -332,14 +332,11 @@ export function HtmlReader({ doc }: { doc: Document }) {
       if (data.type === "lh-locate") {
         // Click outside the context menu (inside iframe) dismisses it.
         setMenu(null);
-        if (!data.range && isTrivialSelection(data.text || "")) return;
-        // Plain left-click must never locate/highlight (bridge also suppresses it).
-        // Only ⌘/Ctrl+click, double-click, or ⌘/Ctrl+Enter (and context-menu 「定位源码」).
-        const explicit =
-          !!(data.metaKey || data.ctrlKey) ||
-          (data.detail != null && data.detail >= 2);
-        if (!explicit) return;
-        if (useStore.getState().viewMode === "preview") return;
+        if (!data.range && isTrivialSelection(data.text || data.textSnippet || "")) return;
+        // Align Markdown: plain click = locate + highlight (no focus/selection);
+        // ⌘/Ctrl+click or double-click = enter edit (select + focus; preview→split).
+        // Pure preview + plain click → applyLocateResult sets pendingReveal + tip only
+        // (does not switch layout). Explicit locate still opens split via select/focus.
         runLocate(data);
         return;
       }

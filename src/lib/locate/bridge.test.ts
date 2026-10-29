@@ -98,19 +98,30 @@ const DATA = {
     expect(HTML_LOCATE_BRIDGE).toContain("pointQuery");
   });
 
-  it("plain left-click clears overlay and never draws 朱砂 box", () => {
-    // Plain click must clear stale overlay and return before any showOverlayFor / lh-locate.
+  it("plain left-click posts lh-locate (no 朱砂 box; thin outline flash only)", () => {
+    // Align Markdown: plain click must post lh-locate (gates removed).
     expect(HTML_LOCATE_BRIDGE).toContain("explicitLocate");
     expect(HTML_LOCATE_BRIDGE).toContain("clearOverlay()");
-    expect(HTML_LOCATE_BRIDGE).toMatch(/if \(!explicitLocate\) \{[\s\S]*?clearOverlay\(\);[\s\S]*?return;/);
-    // Click path must not call showOverlayFor — only highlightRange / scrollToRange / legacy lh-highlight.
+    expect(HTML_LOCATE_BRIDGE).toContain("flashClickOutline");
+    expect(HTML_LOCATE_BRIDGE).toContain("cardIndexNear");
+    // Must NOT early-return before posting on plain click.
+    expect(HTML_LOCATE_BRIDGE).not.toMatch(
+      /Plain left-click:[\s\S]*?never post lh-locate/
+    );
+    expect(HTML_LOCATE_BRIDGE).not.toMatch(
+      /if \(!explicitLocate\) \{[\s\S]*?clearOverlay\(\);[\s\S]*?return;/
+    );
+    // Click path must not call showOverlayFor — only thin flashClickOutline.
     const clickIdx = HTML_LOCATE_BRIDGE.indexOf('addEventListener("click"');
     const msgIdx = HTML_LOCATE_BRIDGE.indexOf('window.addEventListener("message"');
     expect(clickIdx).toBeGreaterThan(-1);
     expect(msgIdx).toBeGreaterThan(clickIdx);
     const clickRegion = HTML_LOCATE_BRIDGE.slice(clickIdx, msgIdx);
     expect(clickRegion).not.toContain("showOverlayFor");
+    expect(clickRegion).toContain("flashClickOutline");
     expect(clickRegion).toContain('type: "lh-locate"');
+    // Blank / no-text plain click skipped
+    expect(clickRegion).toContain("!String(snippet).trim()");
     // Overlay draw remains for source→preview sync
     const msgRegion = HTML_LOCATE_BRIDGE.slice(msgIdx);
     expect(msgRegion).toContain("showOverlayFor(el)");

@@ -118,6 +118,67 @@ const DATA = [
     expect(hit.end).toBe(c1);
     expect(hit.message).toMatch(/仅定位到所在容器/);
   });
+
+  it("JS-rendered stem: hits script JSON stem, not #list shell (even with annotatedSelf)", () => {
+    const stem = "用等值演算法判断公式的类型";
+    const source = `<body>
+<div id="list"></div>
+<script>
+const DATA = [
+  {"id":1,"stem":"第一题题干占位","options":["A","B"]},
+  {"id":2,"stem":"${stem}","options":["A. 永真","B. 永假","C. 可满足"]}
+];
+</script>
+</body>`;
+    const c0 = source.indexOf('<div id="list"');
+    const c1 = source.indexOf("</div>") + 6;
+    const hit = locatePreviewClick({
+      source,
+      text: stem,
+      container: { start: c0, end: c1 },
+      occurrence: 2,
+      annotatedSelf: false,
+    });
+    expect(hit.precision).toBe("script");
+    expect(source.slice(hit.start, hit.end)).toContain(stem);
+    expect(hit.start).toBeGreaterThan(source.indexOf("<script"));
+    expect(hit.message).toMatch(/脚本数据中的第/);
+    // Must not land on #list container
+    expect(hit.start).not.toBe(c0);
+  });
+
+  it("annotatedSelf + empty text does not pretend exact on shell — container or none", () => {
+    const source = `<body><div id="list"></div><script>const DATA=[{"stem":"x"}];</script></body>`;
+    const c0 = source.indexOf('<div id="list"');
+    const c1 = source.indexOf("</div>") + 6;
+    const hit = locatePreviewClick({
+      source,
+      text: "",
+      container: { start: c0, end: c1 },
+      annotatedSelf: true,
+    });
+    expect(hit.precision).toBe("container");
+    expect(hit.message).toMatch(/仅定位到所在容器/);
+  });
+
+  it("option B text → options B line in script", () => {
+    const source = `<body><div id="list"></div><script>
+const DATA=[
+  {"stem":"q1","options":["A. aa","B. bb"]},
+  {"stem":"q2","options":["A. 永真","B. 永假","C. 可满足"]}
+];
+</script></body>`;
+    const c0 = source.indexOf('<div id="list"');
+    const c1 = source.indexOf("</div>") + 6;
+    const hit = locatePreviewClick({
+      source,
+      text: "B. 永假",
+      container: { start: c0, end: c1 },
+      occurrence: 2,
+    });
+    expect(["script", "fuzzy"].includes(hit.precision)).toBe(true);
+    expect(source.slice(hit.start, hit.end)).toContain("B. 永假");
+  });
 });
 
 describe("locateDynamicHtml disambiguation", () => {

@@ -493,10 +493,41 @@ export const HTML_LOCATE_BRIDGE = `
         var role = el.getAttribute("role");
         if (role === "button" || role === "link" || role === "textbox" || role === "checkbox" ||
             role === "radio" || role === "switch" || role === "tab" || role === "menuitem") return true;
+        // Short chrome labels (e.g. 「显示答案」) — do not locate, let page handle.
+        try {
+          var short = String(el.textContent || "").replace(/\\s+/g, "").trim();
+          if (short === "显示答案" || short === "隐藏答案" || short === "查看答案" || short === "收起答案") return true;
+        } catch (eAns) {}
       }
       el = el.parentElement;
     }
     return false;
+  }
+
+  function stripChromeClone(el) {
+    if (!el || !el.cloneNode) return el;
+    try {
+      var clone = el.cloneNode(true);
+      var kill = clone.querySelectorAll
+        ? clone.querySelectorAll("button, input, select, textarea, label, summary, a, [role='button'], .badge, .tag, .chip")
+        : [];
+      for (var i = 0; i < kill.length; i++) {
+        var n = kill[i];
+        if (n && n.parentNode) n.parentNode.removeChild(n);
+      }
+      // Remove short answer-toggle text nodes / spans
+      var walk = clone.querySelectorAll ? clone.querySelectorAll("*") : [];
+      for (var j = 0; j < walk.length; j++) {
+        var w = walk[j];
+        var wt = String(w.textContent || "").replace(/\\s+/g, "").trim();
+        if (wt === "显示答案" || wt === "隐藏答案" || wt === "查看答案" || wt === "收起答案") {
+          if (w.parentNode) w.parentNode.removeChild(w);
+        }
+      }
+      return clone;
+    } catch (e) {
+      return el;
+    }
   }
 
   function textSnippetOf(el) {
@@ -505,9 +536,90 @@ export const HTML_LOCATE_BRIDGE = `
       var desc = el.getAttribute && el.getAttribute("data-desc");
       if (desc && String(desc).trim()) return String(desc).trim().replace(/\\s+/g, " ").slice(0, 160);
     } catch (e0) {}
-    var t = String(el.textContent || "").replace(/\\u00a0/g, " ").trim().replace(/\\s+/g, " ");
+    // Prefer stem / desc / title / heading / paragraph near the click.
+    try {
+      var prefer = null;
+      var tag = (el.tagName || "").toLowerCase();
+      if (/^h[1-6]$/.test(tag) || tag === "p" || tag === "li") prefer = el;
+      if (!prefer && el.closest) {
+        prefer = el.closest(".stem, .desc, .title, .question-stem, [data-stem], [data-desc], p, h1, h2, h3, h4, h5, h6, li");
+      }
+      if (!prefer && el.querySelector) {
+        prefer = el.querySelector(".stem, .desc, .title, [data-stem], [data-desc], p, h1, h2, h3, h4, h5, h6");
+      }
+      if (prefer) el = prefer;
+    } catch (e1) {}
+    var src = stripChromeClone(el);
+    var t = String((src && (src.innerText || src.textContent)) || "").replace(/\\u00a0/g, " ").trim().replace(/\\s+/g, " ");
+    // Drop leading badge / 题号 chrome
+    t = t.replace(/^(常用|进阶\/少用|已弃用|示例)\\s*/u, "");
+    t = t.replace(/^0*\\d{1,3}[\\.、\\s]+/, "");
+    t = t.replace(/^第\\s*\\d+\\s*题[\\s:：]*/u, "");
     if (t.length > 160) t = t.slice(0, 160);
     return t;
+  }
+
+  /** 1-based card / question index near click (题号 02 → 2). 0 = unknown. */
+  function cardIndexNear(node) {
+    var el = node && node.nodeType === 3 ? node.parentElement : node;
+    while (el && el !== document.body && el !== document.documentElement) {
+      try {
+        if (el.getAttribute) {
+          var di = el.getAttribute("data-index") || el.getAttribute("data-i") ||
+            el.getAttribute("data-q") || el.getAttribute("data-no") || el.getAttribute("data-num");
+          if (di != null && String(di).trim() !== "") {
+            var n = parseInt(String(di).trim(), 10);
+            if (Number.isFinite(n) && n >= 0) return n === 0 ? 1 : n;
+          }
+        }
+        var badge = el.querySelector && el.querySelector(
+          ".no, .num, .index, .q-no, .question-no, [class*='index'], [class*='number']"
+        );
+        if (badge) {
+          var bt = String(badge.textContent || "").trim();
+          var m = bt.match(/0*([1-9]\\d{0,2})/);
+          if (m) return parseInt(m[1], 10);
+        }
+        // Leading text "02" / "2." / "第2题" on first chrome child
+        for (var c = el.firstChild; c; c = c.nextSibling) {
+          if (c.nodeType === 3) {
+            var tt = String(c.textContent || "").trim();
+            var mm = tt.match(/^0*([1-9]\\d{0,2})(?:[\\.、\\s]|$)/) || tt.match(/^第\\s*([1-9]\\d{0,2})\\s*题/);
+            if (mm) return parseInt(mm[1], 10);
+          } else if (c.nodeType === 1) {
+            var ct = (c.tagName || "").toLowerCase();
+            if (ct === "span" || ct === "b" || ct === "strong" || ct === "em" || ct === "i" || ct === "label" || ct === "small") {
+              var st = String(c.textContent || "").trim();
+              var m2 = st.match(/^0*([1-9]\\d{0,2})$/) || st.match(/^0*([1-9]\\d{0,2})[\\.、]/) || st.match(/^第\\s*([1-9]\\d{0,2})\\s*题/);
+              if (m2) return parseInt(m2[1], 10);
+            }
+            break;
+          }
+        }
+      } catch (eCard) {}
+      el = el.parentElement;
+    }
+    return 0;
+  }
+
+  /** Thin 1–2px outline flash — not the 朱砂 overlay box. */
+  function flashClickOutline(el) {
+    if (!el || !el.style) return;
+    try {
+      var prevOutline = el.style.outline;
+      var prevOffset = el.style.outlineOffset;
+      var prevTransition = el.style.transition;
+      el.style.outline = "1px solid rgba(179,56,42,0.55)";
+      el.style.outlineOffset = "1px";
+      el.style.transition = "outline-color 0.8s ease-out";
+      window.setTimeout(function () {
+        try {
+          el.style.outline = prevOutline;
+          el.style.outlineOffset = prevOffset;
+          el.style.transition = prevTransition;
+        } catch (e2) {}
+      }, 800);
+    } catch (e1) {}
   }
 
   var downX = 0, downY = 0, downBtn = 0;
@@ -602,27 +714,16 @@ export const HTML_LOCATE_BRIDGE = `
     var navHandled = handleSrcDocNavClick(e);
     var target = e.target;
     var explicitLocate = !!(e.metaKey || e.ctrlKey) || (e.detail >= 2);
-    // Plain left-click: never draw 朱砂 overlay / never post lh-locate.
-    // Clear any stale box from a prior locate so chrome clicks dismiss it.
-    if (!explicitLocate) {
-      clearOverlay();
-      return;
-    }
-    // Hash / blocked nav / interactive: skip even for ⌘/Ctrl / double-click locate.
+    // Clear stale 朱砂 overlay from source→preview sync; click itself never draws it.
+    clearOverlay();
+    // Hash / blocked nav / interactive: skip locate (plain and explicit).
     if (navHandled) return;
     if (isInteractive(target)) return;
     var sel = window.getSelection();
     if (sel && !sel.isCollapsed && String(sel).trim() && e.detail < 2) return;
 
     var lhEl = closestLh(target);
-    var selfAnnotated = !!(target && target.getAttribute && target.getAttribute("data-lh"));
-    if (!selfAnnotated && target && target.nodeType === 3) {
-      selfAnnotated = !!(target.parentElement && target.parentElement.getAttribute && target.parentElement.getAttribute("data-lh"));
-    }
-    // Also treat direct element with data-lh
-    if (!selfAnnotated && lhEl && (lhEl === target || (target.nodeType === 1 && lhEl === target))) {
-      selfAnnotated = true;
-    }
+    var selfAnnotated = false;
     if (lhEl && target && target.closest) {
       try {
         var direct = (target.nodeType === 1 ? target : target.parentElement);
@@ -630,28 +731,40 @@ export const HTML_LOCATE_BRIDGE = `
       } catch (e1) {}
     }
 
-    var lh = parseLh(lhEl);
-    var snippet = textSnippetOf(target && target.nodeType === 1 ? target : (target && target.parentElement) || lhEl);
-    // Overlay is drawn only by inbound highlightRange / scrollToRange
-    // (source→preview sync or after explicit 「定位源码」), never on click.
+    var clickEl = target && target.nodeType === 1 ? target : (target && target.parentElement) || lhEl;
+    var snippet = textSnippetOf(clickEl);
+    // Plain click on blank / no-text chrome: do not locate or jump.
+    if (!explicitLocate && (!snippet || !String(snippet).trim())) return;
+    // Explicit with no text still needs a data-lh anchor.
+    if (explicitLocate && (!snippet || !String(snippet).trim()) && !lhEl) return;
 
-    var occurrence = 1;
-    try {
-      if (snippet && lhEl) {
-        var scope = document.body || document.documentElement;
-        var all = scope.querySelectorAll("*");
-        var seen = 0;
-        var wantTag = lhEl.tagName ? lhEl.tagName.toLowerCase() : "";
-        for (var oi = 0; oi < all.length; oi++) {
-          var cand = all[oi];
-          if ((cand.tagName || "").toLowerCase() !== wantTag) continue;
-          var ct = (cand.innerText || cand.textContent || "").trim();
-          if (ct !== snippet) continue;
-          seen++;
-          if (cand === lhEl || cand.contains(target)) { occurrence = seen; break; }
+    var lh = parseLh(lhEl);
+    // Prefer card/题号 index for script disambiguation; else Nth equal snippet.
+    var occurrence = cardIndexNear(clickEl);
+    if (!occurrence) {
+      occurrence = 1;
+      try {
+        if (snippet && lhEl) {
+          var scope = document.body || document.documentElement;
+          var all = scope.querySelectorAll("*");
+          var seen = 0;
+          var wantTag = lhEl.tagName ? lhEl.tagName.toLowerCase() : "";
+          for (var oi = 0; oi < all.length; oi++) {
+            var cand = all[oi];
+            if ((cand.tagName || "").toLowerCase() !== wantTag) continue;
+            var ct = (cand.innerText || cand.textContent || "").trim();
+            if (ct !== snippet) continue;
+            seen++;
+            if (cand === lhEl || cand.contains(target)) { occurrence = seen; break; }
+          }
         }
-      }
-    } catch (eOcc) {}
+      } catch (eOcc) {}
+    }
+
+    // Preview-side: thin outline only (not 朱砂 box). Source highlight is primary.
+    try {
+      flashClickOutline(clickEl || lhEl);
+    } catch (eFlash) {}
 
     parent.postMessage({
       type: "lh-locate",

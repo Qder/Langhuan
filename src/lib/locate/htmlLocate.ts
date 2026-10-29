@@ -486,18 +486,8 @@ export function locatePreviewClick(opts: {
         message: `已定位到第 ${line} 行`,
       };
     }
-
-    // Clicked the annotated element itself with little/no text → whole tag range.
-    if (opts.annotatedSelf && isTrivialSelection(text)) {
-      const line = lineAtOffset(source, container.start);
-      return {
-        start: container.start,
-        end: container.end,
-        precision: "exact",
-        line,
-        message: `已定位到第 ${line} 行`,
-      };
-    }
+    // annotatedSelf is messaging-only — never skip script search / never pretend exact
+    // for empty chrome clicks (blank → container fallback below with 仅定位到所在容器).
   }
 
   const dyn = locateDynamicHtml({
