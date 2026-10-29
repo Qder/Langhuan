@@ -302,8 +302,72 @@
   // Capture phase so nested overflow:auto scrollers also drive sync.
   document.addEventListener("scroll", onScroll, { passive: true, capture: true });
   window.addEventListener("scroll", onScroll, { passive: true });
-  document.addEventListener("toggle", function () {
+  // Track which details already emitted lh-quiz-peeked (open edge only).
+  var quizPeekedIds = Object.create(null);
+
+  function quizDetailId(el) {
+    if (!el) return "";
+    var lh = parseLh(el);
+    if (lh) return String(lh.start) + "-" + String(lh.end);
+    var sum = el.querySelector && el.querySelector("summary");
+    var stem = sum
+      ? String(sum.textContent || "").replace(/\s+/g, " ").trim()
+      : String(el.textContent || "").replace(/\s+/g, " ").trim().slice(0, 80);
+    // FNV-1a 32-bit, mirror stemHashId in quiz.ts
+    var h = 2166136261;
+    for (var i = 0; i < stem.length; i++) {
+      h ^= stem.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return "stem_" + ((h >>> 0).toString(36));
+  }
+
+  function quizListItems() {
+    var nodes = document.querySelectorAll("details");
+    var items = [];
+    for (var i = 0; i < nodes.length; i++) {
+      var el = nodes[i];
+      var sum = el.querySelector("summary");
+      var stem = sum
+        ? String(sum.textContent || "").replace(/\s+/g, " ").trim()
+        : String(el.textContent || "").replace(/\s+/g, " ").trim().slice(0, 80);
+      items.push({
+        id: quizDetailId(el),
+        stem: stem,
+        open: !!el.open
+      });
+    }
+    return items;
+  }
+
+  function quizSetOpen(payload) {
+    var open = !!(payload && payload.open);
+    var all = !!(payload && payload.all);
+    var id = payload && typeof payload.id === "string" ? payload.id : "";
+    var nodes = document.querySelectorAll("details");
+    for (var i = 0; i < nodes.length; i++) {
+      var el = nodes[i];
+      if (all) {
+        el.open = open;
+      } else if (id && quizDetailId(el) === id) {
+        el.open = open;
+        break;
+      }
+    }
     setTimeout(function () { reportScrollAnchors(null); }, 30);
+  }
+
+  document.addEventListener("toggle", function (e) {
+    setTimeout(function () { reportScrollAnchors(null); }, 30);
+    try {
+      var t = e && e.target;
+      if (!t || !t.tagName || String(t.tagName).toLowerCase() !== "details") return;
+      if (!t.open) return; // open edge only
+      var id = quizDetailId(t);
+      if (!id || quizPeekedIds[id]) return;
+      quizPeekedIds[id] = true;
+      parent.postMessage({ type: "lh-quiz-peeked", id: id }, "*");
+    } catch (errPeek) {}
   }, true);
   window.addEventListener("load", function () {
     var imgs = document.images;
@@ -748,6 +812,14 @@
       if (!el) return;
       if (d.type === "scrollToRange") scrollToEl(el, true);
       showOverlayFor(el);
+      return;
+    }
+    if (d.type === "lh-quiz-list") {
+      parent.postMessage({ type: "lh-quiz-list", items: quizListItems() }, "*");
+      return;
+    }
+    if (d.type === "lh-quiz-set-open") {
+      quizSetOpen(d);
       return;
     }
     // legacy text highlight

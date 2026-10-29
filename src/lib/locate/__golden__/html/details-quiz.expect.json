@@ -7,7 +7,7 @@
       "name": "summary",
       "find": {
         "tag": "summary",
-        "text": "题干"
+        "text": "题干：What is 2+2"
       },
       "start": 46,
       "end": 80,
@@ -17,11 +17,21 @@
       "name": "answer",
       "find": {
         "tag": "div",
-        "text": "答案"
+        "text": "答案：4"
       },
       "start": 83,
       "end": 113,
       "sliceContains": "答案"
+    },
+    {
+      "name": "summary2",
+      "find": {
+        "tag": "summary",
+        "text": "题干：What is 3+3"
+      },
+      "start": 137,
+      "end": 171,
+      "sliceContains": "<summary>"
     },
     {
       "name": "label stem",
@@ -29,8 +39,8 @@
         "tag": "label",
         "text": "Label-wrapped"
       },
-      "start": 125,
-      "end": 191,
+      "start": 216,
+      "end": 282,
       "sliceContains": "<label"
     }
   ]

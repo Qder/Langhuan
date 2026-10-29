@@ -246,6 +246,15 @@ describe("parseBridgeMessage", () => {
         shiftKey: false,
       })?.type
     ).toBe("lh-keydown");
+    expect(
+      parseBridgeMessage({
+        type: "lh-quiz-list",
+        items: [{ id: "1-2", stem: "题", open: false }],
+      })?.type
+    ).toBe("lh-quiz-list");
+    expect(parseBridgeMessage({ type: "lh-quiz-peeked", id: "1-2" })?.type).toBe(
+      "lh-quiz-peeked"
+    );
   });
 
   it("rejects unknown types and oversized payloads", () => {

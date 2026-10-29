@@ -380,3 +380,102 @@ describe("bridge jsdom: lh-scroll-anchors", () => {
     }
   });
 });
+
+
+describe("bridge jsdom: quiz list / set-open / peeked", () => {
+  const QUIZ_BODY = `
+<details open data-lh="10-80" id="q1"><summary>题干：What is 2+2?</summary><div class="answer">答案：4</div></details>
+<details data-lh="81-150" id="q2"><summary>题干：What is 3+3?</summary><div class="answer">答案：6</div></details>
+`;
+
+  it("lh-quiz-list returns id/stem/open for each details", () => {
+    const { messages, win } = loadBridge(QUIZ_BODY);
+    messages.length = 0;
+    win.dispatchEvent(new win.MessageEvent("message", { data: { type: "lh-quiz-list" } }));
+    const list = messages.filter((m) => m.type === "lh-quiz-list");
+    expect(list).toHaveLength(1);
+    const items = list[0].items as Array<{ id: string; stem: string; open: boolean }>;
+    expect(items).toHaveLength(2);
+    expect(items[0]).toMatchObject({ id: "10-80", stem: "题干：What is 2+2?", open: true });
+    expect(items[1]).toMatchObject({ id: "81-150", stem: "题干：What is 3+3?", open: false });
+  });
+
+  it("lh-quiz-set-open all:false collapses every details (open false)", () => {
+    const { doc, win, messages } = loadBridge(QUIZ_BODY);
+    const details = [...doc.querySelectorAll("details")] as HTMLDetailsElement[];
+    expect(details[0].open).toBe(true);
+    messages.length = 0;
+    win.dispatchEvent(
+      new win.MessageEvent("message", {
+        data: { type: "lh-quiz-set-open", all: true, open: false },
+      })
+    );
+    expect(details.every((d) => d.open === false)).toBe(true);
+    // mirrors golden details-quiz.html: 全部收起后全部 open 为 false
+    win.dispatchEvent(new win.MessageEvent("message", { data: { type: "lh-quiz-list" } }));
+    const items = (messages.find((m) => m.type === "lh-quiz-list")!.items as Array<{ open: boolean }>);
+    expect(items.every((i) => i.open === false)).toBe(true);
+  });
+
+  it("lh-quiz-set-open all:true expands every details", () => {
+    const { doc, win } = loadBridge(QUIZ_BODY);
+    const details = [...doc.querySelectorAll("details")] as HTMLDetailsElement[];
+    win.dispatchEvent(
+      new win.MessageEvent("message", {
+        data: { type: "lh-quiz-set-open", all: true, open: true },
+      })
+    );
+    expect(details.every((d) => d.open === true)).toBe(true);
+  });
+
+  it("lh-quiz-set-open by id toggles one details", () => {
+    const { doc, win } = loadBridge(QUIZ_BODY);
+    const d2 = doc.getElementById("q2") as HTMLDetailsElement;
+    expect(d2.open).toBe(false);
+    win.dispatchEvent(
+      new win.MessageEvent("message", {
+        data: { type: "lh-quiz-set-open", id: "81-150", open: true },
+      })
+    );
+    expect(d2.open).toBe(true);
+    expect((doc.getElementById("q1") as HTMLDetailsElement).open).toBe(true);
+  });
+
+  it("toggle open edge posts lh-quiz-peeked once per id", () => {
+    const { doc, win, messages } = loadBridge(QUIZ_BODY);
+    const d2 = doc.getElementById("q2") as HTMLDetailsElement;
+    messages.length = 0;
+    d2.open = true;
+    d2.dispatchEvent(new win.Event("toggle", { bubbles: true }));
+    const peeked = messages.filter((m) => m.type === "lh-quiz-peeked");
+    expect(peeked).toHaveLength(1);
+    expect(peeked[0].id).toBe("81-150");
+    messages.length = 0;
+    d2.open = false;
+    d2.dispatchEvent(new win.Event("toggle", { bubbles: true }));
+    expect(messages.filter((m) => m.type === "lh-quiz-peeked")).toHaveLength(0);
+    d2.open = true;
+    d2.dispatchEvent(new win.Event("toggle", { bubbles: true }));
+    // already peeked — no second emit
+    expect(messages.filter((m) => m.type === "lh-quiz-peeked")).toHaveLength(0);
+  });
+
+  it("golden details-quiz.html: collapse-all leaves every details.open false", () => {
+    // Fixture mirrors __golden__/html/details-quiz.html structure (2 details).
+    const goldenBody = `
+<details open><summary>题干：What is 2+2?</summary><div class="answer">答案：4</div></details>
+<details><summary>题干：What is 3+3?</summary><div class="answer">答案：6</div></details>
+<label class="stem">Label-wrapped stem should still locate</label>
+`;
+    const { doc, win } = loadBridge(goldenBody);
+    const details = [...doc.querySelectorAll("details")] as HTMLDetailsElement[];
+    expect(details).toHaveLength(2);
+    expect(details.some((d) => d.open)).toBe(true);
+    win.dispatchEvent(
+      new win.MessageEvent("message", {
+        data: { type: "lh-quiz-set-open", all: true, open: false },
+      })
+    );
+    expect(details.every((d) => d.open === false)).toBe(true);
+  });
+});

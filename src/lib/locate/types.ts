@@ -102,13 +102,27 @@ export type HtmlReadyPayload = {
   type: "lh-ready";
 };
 
+/** Quiz: iframe replies with enumerated <details> (same type as request). */
+export type HtmlQuizListPayload = {
+  type: "lh-quiz-list";
+  items: Array<{ id: string; stem: string; open: boolean }>;
+};
+
+/** Quiz: user opened a details (open edge once). */
+export type HtmlQuizPeekedPayload = {
+  type: "lh-quiz-peeked";
+  id: string;
+};
+
 export type BridgeInboundMessage =
   | HtmlLocatePayload
   | HtmlBgPayload
   | HtmlScrollPayload
   | HtmlScrollAnchorsPayload
   | HtmlKeydownPayload
-  | HtmlReadyPayload;
+  | HtmlReadyPayload
+  | HtmlQuizListPayload
+  | HtmlQuizPeekedPayload;
 
 export const BRIDGE_INBOUND_TYPES = [
   "lh-locate",
@@ -120,6 +134,8 @@ export const BRIDGE_INBOUND_TYPES = [
   "lh-scroll-anchors",
   "lh-keydown",
   "lh-ready",
+  "lh-quiz-list",
+  "lh-quiz-peeked",
 ] as const;
 
 export type BridgeInboundType = (typeof BRIDGE_INBOUND_TYPES)[number];
@@ -132,4 +148,6 @@ export type BridgeOutboundMessage =
   | { type: "scrollToRange"; range: { start: number; end: number } }
   | { type: "highlightRange"; range: { start: number; end: number } }
   | { type: "clearHighlight" }
-  | { type: "lh-highlight"; text: string };
+  | { type: "lh-highlight"; text: string }
+  | { type: "lh-quiz-list" }
+  | { type: "lh-quiz-set-open"; id?: string; all?: boolean; open: boolean };
