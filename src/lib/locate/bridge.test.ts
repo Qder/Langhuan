@@ -118,6 +118,39 @@ const DATA = {
     expect(HTML_LOCATE_BRIDGE).toContain("intersectsNode");
   });
 
+  it("emitted bridge script parses so contextmenu listener can attach", () => {
+    const m = HTML_LOCATE_BRIDGE.match(/<script[^>]*>([\s\S]*?)<\/script>/i);
+    expect(m).toBeTruthy();
+    expect(() => new Function(m![1])).not.toThrow();
+    // Regression: template-literal under-escaping (e.g. 进阶\/ or /\s+/ → /s+/)
+    // must never break the iframe IIFE — otherwise native browser menu only.
+    expect(m![1]).toContain("进阶\\/少用");
+    expect(m![1]).not.toMatch(/进阶\/少用/); // bare slash would terminate the regex literal
+  });
+
+  it("contextmenu posts lh-contextmenu and preventDefault when selection exists", () => {
+    const idx = HTML_LOCATE_BRIDGE.indexOf('addEventListener("contextmenu"');
+    expect(idx).toBeGreaterThan(-1);
+    const end = HTML_LOCATE_BRIDGE.indexOf('addEventListener("selectionchange"', idx);
+    expect(end).toBeGreaterThan(idx);
+    const region = HTML_LOCATE_BRIDGE.slice(idx, end);
+    expect(region).toContain("preventDefault");
+    expect(region).toContain('type: "lh-contextmenu"');
+    expect(region).toContain("selPayload");
+    // No-selection path still offers locate on data-lh nodes
+    expect(region).toContain("closestLh");
+    expect(region).toContain("textSnippetOf");
+  });
+
+  it("isInteractive whitespace collapse uses real \\\\s (not letter s)", () => {
+    const start = HTML_LOCATE_BRIDGE.indexOf("function isInteractive");
+    const end = HTML_LOCATE_BRIDGE.indexOf("function stripChromeClone");
+    const body = HTML_LOCATE_BRIDGE.slice(start, end);
+    // Emitted bridge must contain /\s+/g — a single backslash before s
+    expect(body).toMatch(/replace\(\/\\s\+\/g,\s*""\)/);
+    expect(body).not.toMatch(/replace\(\/s\+\/g/);
+  });
+
   it("plain left-click posts lh-locate (no 朱砂 box; thin outline flash only)", () => {
     // Align Markdown: plain click must post lh-locate (gates removed).
     expect(HTML_LOCATE_BRIDGE).toContain("explicitLocate");

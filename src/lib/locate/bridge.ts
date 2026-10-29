@@ -497,7 +497,7 @@ export const HTML_LOCATE_BRIDGE = `
       if (el.getAttribute) {
         // Short chrome labels (e.g. 「显示答案」) — do not locate, let page handle.
         try {
-          var short = String(el.textContent || "").replace(/\s+/g, "").trim();
+          var short = String(el.textContent || "").replace(/\\s+/g, "").trim();
           if (short === "显示答案" || short === "隐藏答案" || short === "查看答案" || short === "收起答案") return true;
         } catch (eAns) {}
       }
@@ -554,7 +554,7 @@ export const HTML_LOCATE_BRIDGE = `
     var src = stripChromeClone(el);
     var t = String((src && (src.innerText || src.textContent)) || "").replace(/\\u00a0/g, " ").trim().replace(/\\s+/g, " ");
     // Drop leading badge / 题号 chrome
-    t = t.replace(/^(常用|进阶\/少用|已弃用|示例)\\s*/u, "");
+    t = t.replace(/^(常用|进阶\\/少用|已弃用|示例)\\s*/u, "");
     t = t.replace(/^0*\\d{1,3}[\\.、\\s]+/, "");
     t = t.replace(/^第\\s*\\d+\\s*题[\\s:：]*/u, "");
     if (t.length > 160) t = t.slice(0, 160);
