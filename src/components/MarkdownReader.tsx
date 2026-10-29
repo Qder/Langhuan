@@ -519,6 +519,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
   const addAnnotation = useStore((s) => s.addAnnotation);
   const ingestImageFile = useStore((s) => s.ingestImageFile);
   const setDraft = useStore((s) => s.setDraft);
+  const pushPreviewUndo = useStore((s) => s.pushPreviewUndo);
   const saveDoc = useStore((s) => s.saveDoc);
   const wide = useMediaQuery("(min-width: 1280px)");
   probeRender("MarkdownReader");
@@ -696,7 +697,10 @@ export function MarkdownReader({ doc }: { doc: Document }) {
       }
       const after = replaceRange(cur, ed.start, ed.end, writeText);
       captureScroll();
-      if (after !== cur) setDraft(doc.id, after);
+      if (after !== cur) {
+        pushPreviewUndo(doc.id, cur);
+        setDraft(doc.id, after);
+      }
       if (opts?.openNext) {
         let { start, end, text } = opts.openNext;
         const { mono, cursorAt, mode, blockType, clientX, clientY } = opts.openNext;
@@ -726,7 +730,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
       }
       setInlineEdit(null);
     },
-    [captureScroll, doc.id, getContent, setDraft]
+    [captureScroll, doc.id, getContent, pushPreviewUndo, setDraft]
   );
 
   const cancelInlineEdit = React.useCallback(() => {

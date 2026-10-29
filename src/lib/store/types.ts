@@ -161,6 +161,8 @@ export type LanghuanState = {
   linkHealthOpen: boolean;
   /** Library find & replace dialog. */
   findReplaceOpen: boolean;
+  /** In-memory preview-edit undo/redo stacks (not persisted). */
+  previewUndoByDoc: Record<string, { undo: string[]; redo: string[] }>;
   /** After opening a quiz doc from review list, scroll+highlight this item. */
   pendingQuizReveal: { docId: string; itemId: string } | null;
   /** MD reading prefs (font / width / focus). */
@@ -216,6 +218,13 @@ export type LanghuanState = {
   isDirty: (id: string) => boolean;
   anyDirty: () => boolean;
   setDraft: (id: string, content: string) => void;
+  /** Push content-before preview edit for docId; clears redo. */
+  pushPreviewUndo: (docId: string, beforeContent: string) => void;
+  /** Undo last preview edit on active doc via setDraft. */
+  undoPreviewEdit: () => boolean;
+  /** Redo preview edit on active doc via setDraft. */
+  redoPreviewEdit: () => boolean;
+  clearPreviewUndo: (docId: string) => void;
   saveDoc: (id?: string) => void;
   discardDraft: (id?: string) => void;
   createDoc: (opts: {

@@ -31,6 +31,13 @@ import { ensureUniquePath } from "../helpers/paths";
 import { softNavigate } from "../helpers/navigation";
 import { scheduleContentPersist } from "../helpers/persistSchedule";
 import type { LanghuanState } from "../types";
+import {
+  emptyPreviewUndoStacks,
+  pushPreviewUndoEntry,
+  redoPreviewEntry,
+  undoPreviewEntry,
+  clearPreviewUndoStacks,
+} from "../../previewUndo";
 
 type DocsSliceKeys =
   | "documents"
@@ -48,6 +55,11 @@ type DocsSliceKeys =
   | "isDirty"
   | "anyDirty"
   | "setDraft"
+  | "previewUndoByDoc"
+  | "pushPreviewUndo"
+  | "undoPreviewEdit"
+  | "redoPreviewEdit"
+  | "clearPreviewUndo"
   | "saveDoc"
   | "discardDraft"
   | "createDoc"
@@ -235,6 +247,7 @@ export const createDocsSlice: StateCreator<
 > = (set, get) => ({
   documents: [],
   drafts: {},
+  previewUndoByDoc: {},
   emptyFolders: [],
   activeId: null,
   pendingNav: null,
@@ -301,6 +314,51 @@ export const createDocsSlice: StateCreator<
       },
   setDraft: (id, content) =>
         set((s) => ({ drafts: { ...s.drafts, [id]: content } })),
+  pushPreviewUndo: (docId, beforeContent) =>
+        set((s) => {
+          const prev = s.previewUndoByDoc[docId] ?? emptyPreviewUndoStacks();
+          return {
+            previewUndoByDoc: {
+              ...s.previewUndoByDoc,
+              [docId]: pushPreviewUndoEntry(prev, beforeContent),
+            },
+          };
+        }),
+  undoPreviewEdit: () => {
+        const id = get().activeId;
+        if (!id) return false;
+        const stacks = get().previewUndoByDoc[id] ?? emptyPreviewUndoStacks();
+        const current = get().getContent(id);
+        const result = undoPreviewEntry(stacks, current);
+        if (!result) return false;
+        set((s) => ({
+          previewUndoByDoc: { ...s.previewUndoByDoc, [id]: result.stacks },
+        }));
+        get().setDraft(id, result.content);
+        get().setStatus("已撤销预览编辑");
+        return true;
+      },
+  redoPreviewEdit: () => {
+        const id = get().activeId;
+        if (!id) return false;
+        const stacks = get().previewUndoByDoc[id] ?? emptyPreviewUndoStacks();
+        const current = get().getContent(id);
+        const result = redoPreviewEntry(stacks, current);
+        if (!result) return false;
+        set((s) => ({
+          previewUndoByDoc: { ...s.previewUndoByDoc, [id]: result.stacks },
+        }));
+        get().setDraft(id, result.content);
+        get().setStatus("已重做预览编辑");
+        return true;
+      },
+  clearPreviewUndo: (docId) =>
+        set((s) => ({
+          previewUndoByDoc: {
+            ...s.previewUndoByDoc,
+            [docId]: clearPreviewUndoStacks(),
+          },
+        })),
   saveDoc: (id) => {
         const target = id || get().activeId;
         if (!target) return;

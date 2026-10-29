@@ -92,6 +92,7 @@ const EXPECTED_STATE_KEYS = [
   "bumpHtmlReload",
   "clearPendingPreviewLocate",
   "clearPendingReveal",
+  "clearPreviewUndo",
   "clearScrollSyncEvent",
   "clearTagFilters",
   "clearTreeSelection",
@@ -155,13 +156,16 @@ const EXPECTED_STATE_KEYS = [
   "pendingReveal",
   "persistQuizStore",
   "pinnedTabs",
+  "previewUndoByDoc",
   "propsDialogOpen",
   "publishScrollSync",
   "purgeExpiredTrash",
   "purgeTrashItem",
+  "pushPreviewUndo",
   "quizDocs",
   "quizReviewOpen",
   "readingPrefs",
+  "redoPreviewEdit",
   "refreshStorageUsage",
   "removeAnnotation",
   "removeAsset",
@@ -261,6 +265,7 @@ const EXPECTED_STATE_KEYS = [
   "trash",
   "treeRevealRequest",
   "treeSelection",
+  "undoPreviewEdit",
   "updateAnnotation",
   "upsertQuizDoc",
   "versionDialogOpen",
@@ -319,6 +324,7 @@ function resetLibraryState() {
     quizReviewOpen: false,
     linkHealthOpen: false,
     findReplaceOpen: false,
+    previewUndoByDoc: {},
     pendingQuizReveal: null,
     openTabs: [],
     pinnedTabs: [],
@@ -360,6 +366,7 @@ describe("store shape snapshot", () => {
         "bumpHtmlReload",
         "clearPendingPreviewLocate",
         "clearPendingReveal",
+        "clearPreviewUndo",
         "clearScrollSyncEvent",
         "clearTagFilters",
         "clearTreeSelection",
@@ -394,6 +401,8 @@ describe("store shape snapshot", () => {
         "publishScrollSync",
         "purgeExpiredTrash",
         "purgeTrashItem",
+        "pushPreviewUndo",
+        "redoPreviewEdit",
         "refreshStorageUsage",
         "removeAnnotation",
         "removeAsset",
@@ -474,6 +483,7 @@ describe("store shape snapshot", () => {
         "toggleTagFilter",
         "toggleTheme",
         "toggleTreeSelected",
+        "undoPreviewEdit",
         "updateAnnotation",
         "upsertQuizDoc",
       ]
@@ -589,6 +599,44 @@ describe("store behavior snapshots", () => {
 
     expect(useStore.getState().moveFolder("archive/util", "archive/util/x")).toBeNull();
     expect(useStore.getState().status?.message).toMatch(/自身/);
+  });
+
+
+  it("preview undo / redo via setDraft; empty undo is no-op; save keeps stacks", () => {
+    const doc = useStore.getState().createDoc({
+      type: "md",
+      path: "notes/undo.md",
+      content: "v0\n",
+      open: true,
+    });
+    const id = doc.id;
+    useStore.getState().pushPreviewUndo(id, "v0\n");
+    useStore.getState().setDraft(id, "v1\n");
+    useStore.getState().pushPreviewUndo(id, "v1\n");
+    useStore.getState().setDraft(id, "v2\n");
+    expect(useStore.getState().getContent(id)).toBe("v2\n");
+
+    expect(useStore.getState().undoPreviewEdit()).toBe(true);
+    expect(useStore.getState().getContent(id)).toBe("v1\n");
+    expect(useStore.getState().isDirty(id)).toBe(true);
+    expect(useStore.getState().status?.message).toBe("已撤销预览编辑");
+
+    expect(useStore.getState().undoPreviewEdit()).toBe(true);
+    expect(useStore.getState().getContent(id)).toBe("v0\n");
+
+    expect(useStore.getState().redoPreviewEdit()).toBe(true);
+    expect(useStore.getState().getContent(id)).toBe("v1\n");
+    expect(useStore.getState().status?.message).toBe("已重做预览编辑");
+
+    // Policy: save does not clear stacks; undo only setDraft (never auto-save).
+    useStore.getState().saveDoc(id);
+    expect(useStore.getState().undoPreviewEdit()).toBe(true);
+    expect(useStore.getState().getContent(id)).toBe("v0\n");
+    expect(useStore.getState().isDirty(id)).toBe(true);
+
+    useStore.getState().clearPreviewUndo(id);
+    expect(useStore.getState().undoPreviewEdit()).toBe(false);
+    expect(useStore.getState().getContent(id)).toBe("v0\n");
   });
 
   it("draft / dirty / saveDoc / discardDraft + version push on save", () => {
