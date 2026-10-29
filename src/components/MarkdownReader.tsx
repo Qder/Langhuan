@@ -1053,6 +1053,86 @@ export function MarkdownReader({ doc }: { doc: Document }) {
     return () => document.removeEventListener("keydown", onKey);
   }, [runLocate, commitInlineEdit]);
 
+  // Preview: Enter edits the block under the caret / nearest block (no bare printable→edit).
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (useStore.getState().viewMode !== "preview") return;
+      if (inlineEditRef.current) return;
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.closest("input, textarea, select, [contenteditable=true]") ||
+          target.closest("[role='dialog']"))
+      ) {
+        return;
+      }
+      const st = useStore.getState();
+      if (
+        st.commandOpen ||
+        st.shortcutsDialogOpen ||
+        st.exportDialogOpen ||
+        st.backupDialogOpen ||
+        st.versionDialogOpen ||
+        st.graphDialogOpen ||
+        st.propsDialogOpen ||
+        st.clipUrlDialogOpen ||
+        st.templateDialogOpen ||
+        st.fsSyncDialogOpen ||
+        document.querySelector('[role="dialog"]')
+      ) {
+        return;
+      }
+      if (e.key !== "Enter" && e.key !== "e" && e.key !== "E") return;
+      const root = articleRef.current;
+      if (!root) return;
+      // Prefer selection anchor block; else first visible block in viewport
+      let el: HTMLElement | null = null;
+      const sel = window.getSelection();
+      if (sel && sel.anchorNode && root.contains(sel.anchorNode)) {
+        const n =
+          sel.anchorNode.nodeType === Node.ELEMENT_NODE
+            ? (sel.anchorNode as HTMLElement)
+            : sel.anchorNode.parentElement;
+        const found = findEditableSrcBlock(n, root);
+        if (found) el = found.el;
+      }
+      if (!el) {
+        const scroll = document.getElementById("reader-scroll");
+        const mid = (scroll?.scrollTop ?? 0) + (scroll?.clientHeight ?? 0) / 3;
+        const blocks = [
+          ...root.querySelectorAll<HTMLElement>("[data-src-start]"),
+        ];
+        for (const b of blocks) {
+          if (b.classList.contains("lh-inline-edit-hidden")) continue;
+          if (b.tagName === "SPAN" && b.hasAttribute("data-src-line")) continue;
+          const top = b.offsetTop;
+          if (top + b.offsetHeight >= mid) {
+            el = b;
+            break;
+          }
+        }
+        if (!el && blocks.length) {
+          el = blocks[blocks.length - 1] ?? null;
+        }
+      }
+      if (!el) {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          beginAppendEdit();
+        }
+        return;
+      }
+      const found = findEditableSrcBlock(el, root);
+      if (!found) return;
+      e.preventDefault();
+      beginBlockEdit(found.el, found.start, found.end);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [beginAppendEdit, beginBlockEdit]);
+
   // Source → Preview highlight. Caret follow flashes without scrolling unless
   // explicitly requested — scrolling would drive sync back into the editor.
   React.useEffect(() => {

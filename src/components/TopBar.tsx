@@ -262,7 +262,7 @@ export function TopBar() {
     { id: "preview", label: "预览" },
     { id: "split", label: "分栏" },
     { id: "source", label: "源码" },
-    ...(isHtml ? [] : [{ id: "mixed" as const, label: "混合" }]),
+    // mixed demoted to command palette — preview supports click-to-edit
   ];
 
   const exportDoc = () => {

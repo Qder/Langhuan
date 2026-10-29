@@ -52,6 +52,15 @@ export function ShortcutsDialog() {
             使用 <code className="text-xs">mod</code> 表示 ⌘/Ctrl，例如{" "}
             <code className="text-xs">mod+k</code>、<code className="text-xs">mod+shift+e</code>。
           </p>
+          <ul className="mt-2 text-xs text-[var(--muted)] space-y-1 list-disc pl-4">
+            <li>
+              预览就地编辑中：<kbd className="font-mono">⌘/Ctrl+Enter</kbd> 提交当前块；未编辑时仍为「定位源码」。
+            </li>
+            <li>
+              预览且未在编辑：<kbd className="font-mono">Enter</kbd> / <kbd className="font-mono">E</kbd>{" "}
+              编辑当前可见块；<kbd className="font-mono">Esc</kbd> 取消未提交修改。
+            </li>
+          </ul>
         </div>
         <div className="max-h-[50vh] overflow-y-auto scroll-thin space-y-2">
           {ACTIONS.map((action) => (

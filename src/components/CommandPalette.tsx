@@ -254,7 +254,7 @@ export function CommandPalette() {
       {
         key: "cmd-view-mixed",
         label: "混合编辑模式",
-        hint: "块级所见即所得（Markdown）",
+        hint: "旧版块编辑；预览模式已支持就地编辑",
         icon: <Blend className="h-4 w-4 text-[var(--accent)]" />,
         run: () => {
           const a = getActive();
