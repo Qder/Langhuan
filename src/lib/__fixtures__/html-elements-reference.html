@@ -1,0 +1,1659 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>HTML 元素参考 · 笔记</title>
+<style>
+:root {
+  --bg: #0d1117;
+  --bg2: #161b22;
+  --card: rgba(22, 27, 34, 0.9);
+  --border: #30363d;
+  --text: #e6edf3;
+  --muted: #8b949e;
+  --accent: #58a6ff;
+  --accent2: #3fb950;
+  --warn: #f85149;
+  --warn-bg: rgba(248, 81, 73, 0.08);
+  --tag: #79c0ff;
+  --code-bg: #0a0e14;
+  --code-kw: #ff7b72;
+  --code-str: #a5d6ff;
+  --code-cmt: #8b949e;
+  --glass: rgba(255,255,255,0.03);
+  --shadow: 0 8px 24px rgba(0,0,0,0.35);
+  --radius: 12px;
+  --nav-w: 240px;
+  --header-h: 128px;
+}
+*, *::before, *::after { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+body {
+  margin: 0;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", "PingFang SC", "Noto Sans SC", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.55;
+  min-height: 100vh;
+}
+body::before {
+  content: "";
+  position: fixed; inset: 0; z-index: -1; pointer-events: none;
+  background:
+    radial-gradient(ellipse 80% 50% at 20% -10%, rgba(88,166,255,0.12), transparent),
+    radial-gradient(ellipse 60% 40% at 90% 10%, rgba(63,185,80,0.08), transparent),
+    linear-gradient(180deg, #0d1117 0%, #0a0e14 100%);
+}
+#progress {
+  position: fixed; top: 0; left: 0; height: 3px; width: 0%;
+  background: linear-gradient(90deg, var(--accent), var(--accent2));
+  z-index: 1000;
+}
+.topbar {
+  position: sticky; top: 0; z-index: 100;
+  backdrop-filter: blur(12px);
+  background: rgba(13,17,23,0.88);
+  border-bottom: 1px solid var(--border);
+  padding: 12px 16px 10px;
+}
+.topbar-inner {
+  max-width: 1200px; margin: 0 auto;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.top-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+}
+h1 {
+  margin: 0; font-size: 1.25rem; font-weight: 700;
+  background: linear-gradient(90deg, #e6edf3, var(--accent));
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.sub { color: var(--muted); font-size: 0.8rem; margin: 0; }
+.search-wrap { position: relative; flex: 1; min-width: 200px; max-width: 560px; }
+#search {
+  width: 100%; padding: 10px 14px 10px 40px;
+  border-radius: 10px; border: 1px solid var(--border);
+  background: var(--bg2); color: var(--text); font-size: 0.95rem; outline: none;
+}
+#search:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(88,166,255,0.2); }
+.search-icon {
+  position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+  color: var(--muted); pointer-events: none;
+}
+.stats { color: var(--muted); font-size: 0.85rem; white-space: nowrap; }
+.stats strong { color: var(--accent); }
+.az { display: flex; flex-wrap: wrap; gap: 4px; }
+.az button {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.72rem; min-width: 22px; height: 22px; padding: 0 4px;
+  border-radius: 4px; border: 1px solid var(--border);
+  background: var(--bg2); color: var(--muted); cursor: pointer;
+}
+.az button:hover:not(:disabled) {
+  border-color: var(--accent); color: var(--accent); background: rgba(88,166,255,0.1);
+}
+.az button:disabled { opacity: 0.3; cursor: not-allowed; }
+.layout {
+  display: grid; grid-template-columns: var(--nav-w) 1fr; gap: 0;
+  max-width: 1200px; margin: 0 auto; padding: 16px 16px 80px;
+}
+.sidebar {
+  position: sticky; top: calc(var(--header-h));
+  align-self: start; max-height: calc(100vh - var(--header-h) - 24px);
+  overflow-y: auto; padding-right: 8px;
+}
+.sidebar nav {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 12px;
+}
+.sidebar h2 {
+  margin: 0 0 8px; font-size: 0.75rem; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--muted); font-weight: 600;
+}
+.sidebar a {
+  display: block; padding: 6px 8px; border-radius: 6px;
+  color: var(--muted); text-decoration: none; font-size: 0.82rem;
+  border-left: 2px solid transparent;
+}
+.sidebar a:hover { color: var(--text); background: var(--glass); border-left-color: var(--accent); }
+.sidebar a.warn-link { color: #ffa198; }
+.main { min-width: 0; padding-left: 20px; }
+.group { margin-bottom: 36px; scroll-margin-top: calc(var(--header-h) + 12px); }
+.group-head { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+.group-head h2 { margin: 0; font-size: 1.35rem; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.badge {
+  font-size: 0.7rem; font-weight: 600; padding: 2px 8px; border-radius: 999px;
+  background: rgba(88,166,255,0.15); color: var(--accent); border: 1px solid rgba(88,166,255,0.3);
+}
+.badge.danger {
+  background: rgba(248,81,73,0.15); color: #ffa198; border-color: rgba(248,81,73,0.4);
+}
+.badge.muted {
+  background: rgba(139,148,158,0.15); color: var(--muted); border-color: var(--border);
+}
+.group-intro {
+  margin: 0 0 16px; color: var(--muted); font-size: 0.92rem;
+  padding: 12px 14px; border-radius: 8px; background: var(--glass); border: 1px solid var(--border);
+}
+.group.deprecated .group-intro {
+  background: var(--warn-bg); border-color: rgba(248,81,73,0.35); color: #ffc1bc;
+}
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 12px;
+}
+.card {
+  background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 14px 16px; box-shadow: var(--shadow);
+  transition: border-color 0.15s, transform 0.15s;
+  scroll-margin-top: calc(var(--header-h) + 12px);
+  display: flex; flex-direction: column; gap: 8px;
+}
+.card:hover { border-color: var(--accent); transform: translateY(-1px); }
+.group.deprecated .card {
+  border-color: rgba(248,81,73,0.45);
+  background: linear-gradient(160deg, rgba(248,81,73,0.06), var(--card));
+}
+.tag {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.95rem; font-weight: 700; color: var(--tag); margin: 0;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.tag a { color: inherit; text-decoration: none; }
+.tag a:hover { text-decoration: underline; }
+.desc { margin: 0; font-size: 0.88rem; color: var(--text); opacity: 0.92; }
+.note {
+  margin: 0; font-size: 0.75rem; color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.note.exp { color: #d2a8ff; }
+.note.danger { color: #ffa198; }
+.ex {
+  margin: 4px 0 0; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--code-bg); overflow: hidden;
+}
+.ex > summary {
+  cursor: pointer; padding: 8px 12px; font-size: 0.8rem; color: var(--muted);
+  user-select: none; list-style: none; display: flex; align-items: center; gap: 6px;
+}
+.ex > summary::-webkit-details-marker { display: none; }
+.ex > summary::before { content: "▸"; color: var(--accent); }
+.ex[open] > summary::before { content: "▾"; }
+.ex > summary:hover { color: var(--text); background: rgba(255,255,255,0.03); }
+.ex pre {
+  margin: 0; padding: 12px 14px 14px; overflow-x: auto;
+  border-top: 1px solid var(--border);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.78rem; line-height: 1.5; color: #c9d1d9;
+}
+.ex code { font-family: inherit; white-space: pre; }
+.ex .cmt { color: var(--code-cmt); }
+.ex .tagname { color: var(--code-kw); }
+.ex .attr { color: #79c0ff; }
+.ex .str { color: var(--code-str); }
+.empty { display: none; text-align: center; padding: 48px 16px; color: var(--muted); }
+.empty.show { display: block; }
+.footer {
+  max-width: 1200px; margin: 0 auto; padding: 24px 16px 48px;
+  border-top: 1px solid var(--border); color: var(--muted); font-size: 0.85rem;
+  display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between;
+}
+.btn {
+  appearance: none; border: 1px solid var(--border); background: var(--bg2);
+  color: var(--text); padding: 8px 14px; border-radius: 8px; cursor: pointer; font-size: 0.9rem;
+}
+.btn:hover { border-color: var(--accent); color: var(--accent); }
+.nav-toggle {
+  display: none; position: fixed; bottom: 20px; right: 20px; z-index: 200;
+  width: 48px; height: 48px; border-radius: 50%;
+  background: var(--accent); color: #0d1117; border: none;
+  font-size: 1.2rem; cursor: pointer; box-shadow: var(--shadow);
+}
+.sidebar-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 150; }
+@media (max-width: 860px) {
+  .layout { grid-template-columns: 1fr; padding: 12px; }
+  .main { padding-left: 0; }
+  .sidebar {
+    position: fixed; top: 0; left: 0; bottom: 0; width: min(280px, 85vw);
+    max-height: 100vh; z-index: 160; padding: 16px;
+    background: var(--bg); transform: translateX(-100%); transition: transform 0.2s;
+    border-right: 1px solid var(--border);
+  }
+  .sidebar.open { transform: translateX(0); }
+  .sidebar-overlay.open { display: block; }
+  .nav-toggle { display: flex; align-items: center; justify-content: center; }
+  :root { --header-h: 160px; }
+}
+.hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div id="progress" aria-hidden="true"></div>
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="top-row">
+      <div>
+        <h1>HTML 元素参考</h1>
+        <p class="sub">按功能分组 · 含常用示例 · 本地单文件</p>
+      </div>
+      <div class="search-wrap">
+        <span class="search-icon" aria-hidden="true">⌕</span>
+        <input id="search" type="search" placeholder="搜索标签 / 描述 / 分组 / 示例代码…" autocomplete="off" />
+      </div>
+      <div class="stats" id="stats">匹配 <strong>0</strong> / 总计 <strong>0</strong></div>
+    </div>
+    <div class="az" id="az" aria-label="按字母跳转"></div>
+  </div>
+</header>
+
+<button type="button" class="nav-toggle" id="navToggle" aria-label="打开目录">☰</button>
+<div class="sidebar-overlay" id="overlay"></div>
+
+<div class="layout">
+  <aside class="sidebar" id="sidebar">
+    <nav>
+      <h2>目录</h2>
+      <div id="toc"></div>
+    </nav>
+  </aside>
+  <main class="main" id="main"></main>
+</div>
+
+<div class="empty" id="empty">
+  <p><strong>没有匹配的元素</strong></p>
+  <p>试试改关键词，或清空搜索框。</p>
+</div>
+
+<footer class="footer">
+  <p>内容整理自 MDN「HTML 元素参考」（zh-CN）。弃用元素仅作对照，勿用于新项目。常见元素示例默认展开。</p>
+  <button type="button" class="btn" id="download">下载本页 HTML</button>
+</footer>
+
+<script>
+const GROUPS = [
+  {
+    "id": "main-root",
+    "name": "主根元素",
+    "intro": "文档的根（顶级）元素；其它元素都必须是它的后代。",
+    "deprecated": false,
+    "elements": [
+      {
+        "tag": "html",
+        "desc": "表示一个 HTML 文档的根（顶级元素），所以它也被称为根元素。所有其它元素必须是此元素的后代。",
+        "example": "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n  <head><!-- 元数据 --></head>\n  <body><!-- 可见内容 --></body>\n</html>\n<!-- 为什么：lang 帮助读屏与字体选择 -->",
+        "common": true,
+        "rare": false
+      }
+    ]
+  },
+  {
+    "id": "document-metadata",
+    "name": "文档元数据",
+    "intro": "元数据（Metadata）含有页面的相关信息，包括样式、脚本及数据，能帮助搜索引擎、浏览器等更好地运用和渲染页面。样式和脚本的元数据可直接写在网页里，也可链接到外部文件。",
+    "deprecated": false,
+    "elements": [
+      {
+        "tag": "base",
+        "desc": "指定用于一个文档中包含的所有相对 URL 的基础 URL。一个文档中只能有一个该元素。",
+        "example": "<head>\n  <base href=\"https://example.com/docs/\" />\n</head>",
+        "common": false,
+        "rare": false
+      },
+      {
+        "tag": "head",
+        "desc": "包含机器可读的文档相关的配置信息（元数据），包括文档的标题、脚本和样式表等。",
+        "example": "<head>\n  <meta charset=\"UTF-8\" />\n  <title>页面标题</title>\n  <link rel=\"stylesheet\" href=\"styles.css\" />\n</head>\n<!-- 为什么：charset 尽早声明，避免乱码 -->",
+        "common": true,
+        "rare": false
+      },
+      {
+        "tag": "link",
+        "desc": "指定当前文档与外部资源的关系。最常用于链接 CSS，也可用来创建站点图标（favicon、主屏幕图标等）。",
+        "example": "<link rel=\"stylesheet\" href=\"/css/app.css\" />\n<link rel=\"icon\" href=\"/favicon.ico\" />",
+        "common": true,
+        "rare": false
+      },
+      {
+        "tag": "meta",
+        "desc": "表示那些不能由其它 HTML 元相关元素（如 base、link、script、style、title）表示的元数据信息。",
+        "example": "<meta charset=\"UTF-8\" />\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n<meta name=\"description\" content=\"一句话简介\" />",
+        "common": true,
+        "rare": false
+      },
+      {
+        "tag": "style",
+        "desc": "包含文档或文档部分内容的样式信息。它包含 CSS，这些样式将应用于包含此元素的文档内容。",
+        "example": "<style>\n  .title { color: #333; font-size: 1.25rem; }\n</style>",
+        "common": true,
+        "rare": false
+      },
+      {
+        "tag": "title",
+        "desc": "定义文档的标题，显示在浏览器的标题栏或标签页上。它仅包含文本；内部 HTML 标签（如有）也将被视为纯文本。",
+        "example": "<title>我的站点 · 首页</title>\n<!-- 为什么：显示在标签页，也影响 SEO -->",
+        "common": true,
+        "rare": false
+      }
+    ]
+  },
+  {
+    "id": "sectioning-root",
+    "name": "分区根元素",
+    "intro": "文档内容的主体根。",
+    "deprecated": false,
+    "elements": [
+      {
+        "tag": "body",
+        "desc": "表示文档的内容。文档中只能有一个该元素。",
+        "example": "<body>\n  <header>...</header>\n  <main>正文</main>\n  <footer>...</footer>\n</body>",
+        "common": true,
+        "rare": false
+      }
+    ]
+  },
+  {
+    "id": "content-sectioning",
+    "name": "内容分区",
+    "intro": "内容分区元素允许你将文档内容从逻辑上进行组织划分。使用页眉、页脚、导航和标题等分区元素，为页面内容创建明确大纲，以便区分各个章节。",
+    "deprecated": false,
+    "elements": [
+      {
+        "tag": "address",
+        "desc": "表示其中的 HTML 提供了某个人、某些人或某个组织的联系信息。",
+        "example": "<address>\n  联系：<a href=\"mailto:team@example.com\">team@example.com</a>\n</address>",
+        "common": false,
+        "rare": false
+      },
+      {
+        "tag": "article",
+        "desc": "代表文档、页面、应用程序或网站中一个自包含的组成部分，旨在独立分发或重复使用（例如联合发布）。示例包括论坛帖子、杂志文章、博客条目、产品卡片、用户评论、交互式小部件等。",
+        "example": "<article>\n  <h2>文章标题</h2>\n  <p>可独立分发的内容……</p>\n</article>",
+        "common": true,
+        "rare": false
+      },
+      {
+        "tag": "aside",
+        "desc": "表示文档的一部分，其内容仅与文档的主要内容间接相关。通常以侧边栏或标注框形式出现。",
+        "example": "<aside>\n  <h2>相关链接</h2>\n  <ul><li><a href=\"#\">延伸阅读</a></li></ul>\n</aside>",
+        "common": true,
+        "rare": false
+      },
+      {
+        "tag": "footer",
+        "desc": "表示最近的一个父分段内容或分区根元素的页脚。通常包含作者、版权数据或相关链接等信息。",
+        "example": "<footer>\n  <p>&copy; 2026 示例站点</p>\n</footer>",
+        "common": true,
+        "rare": false
+      },
+      {
+        "tag": "header",
+        "desc": "表示介绍性内容，通常包含一组介绍性的或是辅助导航的实用元素。可能包含标题、徽标、搜索表单、作者名称等。",
+        "example": "<header>\n  <h1>站点名</h1>\n  <nav><!-- 主导航 --></nav>\n</header>",
+        "common": true,
+        "rare": false
+      },
+      {
+        "tag": "h1",
+        "desc": "一级章节标题（六个级别中最高）。",
+        "example": "<h1>页面主标题</h1>\n<!-- 为什么：通常每页一个 h1 -->",
+        "common": true,
+        "rare": false
+      },
+      {
+        "tag": "h2",
+        "desc": "二级章节标题。",
+        "example": "<h2>二级标题</h2>",
+        "common": true,
+        "rare": false
+      },
+      {
+        "tag": "h3",
+        "desc": "三级章节标题。",
+        "example": "<h3>三级标题</h3>",
+        "common": true,
+        "rare": false
+      },
+      {
+        "tag": "h4",
+        "desc": "四级章节标题。",
+        "example": "<h4>四级标题</h4>",
+        "common": true,
+        "rare": false
+      },
+      {
+        "tag": "h5",
+        "desc": "五级章节标题。",
+        "example": "<h5>五级标题</h5>",
+        "common": true,
+        "rare": false
+      },
+      {
+        "tag": "h6",
+        "desc": "六级章节标题（六个级别中最低）。",
+        "example": "<h6>六级标题</h6>",
+        "common": true,
+        "rare": false
+      },
+      {
+        "tag": "hgroup",
+        "desc": "表示与任何次要内容（如副标题、替代标题或标语）组合的标题。",
+        "example": "<hgroup>\n  <h1>主标题</h1>\n  <p>副标题或标语</p>\n</hgroup>",
+        "common": false,
+        "rare": false
+      },
+      {
+        "tag": "main",
+        "desc": "呈现了文档正文的主体部分。由与文档直接相关，或扩展于文档中心主题、应用主要功能的内容组成。",
+        "example": "<main>\n  <h1>本页主题</h1>\n  <p>正文内容……</p>\n</main>\n<!-- 为什么：每页通常只有一个 main -->",
+        "common": true,
+        "rare": false
+      },
+      {
+        "tag": "nav",
+        "desc": "表示页面的一部分，其目的是在当前文档或其它文档中提供导航链接。常见示例是菜单、目录和索引。",
+        "example": "<nav aria-label=\"主导航\">\n  <a href=\"/\">首页</a>\n  <a href=\"/docs\">文档</a>\n</nav>",
+        "common": true,
+        "rare": false
+      },
+      {
+        "tag": "section",
+        "desc": "表示文档中一个通用的独立部分，该部分没有更具体语义元素可代表。除极少数例外，章节应始终带有标题。",
+        "example": "<section>\n  <h2>章节标题</h2>\n  <p>本章节内容……</p>\n</section>",
+        "common": true,
+        "rare": false
+      },
+      {
+        "tag": "search",
+        "desc": "表示包含一组表单控件或其他内容的部件，这些内容与执行搜索或过滤操作相关。",
+        "example": "<search>\n  <form action=\"/search\">\n    <label>搜索 <input type=\"search\" name=\"q\" /></label>\n    <button type=\"submit\">搜</button>\n  </form>\n</search>",
+        "common": false,
+        "rare": false
+      }
+    ]
+  },
+  {
+    "id": "text-content",
+    "name": "文本内容",
+    "intro": "使用 HTML 文本内容元素组织 body 里的块或章节内容。这些元素能标识内容的宗旨或结构，对无障碍与 SEO 很重要。",
+    "deprecated": false,
+    "elements": [
+      {
+        "tag": "blockquote",
+        "desc": "代表其中的文字是引用内容。渲染时通常有一定缩进。引文来源 URL 可用 cite 属性给出，来源文本可用 cite 元素给出。",
+        "example": "<blockquote cite=\"https://example.com/quote\">\n  <p>被引用的整段文字。</p>\n</blockquote>",
+        "common": true,
+        "rare": false
+      },
+      {
+        "tag": "dd",
+        "desc": "用来指明描述列表（dl）中先前术语（dt）的描述、定义或值。",
+        "example": "<dl>\n  <dt>CSS</dt>\n  <dd>层叠样式表</dd>\n</dl>",
+        "common": false,
+        "rare": false
+      },
+      {
+        "tag": "div",
+        "desc": "一个通用型流式内容容器；在不使用 CSS 时对内容或布局无影响，直到通过样式或布局模型（如弹性盒子）改变。",
+        "example": "<div class=\"card\">\n  <p>通用容器，无语义；优先考虑 section / article。</p>\n</div>",
+        "common": true,
+        "rare": false
+      },
+      {
+        "tag": "dl",
+        "desc": "包含一组术语（dt）以及描述（dd）的列表。通常用于展示词汇表或元数据（键—值对列表）。",
+        "example": "<dl>\n  <dt>HTML</dt>\n  <dd>超文本标记语言</dd>\n</dl>",
+        "common": false,
+        "rare": false
+      },
+      {
+        "tag": "dt",
+        "desc": "在描述或定义列表中声明一个术语。仅能作为 dl 的子元素；其后通常跟一个或多个 dd。",
+        "example": "<dl>\n  <dt>术语</dt>\n  <dd>解释</dd>\n</dl>",
+        "common": false,
+        "rare": false
+      },
+      {
+        "tag": "figcaption",
+        "desc": "描述其父元素 figure 里其它内容的标题或图例。",
+        "example": "<figure>\n  <img src=\"/photo.jpg\" alt=\"产品外观\" />\n  <figcaption>产品正面照片</figcaption>\n</figure>",
+        "common": true,
+        "rare": false
+      },
+      {
+        "tag": "figure",
+        "desc": "表示一段独立的内容，可能包含 figcaption 定义的标题。插图、标题和内容通常作为一个独立引用单元。",
+        "example": "<figure>\n  <img src=\"/chart.png\" alt=\"销量柱状图\" />\n  <figcaption>图 1：本季度销量</figcaption>\n</figure>",
+        "common": true,
+        "rare": false
+      },
+      {
+        "tag": "hr",
+        "desc": "表示段落级元素之间的主题转换：例如故事中场景改变，或章节主题改变。",
+        "example": "<p>上一段主题。</p>\n<hr />\n<p>换主题后的段落。</p>",
+        "common": true,
+        "rare": false
+      },
+      {
+        "tag": "li",
+        "desc": "表示列表里的条目。必须包含在 ol、ul 或 menu 父元素中。",
+        "example": "<ul>\n  <li>列表项必须放在 ul / ol / menu 里</li>\n</ul>",
+        "common": true,
+        "rare": false
+      },
+      {
+        "tag": "menu",
+        "desc": "ul 的语意替换，但浏览器视为（并向无障碍树暴露为）与 ul 没有区别。表示条目的无序列表。",
+        "example": "<menu>\n  <li><button type=\"button\">复制</button></li>\n  <li><button type=\"button\">粘贴</button></li>\n</menu>",
+        "common": false,
+        "rare": false
+      },
+      {
+        "tag": "ol",
+        "desc": "表示有序列表，通常渲染为一个带编号的列表。",
+        "example": "<ol>\n  <li>第一步</li>\n  <li>第二步</li>\n</ol>",
+        "common": true,
+        "rare": false
+      },
+      {
+        "tag": "p",
+        "desc": "表示文本的一个段落。通常通过空行和/或首行缩进与相邻块分隔；也可与图像或表单字段等构成结构分组。",
+        "example": "<p>这是一个段落。下一段会另起一块。</p>\n<p>第二个段落。</p>",
+        "common": true,
+        "rare": false
+      },
+      {
+        "tag": "pre",
+        "desc": "表示预定义格式文本。通常以等宽字体展现，空白符都会显示出来。",
+        "example": "<pre>保持\n  空格与\n换行</pre>",
+        "common": true,
+        "rare": false
+      },
+      {
+        "tag": "ul",
+        "desc": "表示一系列无序的列表项目，通常渲染为项目符号列表。",
+        "example": "<ul>\n  <li>苹果</li>\n  <li>香蕉</li>\n</ul>",
+        "common": true,
+        "rare": false
+      }
+    ]
+  },
+  {
+    "id": "inline-text",
+    "name": "行内文本语义",
+    "intro": "使用 HTML 行内文本语义定义单词、内容或任意文字的语义、结构或样式。",
+    "deprecated": false,
+    "elements": [
+      {
+        "tag": "a",
+        "desc": "可通过 href 属性创建通向其它网页、文件、电子邮件地址、同一页面内位置或任何其它 URL 的超链接。",
+        "example": "<a href=\"https://example.com\">外部链接</a>\n<a href=\"#section-2\">页内锚点</a>\n<a href=\"mailto:hi@example.com\">发邮件</a>",
+        "common": true,
+        "rare": false
+      },
+      {
+        "tag": "abbr",
+        "desc": "用于代表缩写。",
+        "example": "<abbr title=\"HyperText Markup Language\">HTML</abbr>",
+        "common": false,
+        "rare": false
+      },
+      {
+        "tag": "b",
+        "desc": "用于吸引读者对元素内容的注意，这些内容本身并未被赋予特殊重要性。多数浏览器仍显示为粗体；不要用它仅为显示粗体——请用 CSS font-weight。",
+        "example": "<p>菜单中请找 <b>设置</b> 一项（关键词提示，非强调）。</p>",
+        "common": false,
+        "rare": false
+      },
+      {
+        "tag": "bdi",
+        "desc": "告诉浏览器的双向算法将其包含的文本与周围文本隔离；动态插入不知方向性的文本时特别有用。",
+        "example": "用户名：<bdi>إيان</bdi> — 评分 90",
+        "common": false,
+        "rare": false
+      },
+      {
+        "tag": "bdo",
+        "desc": "覆盖当前文本的方向性，使内部文本以不同方向渲染。",
+        "example": "<bdo dir=\"rtl\">这段强制从右到左</bdo>",
+        "common": false,
+        "rare": false
+      },
+      {
+        "tag": "br",
+        "desc": "在文本中生成一个换行（回车）。写诗和地址时很有用。",
+        "example": "<p>第一行<br />第二行</p>\n<!-- 为什么：诗句/地址等需要硬换行时用 -->",
+        "common": true,
+        "rare": false
+      },
+      {
+        "tag": "cite",
+        "desc": "用于包含引用作品的标题。这个引用可能是按上下文约定关联引用元数据的缩写。",
+        "example": "<p>详见 <cite>《HTML 标准》</cite>。</p>",
+        "common": false,
+        "rare": false
+      },
+      {
+        "tag": "code",
+        "desc": "以表明其中内容是计算机代码片段的方式显示。默认以用户代理默认等宽字体显示。",
+        "example": "<p>使用 <code>localStorage</code> 存数据。</p>\n<pre><code>const x = 1;</code></pre>",
+        "common": true,
+        "rare": false
+      },
+      {
+        "tag": "data",
+        "desc": "将指定内容和机器可读的翻译联系在一起。若内容与时间或日期相关，请用 time 元素。",
+        "example": "<data value=\"978-012345\">ISBN 978-012345</data>",
+        "common": false,
+        "rare": false
+      },
+      {
+        "tag": "dfn",
+        "desc": "用于表示在定义短语或句子的上下文中定义的术语。",
+        "example": "<p><dfn id=\"seo\">SEO</dfn> 是搜索引擎优化。</p>",
+        "common": false,
+        "rare": false
+      },
+      {
+        "tag": "em",
+        "desc": "标记出需要用户着重阅读的内容；可嵌套，嵌套越深越需要着重阅读。",
+        "example": "<p>我<em>真的</em>想去。</p>\n<!-- 为什么：表示强调语气 -->",
+        "common": true,
+        "rare": false
+      },
+      {
+        "tag": "i",
+        "desc": "表现因某些原因需与普通文本区分的一系列文本（惯用文本、技术术语、分类名称等）。通常斜体；勿仅因斜体而用它。",
+        "example": "<p>学名 <i>Homo sapiens</i></p>",
+        "common": false,
+        "rare": false
+      },
+      {
+        "tag": "kbd",
+        "desc": "表示来自键盘、语音输入或其他文本输入设备的用户输入。按惯例默认等宽字体。",
+        "example": "<p>按 <kbd>Ctrl</kbd> + <kbd>S</kbd> 保存。</p>",
+        "common": false,
+        "rare": false
+      },
+      {
+        "tag": "mark",
+        "desc": "表示为引用或符号目的而标记或突出显示的文本，因在封闭上下文中的相关性或重要性。",
+        "example": "<p>搜索结果：请注意 <mark>高亮</mark> 词。</p>",
+        "common": false,
+        "rare": false
+      },
+      {
+        "tag": "q",
+        "desc": "表示所附文本为简短的行内引用。多数现代浏览器会加引号。长引用请用 blockquote。",
+        "example": "<p>他说：<q cite=\"…\">你好</q>。</p>",
+        "common": false,
+        "rare": false
+      },
+      {
+        "tag": "rp",
+        "desc": "为不能使用 ruby 元素展示 ruby 注解的浏览器提供回退的圆括号。",
+        "example": "<ruby>碱<rp>(</rp><rt>jiǎn</rt><rp>)</rp></ruby>",
+        "common": false,
+        "rare": false
+      },
+      {
+        "tag": "rt",
+        "desc": "指定 ruby 注解的 ruby 文本组件，用于描述东亚字符的发音、翻译或音译。始终在 ruby 中使用。",
+        "example": "<ruby>碱<rt>jiǎn</rt></ruby>",
+        "common": false,
+        "rare": false
+      },
+      {
+        "tag": "ruby",
+        "desc": "用来在基础文本上方、下方或一旁展现小注解，通常用于显示东亚字符的发音。",
+        "example": "<ruby>汉<rt>hàn</rt>字<rt>zì</rt></ruby>",
+        "common": false,
+        "rare": false
+      },
+      {
+        "tag": "s",
+        "desc": "使用删除线渲染文本。表示不再相关或不再准确的内容。文档编辑痕迹请用 del/ins。",
+        "example": "<p><s>原价 ¥199</s> 现价 ¥99</p>",
+        "common": false,
+        "rare": false
+      },
+      {
+        "tag": "samp",
+        "desc": "用于标识计算机程序输出，通常使用浏览器默认等宽字体渲染。",
+        "example": "<p>程序输出：<samp>OK 200</samp></p>",
+        "common": false,
+        "rare": false
+      },
+      {
+        "tag": "small",
+        "desc": "代表旁注和小字体，如版权和法律等独立于其样式展示的文本。默认小一号字体。",
+        "example": "<p><small>仅供参考，不构成法律意见。</small></p>",
+        "common": false,
+        "rare": false
+      },
+      {
+        "tag": "span",
+        "desc": "短语内容的通用行内容器，没有任何特殊语义。用于编组样式或共同属性（如 lang）。没有其他合适语义元素时才用。与 div 类似但为行级。",
+        "example": "<p>价格：<span class=\"price\">¥99</span></p>\n<!-- 为什么：行内包一层好单独加样式 -->",
+        "common": true,
+        "rare": false
+      },
+      {
+        "tag": "strong",
+        "desc": "表示其内容十分重要、严肃或紧迫。浏览器通常用粗体显示。",
+        "example": "<p>请<strong>务必</strong>保存更改。</p>\n<!-- 为什么：表示重要，不是单纯加粗 -->",
+        "common": true,
+        "rare": false
+      },
+      {
+        "tag": "sub",
+        "desc": "定义因排版原因而应显示为下标的内联文本。通常更小且更低。",
+        "example": "<p>H<sub>2</sub>O</p>",
+        "common": false,
+        "rare": false
+      },
+      {
+        "tag": "sup",
+        "desc": "定义因排版原因而应显示为上标的内联文本。通常更小且更高。",
+        "example": "<p>x<sup>2</sup> + y<sup>2</sup></p>",
+        "common": false,
+        "rare": false
+      },
+      {
+        "tag": "time",
+        "desc": "表示特定的时间段。可含 datetime 属性，将日期转换为机器可读格式。",
+        "example": "<time datetime=\"2026-10-19\">2026 年 10 月 19 日</time>",
+        "common": false,
+        "rare": false
+      },
+      {
+        "tag": "u",
+        "desc": "表示一段行内文本，其呈现方式应表明该文本带有非文本注释。默认单实线下划线，可用 CSS 修改。",
+        "example": "<p>正确拼写应标出：<u>accommodation</u></p>",
+        "common": false,
+        "rare": false
+      },
+      {
+        "tag": "var",
+        "desc": "表示数学表达式或编程上下文中的变量名称。通常以当前字体斜体形式显示。",
+        "example": "<p>设 <var>n</var> 为列表长度。</p>",
+        "common": false,
+        "rare": false
+      },
+      {
+        "tag": "wbr",
+        "desc": "表示一个换行机会——文本中浏览器可选择在此处断行的位置。",
+        "example": "<p>超长文件名：supercalifragilistic<wbr>expialidocious.txt</p>",
+        "common": false,
+        "rare": false
+      }
+    ]
+  },
+  {
+    "id": "image-multimedia",
+    "name": "图片和多媒体",
+    "intro": "HTML 支持各种多媒体资源，例如图像、音频和视频。",
+    "deprecated": false,
+    "elements": [
+      {
+        "tag": "area",
+        "desc": "在图片上定义一个可点击区域。图像映射允许图像上的几何区域与超链接关联。",
+        "example": "<area shape=\"circle\" coords=\"90,90,40\" href=\"/cafe\" alt=\"咖啡厅\" />",
+        "common": false,
+        "rare": false
+      },
+      {
+        "tag": "audio",
+        "desc": "用于在文档中嵌入音频内容。可含一个或多个音频资源（src 或 source）；浏览器选择最合适的。也可用于 MediaStream 流式媒体。",
+        "example": "<audio controls src=\"/media/intro.mp3\">\n  你的浏览器不支持 audio。\n</audio>",
+        "common": true,
+        "rare": false
+      },
+      {
+        "tag": "img",
+        "desc": "将一张图像嵌入文档。",
+        "example": "<img\n  src=\"/images/hero.jpg\"\n  alt=\"日落时的海边栈道\"\n  width=\"800\"\n  height=\"450\"\n/>\n<!-- 为什么：alt 给读屏；宽高减轻布局抖动 -->",
+        "common": true,
+        "rare": false
+      },
+      {
+        "tag": "map",
+        "desc": "与 area 元素一起使用，以定义一个图像映射（可点击链接区域）。",
+        "example": "<img src=\"map.png\" alt=\"园区地图\" usemap=\"#campus\" />\n<map name=\"campus\">\n  <area shape=\"rect\" coords=\"0,0,100,80\" href=\"/lib\" alt=\"图书馆\" />\n</map>",
+        "common": false,
+        "rare": false
+      },
+      {
+        "tag": "track",
+        "desc": "作为媒体元素（音频和视频）的子元素，指定定时文本轨道（如字幕）。采用 WebVTT（.vtt）格式。",
+        "example": "<video controls src=\"/v.mp4\">\n  <track kind=\"subtitles\" srclang=\"zh\" src=\"/zh.vtt\" label=\"中文\" default />\n</video>",
+        "common": false,
+        "rare": false
+      },
+      {
+        "tag": "video",
+        "desc": "在文档中嵌入支持视频播放的媒体播放器。音频内容更宜用 audio。",
+        "example": "<video controls width=\"640\" poster=\"/media/poster.jpg\">\n  <source src=\"/media/demo.mp4\" type=\"video/mp4\" />\n  你的浏览器不支持 video。\n</video>",
+        "common": true,
+        "rare": false
+      }
+    ]
+  },
+  {
+    "id": "embedded-content",
+    "name": "内嵌内容",
+    "intro": "除了常规多媒体内容，HTML 可以包括各种其他内容，即使它并不容易交互。",
+    "deprecated": false,
+    "elements": [
+      {
+        "tag": "embed",
+        "desc": "将外部内容嵌入文档中的指定位置。此内容由外部应用程序或其他交互式内容源（如浏览器插件）提供。",
+        "example": "<embed src=\"/file.pdf\" type=\"application/pdf\" width=\"600\" height=\"400\" />",
+        "common": false,
+        "rare": false
+      },
+      {
+        "tag": "fencedframe",
+        "desc": "表示一个嵌套浏览上下文，类似于 iframe，但内置了更多原生隐私功能。",
+        "example": "<!-- 隐私增强的嵌入（支持有限） -->\n<fencedframe src=\"https://example.com/ad\"></fencedframe>",
+        "common": false,
+        "rare": false
+      },
+      {
+        "tag": "iframe",
+        "desc": "表示嵌套的浏览上下文。能够将另一个 HTML 页面嵌入到当前页面中。",
+        "example": "<iframe\n  src=\"https://example.com/embed\"\n  title=\"嵌入页\"\n  width=\"600\"\n  height=\"400\"\n  loading=\"lazy\"\n></iframe>",
+        "common": false,
+        "rare": false
+      },
+      {
+        "tag": "object",
+        "desc": "表示引入一个外部资源，这个资源可能是一张图片、嵌入的浏览上下文，亦或是一个插件所使用的资源。",
+        "example": "<object data=\"/file.pdf\" type=\"application/pdf\" width=\"600\" height=\"400\">\n  <p>无法预览，请<a href=\"/file.pdf\">下载 PDF</a>。</p>\n</object>",
+        "common": false,
+        "rare": false
+      },
+      {
+        "tag": "picture",
+        "desc": "通过包含零或多个 source 元素和一个 img 元素，为不同的显示/设备场景提供图像版本。",
+        "example": "<picture>\n  <source media=\"(min-width: 800px)\" srcset=\"/wide.jpg\" />\n  <img src=\"/narrow.jpg\" alt=\"响应式图\" />\n</picture>",
+        "common": false,
+        "rare": false
+      },
+      {
+        "tag": "source",
+        "desc": "为 picture、audio 或 video 指定多个媒体资源。空元素，无内容、无闭合标签。常提供多种格式以确保兼容性。",
+        "example": "<picture>\n  <source srcset=\"/a.avif\" type=\"image/avif\" />\n  <img src=\"/a.jpg\" alt=\"示例图\" />\n</picture>",
+        "common": false,
+        "rare": false
+      }
+    ]
+  },
+  {
+    "id": "svg-mathml",
+    "name": "SVG 和 MathML",
+    "intro": "你可以使用 svg 或 math 元素将 SVG 或 MathML 内容直接嵌入 HTML 文档。",
+    "deprecated": false,
+    "elements": [
+      {
+        "tag": "svg",
+        "desc": "定义新坐标系和视口的容器。用作 SVG 文档最外层元素，也可用于在 SVG 或 HTML 中嵌入 SVG 片段。",
+        "example": "<svg width=\"40\" height=\"40\" viewBox=\"0 0 40 40\" aria-hidden=\"true\">\n  <circle cx=\"20\" cy=\"20\" r=\"16\" fill=\"#58a6ff\" />\n</svg>",
+        "common": false,
+        "rare": false
+      },
+      {
+        "tag": "math",
+        "desc": "MathML 中的顶级元素。每一个有效的 MathML 实例都必须封装在其中。不可在另一个 math 中嵌套第二个 math。",
+        "example": "<math>\n  <msup><mi>x</mi><mn>2</mn></msup>\n</math>",
+        "common": false,
+        "rare": false
+      }
+    ]
+  },
+  {
+    "id": "scripting",
+    "name": "脚本",
+    "intro": "为了创建动态内容和 Web 应用程序，HTML 支持使用脚本语言（最突出的是 JavaScript）。有一些特定元素用于支持此功能。",
+    "deprecated": false,
+    "elements": [
+      {
+        "tag": "canvas",
+        "desc": "用来通过画布脚本 API 或 WebGL API 绘制图形及图形动画的容器元素。",
+        "example": "<canvas id=\"c\" width=\"300\" height=\"150\"></canvas>\n<script>\n  const ctx = document.getElementById(\"c\").getContext(\"2d\");\n  ctx.fillRect(10, 10, 80, 50);\n<\/script>",
+        "common": false,
+        "rare": false
+      },
+      {
+        "tag": "noscript",
+        "desc": "定义一段 HTML 代码，当页面上的脚本类型不受支持或浏览器关闭脚本功能时，将插入该段代码。",
+        "example": "<noscript>\n  <p>请启用 JavaScript 以使用完整功能。</p>\n</noscript>",
+        "common": false,
+        "rare": false
+      },
+      {
+        "tag": "script",
+        "desc": "用于嵌入可执行脚本或数据。通常用作嵌入或引用 JavaScript；也能用于其他语言，如 WebGL 的 GLSL 与 JSON。",
+        "example": "<script src=\"/js/app.js\" defer><\/script>\n<script>\n  console.log(\"内联脚本\");\n<\/script>\n<!-- 为什么：defer 等 HTML 解析完再执行 -->",
+        "common": true,
+        "rare": false
+      }
+    ]
+  },
+  {
+    "id": "demarcating-edits",
+    "name": "划定编辑范围",
+    "intro": "这些元素能标示出某个文本被更改过的部分。",
+    "deprecated": false,
+    "elements": [
+      {
+        "tag": "del",
+        "desc": "表示一些被从文档中删除的文本内容。可用于显示修改记录或源代码差异。与 ins 作用相反。",
+        "example": "<p>价格 <del>¥199</del> <ins>¥99</ins></p>",
+        "common": false,
+        "rare": false
+      },
+      {
+        "tag": "ins",
+        "desc": "表示一些添加到文档中的文本内容。可用 del 类似地表示已从文档中删除的文本。",
+        "example": "<p>价格 <del>¥199</del> <ins>¥99</ins></p>",
+        "common": false,
+        "rare": false
+      }
+    ]
+  },
+  {
+    "id": "table-content",
+    "name": "表格内容",
+    "intro": "这里的元素用于创建和处理表格数据。",
+    "deprecated": false,
+    "elements": [
+      {
+        "tag": "caption",
+        "desc": "指定表格的标题。",
+        "example": "<table>\n  <caption>2026 年 Q1 报表</caption>\n  <!-- ... -->\n</table>",
+        "common": true,
+        "rare": false
+      },
+      {
+        "tag": "col",
+        "desc": "定义列组中的一列或多列，该列组由其隐式或显式父元素 colgroup 表示。仅在作为未定义 span 属性的 colgroup 子元素时才有效。",
+        "example": "<colgroup>\n  <col style=\"width: 30%\" />\n  <col style=\"width: 70%\" />\n</colgroup>",
+        "common": false,
+        "rare": false
+      },
+      {
+        "tag": "colgroup",
+        "desc": "定义表中的一组列。",
+        "example": "<table>\n  <colgroup>\n    <col span=\"2\" class=\"narrow\" />\n    <col class=\"wide\" />\n  </colgroup>\n  <!-- ... -->\n</table>",
+        "common": false,
+        "rare": false
+      },
+      {
+        "tag": "table",
+        "desc": "表示表格数据——即以二维表格形式呈现的信息，由包含数据的行和列单元格组成。",
+        "example": "<table>\n  <caption>成员名单</caption>\n  <thead>\n    <tr><th>姓名</th><th>角色</th></tr>\n  </thead>\n  <tbody>\n    <tr><td>小明</td><td>前端</td></tr>\n  </tbody>\n</table>",
+        "common": true,
+        "rare": false
+      },
+      {
+        "tag": "tbody",
+        "desc": "封装一系列表格行（tr），代表表格主要内容的组成部分。",
+        "example": "<tbody>\n  <tr><td>1</td><td>数据</td></tr>\n</tbody>",
+        "common": true,
+        "rare": false
+      },
+      {
+        "tag": "td",
+        "desc": "作为 tr 的子元素，定义包含数据的表格单元格。",
+        "example": "<td>单元格内容</td>",
+        "common": true,
+        "rare": false
+      },
+      {
+        "tag": "tfoot",
+        "desc": "封装一组表格行，表示表格尾部，包含关于表格列的信息，通常是列的总结（如总和）。",
+        "example": "<tfoot>\n  <tr><th scope=\"row\">合计</th><td>100</td></tr>\n</tfoot>",
+        "common": false,
+        "rare": false
+      },
+      {
+        "tag": "th",
+        "desc": "作为 tr 的子元素，定义一个单元格作为一组表格单元格的标题。可通过 scope 与 headers 显式定义。",
+        "example": "<th scope=\"col\">价格</th>\n<!-- 为什么：scope 告诉读屏这是列/行标题 -->",
+        "common": true,
+        "rare": false
+      },
+      {
+        "tag": "thead",
+        "desc": "封装一组表格行，表示表格表头，包含关于表格列的信息，通常以列标题（th）形式呈现。",
+        "example": "<thead>\n  <tr><th>列 A</th><th>列 B</th></tr>\n</thead>",
+        "common": true,
+        "rare": false
+      },
+      {
+        "tag": "tr",
+        "desc": "定义表格中的行。同一行可同时出现 td（数据单元格）和 th（列头单元格）。",
+        "example": "<tr>\n  <th scope=\"row\">合计</th>\n  <td>42</td>\n</tr>",
+        "common": true,
+        "rare": false
+      }
+    ]
+  },
+  {
+    "id": "forms",
+    "name": "表单",
+    "intro": "HTML 提供了许多可一起使用的元素，用来创建用户可以填写并提交到网站或应用程序的表单。详情见 HTML 表单指南。",
+    "deprecated": false,
+    "elements": [
+      {
+        "tag": "button",
+        "desc": "一个可交互元素（可通过鼠标、键盘、手指、声音指令或其他辅助技术激活）。激活后执行动作，如提交表单或打开对话框。",
+        "example": "<button type=\"button\">普通按钮</button>\n<button type=\"submit\">提交表单</button>\n<!-- 为什么：在 form 里默认是 submit，要慎用 -->",
+        "common": true,
+        "rare": false
+      },
+      {
+        "tag": "datalist",
+        "desc": "包含一组 option 元素，表示其它表单控件可供选择的值。",
+        "example": "<input list=\"cities\" name=\"city\" />\n<datalist id=\"cities\">\n  <option value=\"上海\"></option>\n  <option value=\"北京\"></option>\n</datalist>",
+        "common": false,
+        "rare": false
+      },
+      {
+        "tag": "fieldset",
+        "desc": "用于对 web 表单中的控件和标签（label）进行分组。",
+        "example": "<fieldset>\n  <legend>配送方式</legend>\n  <label><input type=\"radio\" name=\"ship\" value=\"express\" /> 快递</label>\n  <label><input type=\"radio\" name=\"ship\" value=\"pickup\" /> 自提</label>\n</fieldset>",
+        "common": true,
+        "rare": false
+      },
+      {
+        "tag": "form",
+        "desc": "表示文档中的一个区域，包含交互控件，用于向 Web 服务器提交信息。",
+        "example": "<form action=\"/api/login\" method=\"post\">\n  <label>邮箱 <input type=\"email\" name=\"email\" required /></label>\n  <button type=\"submit\">登录</button>\n</form>",
+        "common": true,
+        "rare": false
+      },
+      {
+        "tag": "input",
+        "desc": "用于为基于 Web 的表单创建交互式控件，以接受用户数据。是 HTML 中最强大、最复杂的元素之一（大量 type 与属性组合）。",
+        "example": "<input type=\"text\" name=\"username\" placeholder=\"用户名\" />\n<input type=\"checkbox\" name=\"agree\" id=\"agree\" />\n<input type=\"submit\" value=\"提交\" />",
+        "common": true,
+        "rare": false
+      },
+      {
+        "tag": "label",
+        "desc": "表示用户界面中某个元素的说明。",
+        "example": "<label for=\"email\">邮箱</label>\n<input id=\"email\" type=\"email\" name=\"email\" />\n<!-- 为什么：for + id 扩大点击区域 -->",
+        "common": true,
+        "rare": false
+      },
+      {
+        "tag": "legend",
+        "desc": "用于表示其父元素 fieldset 的内容标题。",
+        "example": "<fieldset>\n  <legend>账号信息</legend>\n  <!-- 控件... -->\n</fieldset>",
+        "common": true,
+        "rare": false
+      },
+      {
+        "tag": "meter",
+        "desc": "用来显示已知范围的标量值或者分数值。",
+        "example": "<meter value=\"0.6\" min=\"0\" max=\"1\">60%</meter>",
+        "common": false,
+        "rare": false
+      },
+      {
+        "tag": "optgroup",
+        "desc": "为 select 元素中的选项创建分组。",
+        "example": "<select name=\"food\">\n  <optgroup label=\"水果\">\n    <option>苹果</option>\n  </optgroup>\n</select>",
+        "common": false,
+        "rare": false
+      },
+      {
+        "tag": "option",
+        "desc": "用于定义在 select、optgroup 或 datalist 中包含的选项。可在弹出窗口和其它项目列表中表示菜单项。",
+        "example": "<select name=\"size\">\n  <option value=\"s\">S</option>\n  <option value=\"m\" selected>M</option>\n</select>",
+        "common": true,
+        "rare": false
+      },
+      {
+        "tag": "output",
+        "desc": "网站或应用程序可以将计算或用户操作的结果注入其中的容器元素。",
+        "example": "<form oninput=\"out.value = Number(a.value) + Number(b.value)\">\n  <input id=\"a\" type=\"number\" value=\"2\" /> +\n  <input id=\"b\" type=\"number\" value=\"3\" /> =\n  <output name=\"out\" for=\"a b\">5</output>\n</form>",
+        "common": false,
+        "rare": false
+      },
+      {
+        "tag": "progress",
+        "desc": "用来显示一项任务的完成进度，通常显示为一个进度条。",
+        "example": "<progress value=\"70\" max=\"100\">70%</progress>",
+        "common": false,
+        "rare": false
+      },
+      {
+        "tag": "select",
+        "desc": "表示一个提供选项菜单的控件。",
+        "example": "<label>城市\n  <select name=\"city\">\n    <option value=\"sh\">上海</option>\n    <option value=\"bj\">北京</option>\n  </select>\n</label>",
+        "common": true,
+        "rare": false
+      },
+      {
+        "tag": "selectedcontent",
+        "desc": "显示闭合 select 元素内当前选中的 option 标签的内容。（较新/实验性）",
+        "example": "<!-- 实验性：配合定制 select 外观 -->\n<select>\n  <button><selectedcontent></selectedcontent></button>\n  <option>选项 A</option>\n</select>",
+        "common": false,
+        "rare": false
+      },
+      {
+        "tag": "textarea",
+        "desc": "表示一个多行纯文本编辑控件，适合用户输入相当长的、不限格式的文本（如评论或反馈）。",
+        "example": "<label for=\"bio\">简介</label>\n<textarea id=\"bio\" name=\"bio\" rows=\"4\" cols=\"40\">\n默认文本\n</textarea>",
+        "common": true,
+        "rare": false
+      }
+    ]
+  },
+  {
+    "id": "interactive",
+    "name": "交互元素",
+    "intro": "HTML 提供了一系列有助于创建交互式用户界面对象的元素。",
+    "deprecated": false,
+    "elements": [
+      {
+        "tag": "details",
+        "desc": "创建一个挂件，仅在被切换成「展开」状态时才显示内含信息。必须用 summary 提供概要或标签。",
+        "example": "<details>\n  <summary>点击展开 FAQ</summary>\n  <p>这里是详细说明……</p>\n</details>",
+        "common": true,
+        "rare": false
+      },
+      {
+        "tag": "dialog",
+        "desc": "表示一个对话框或其他交互式组件，例如可关闭警告、检查器或子窗口。",
+        "example": "<dialog id=\"confirm\">\n  <p>确定删除？</p>\n  <button type=\"button\">取消</button>\n  <button type=\"button\">确定</button>\n</dialog>\n<script>\n  // document.getElementById(\"confirm\").showModal();\n<\/script>",
+        "common": true,
+        "rare": false
+      },
+      {
+        "tag": "summary",
+        "desc": "用作 details 元素内容的摘要、标题或图例。点击 summary 会翻转父元素 details 的展开/关闭状态。",
+        "example": "<details>\n  <summary>更多选项</summary>\n  <p>隐藏内容</p>\n</details>",
+        "common": true,
+        "rare": false
+      }
+    ]
+  },
+  {
+    "id": "web-components",
+    "name": "Web 组件",
+    "intro": "Web 组件是一种与 HTML 相关联的技术，允许开发者创建自定义元素并如同普通 HTML 一样使用。也可以创建经过自定义的标准 HTML 元素。",
+    "deprecated": false,
+    "elements": [
+      {
+        "tag": "slot",
+        "desc": "作为 Web 组件技术套件的一部分，该元素是 web 组件内的占位符，你可以用自己的标记填充它，从而创建单独的 DOM 树并一起呈现。",
+        "example": "<!-- 在 Shadow DOM 自定义元素内 -->\n<slot name=\"title\">默认标题</slot>",
+        "common": false,
+        "rare": false
+      },
+      {
+        "tag": "template",
+        "desc": "一种保存 HTML 的机制，加载页面时不会立即渲染，但随后可在运行时用 JavaScript 实例化。",
+        "example": "<template id=\"row-tpl\">\n  <li class=\"row\"><span class=\"name\"></span></li>\n</template>",
+        "common": false,
+        "rare": false
+      }
+    ]
+  },
+  {
+    "id": "obsolete",
+    "name": "过时的和弃用的元素",
+    "intro": "警告：这些是已弃用的旧 HTML 元素，不应再使用。绝不应在新项目中使用它们，并应尽快在旧项目中替换。此处仅为完整性而列出。",
+    "deprecated": true,
+    "elements": [
+      {
+        "tag": "acronym",
+        "desc": "允许作者明确地声明一个字符序列，它们构成一个单词的首字母缩写或简略语。（请用 abbr）",
+        "example": null,
+        "common": false,
+        "rare": true
+      },
+      {
+        "tag": "big",
+        "desc": "以比周围文本大一号的字体渲染其封闭的文本（例如 medium 变 large）。最大不超过浏览器允许的最大字体。",
+        "example": null,
+        "common": false,
+        "rare": true
+      },
+      {
+        "tag": "center",
+        "desc": "以水平居中的形式显示包含在元素中的块级或行级内容。",
+        "example": null,
+        "common": false,
+        "rare": true
+      },
+      {
+        "tag": "content",
+        "desc": "Web 组件技术套件的废弃部分——用于影子 DOM 内部作为插入点，不可用于任何正常 HTML。已被 slot 代替。",
+        "example": null,
+        "common": false,
+        "rare": true
+      },
+      {
+        "tag": "dir",
+        "desc": "被作为一个文件和/或文件夹的目录的容器。请不要使用；请用 ul 代替。",
+        "example": null,
+        "common": false,
+        "rare": true
+      },
+      {
+        "tag": "font",
+        "desc": "定义内容的字体大小、颜色与外观。",
+        "example": null,
+        "common": false,
+        "rare": true
+      },
+      {
+        "tag": "frame",
+        "desc": "定义一个特定区域，另一个 HTML 文档可以在里面展示。应在 frameset 中使用。",
+        "example": null,
+        "common": false,
+        "rare": true
+      },
+      {
+        "tag": "frameset",
+        "desc": "用于包含 frame 元素。",
+        "example": null,
+        "common": false,
+        "rare": true
+      },
+      {
+        "tag": "image",
+        "desc": "img 元素古老而又缺乏支持的前身。不应使用它。（注意：这不是 <img>，是废弃的 image）",
+        "example": null,
+        "common": false,
+        "rare": true
+      },
+      {
+        "tag": "marquee",
+        "desc": "用来插入一段滚动的文字。可用属性控制当文本到达容器边缘时发生的事情。",
+        "example": null,
+        "common": false,
+        "rare": true
+      },
+      {
+        "tag": "menuitem",
+        "desc": "表示一个用户可以通过弹出式菜单来执行的命令。包括上下文菜单，以及按钮可能附带的菜单。",
+        "example": null,
+        "common": false,
+        "rare": true
+      },
+      {
+        "tag": "nobr",
+        "desc": "阻止文本自动拆分成新行，可能导致用户必须水平滚动才能看到全部文本。",
+        "example": null,
+        "common": false,
+        "rare": true
+      },
+      {
+        "tag": "noembed",
+        "desc": "废除且不标准的方式，用于向不支持 embed 或不支持嵌入内容的浏览器提供替代内容。HTML 4.01 起废除；回退应放在 object 起止标签之间。",
+        "example": null,
+        "common": false,
+        "rare": true
+      },
+      {
+        "tag": "noframes",
+        "desc": "在不支持（或禁用）frame 的浏览器中提供要显示的内容。",
+        "example": null,
+        "common": false,
+        "rare": true
+      },
+      {
+        "tag": "param",
+        "desc": "为 object 元素定义参数。",
+        "example": null,
+        "common": false,
+        "rare": true
+      },
+      {
+        "tag": "plaintext",
+        "desc": "将起始标签后面的任何东西渲染为纯文本，忽略随后的任何 HTML。没有闭合标签。",
+        "example": null,
+        "common": false,
+        "rare": true
+      },
+      {
+        "tag": "rb",
+        "desc": "用于分隔 ruby 注解的基本文本组件（正在注解的文本）。应包装基本文本的每个单独原子段。",
+        "example": null,
+        "common": false,
+        "rare": true
+      },
+      {
+        "tag": "rtc",
+        "desc": "包含文字的语义注解，用于在 rb 中展示。rb 可拥有发音（rt）和语义（rtc）注解。",
+        "example": null,
+        "common": false,
+        "rare": true
+      },
+      {
+        "tag": "shadow",
+        "desc": "Web 组件废弃部分——用作影子 DOM 插入点。请使用 slot 代替。",
+        "example": null,
+        "common": false,
+        "rare": true
+      },
+      {
+        "tag": "strike",
+        "desc": "在文本上放置水平的删除线。",
+        "example": null,
+        "common": false,
+        "rare": true
+      },
+      {
+        "tag": "tt",
+        "desc": "创建内联文本，使用用户代理默认等宽字体渲染（电报、纯文本屏幕或行式打印机风格）。",
+        "example": null,
+        "common": false,
+        "rare": true
+      },
+      {
+        "tag": "xmp",
+        "desc": "渲染起止标签之间的文本而不解释中间 HTML，并使用等宽字体。HTML2 建议足够宽以允许每行 80 个字符。",
+        "example": null,
+        "common": false,
+        "rare": true
+      }
+    ]
+  }
+];
+
+const MDN_BASE = "https://developer.mozilla.org/zh-CN/docs/Web/HTML/Reference/Elements/";
+
+const main = document.getElementById("main");
+const toc = document.getElementById("toc");
+const stats = document.getElementById("stats");
+const empty = document.getElementById("empty");
+const search = document.getElementById("search");
+const azEl = document.getElementById("az");
+const progress = document.getElementById("progress");
+const sidebar = document.getElementById("sidebar");
+const overlay = document.getElementById("overlay");
+const navToggle = document.getElementById("navToggle");
+
+let TOTAL = 0;
+
+function mdnUrl(tag) {
+  return MDN_BASE + encodeURIComponent(tag);
+}
+
+function escapeHtml(s) {
+  return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+
+/** 简易着色：注释 / 标签名 / 属性名 / 字符串 */
+function colorize(src) {
+  let s = escapeHtml(src);
+  // comments <!-- ... --> and // ... at line start-ish
+  s = s.replace(/(&lt;!--[\s\S]*?--&gt;)/g, '<span class="cmt">$1</span>');
+  s = s.replace(/(^|\n)(\/\/[^\n]*)/g, '$1<span class="cmt">$2</span>');
+  // tags
+  s = s.replace(/&lt;(\/?[a-zA-Z][\w:-]*)/g, '&lt;<span class="tagname">$1</span>');
+  // attr names before =
+  s = s.replace(/(\s)([a-zA-Z_:][\w:.-]*)(=)/g, '$1<span class="attr">$2</span>$3');
+  // strings
+  s = s.replace(/(&quot;[^&]*&quot;|&#39;[^&]*&#39;|"[^"]*"|'[^']*')/g, function(m) {
+    if (m.indexOf("class=") === 0) return m;
+    return '<span class="str">' + m + '</span>';
+  });
+  // fix: our escape uses &quot; not " — redo strings for escaped
+  s = s.replace(/&quot;([\s\S]*?)&quot;/g, '<span class="str">&quot;$1&quot;</span>');
+  return s;
+}
+
+function build() {
+  toc.innerHTML = "";
+  main.innerHTML = "";
+  TOTAL = 0;
+
+  GROUPS.forEach((g) => {
+    const a = document.createElement("a");
+    a.href = "#" + g.id;
+    a.textContent = g.name;
+    a.dataset.group = g.id;
+    if (g.deprecated) a.classList.add("warn-link");
+    toc.appendChild(a);
+
+    const section = document.createElement("section");
+    section.className = "group" + (g.deprecated ? " deprecated" : "");
+    section.id = g.id;
+
+    const head = document.createElement("div");
+    head.className = "group-head";
+    const h2 = document.createElement("h2");
+    h2.appendChild(document.createTextNode(g.name + " "));
+    const badge = document.createElement("span");
+    badge.className = "badge" + (g.deprecated ? " danger" : "");
+    badge.textContent = g.deprecated ? "勿用于新项目" : (g.elements.length + " 个");
+    h2.appendChild(badge);
+    head.appendChild(h2);
+    section.appendChild(head);
+
+    const intro = document.createElement("p");
+    intro.className = "group-intro";
+    intro.textContent = g.intro;
+    section.appendChild(intro);
+
+    const grid = document.createElement("div");
+    grid.className = "grid";
+
+    g.elements.forEach((el) => {
+      TOTAL++;
+      const card = document.createElement("article");
+      card.className = "card";
+      card.dataset.tag = el.tag;
+      card.dataset.desc = el.desc;
+      card.dataset.group = g.name;
+      card.dataset.groupId = g.id;
+      card.dataset.letter = el.tag[0].toLowerCase();
+      card.dataset.example = el.example || "";
+
+      const tagEl = document.createElement("p");
+      tagEl.className = "tag";
+      const link = document.createElement("a");
+      link.href = mdnUrl(el.tag);
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.textContent = "<" + el.tag + ">";
+      link.title = "打开 MDN：" + el.tag;
+      tagEl.appendChild(link);
+      if (el.rare) {
+        const b = document.createElement("span");
+        b.className = "badge muted";
+        b.textContent = "进阶/少用";
+        tagEl.appendChild(b);
+      } else if (el.common) {
+        const b = document.createElement("span");
+        b.className = "badge";
+        b.textContent = "常用";
+        tagEl.appendChild(b);
+      }
+
+      const d = document.createElement("p");
+      d.className = "desc";
+      d.textContent = el.desc;
+
+      card.appendChild(tagEl);
+      card.appendChild(d);
+
+      if (el.tag === "selectedcontent") {
+        const n = document.createElement("p");
+        n.className = "note exp";
+        n.textContent = "较新 / 实验性：浏览器支持请查 MDN 兼容性表。";
+        card.appendChild(n);
+      }
+      if (el.tag === "image") {
+        const n = document.createElement("p");
+        n.className = "note danger";
+        n.textContent = "注意：这是废弃的 image，不是 <img>。";
+        card.appendChild(n);
+      }
+      if (g.deprecated) {
+        const n = document.createElement("p");
+        n.className = "note danger";
+        n.textContent = "已弃用";
+        card.appendChild(n);
+      }
+
+      if (el.example) {
+        const det = document.createElement("details");
+        det.className = "ex";
+        if (el.common) det.open = true;
+        const sum = document.createElement("summary");
+        sum.textContent = "示例";
+        const pre = document.createElement("pre");
+        const code = document.createElement("code");
+        code.innerHTML = colorize(el.example);
+        pre.appendChild(code);
+        det.appendChild(sum);
+        det.appendChild(pre);
+        card.appendChild(det);
+      } else if (!g.deprecated) {
+        const n = document.createElement("p");
+        n.className = "note";
+        n.textContent = "进阶/少用 · 无内置示例，见 MDN";
+        card.appendChild(n);
+      }
+
+      grid.appendChild(card);
+    });
+
+    section.appendChild(grid);
+    main.appendChild(section);
+  });
+
+  azEl.innerHTML = "";
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").forEach((L) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = L;
+    btn.dataset.letter = L.toLowerCase();
+    btn.addEventListener("click", () => jumpLetter(L.toLowerCase()));
+    azEl.appendChild(btn);
+  });
+
+  updateStats(TOTAL, TOTAL);
+  refreshAz();
+}
+
+function normalizeQuery(q) {
+  q = q.trim().toLowerCase();
+  if (q.startsWith("<") && q.endsWith(">") && q.length > 2) q = q.slice(1, -1);
+  if (q.startsWith("<")) q = q.slice(1);
+  if (q.endsWith(">")) q = q.slice(0, -1);
+  return q.trim();
+}
+
+function filter() {
+  const q = normalizeQuery(search.value);
+  let match = 0;
+  const visibleGroups = new Set();
+
+  document.querySelectorAll(".card").forEach((card) => {
+    const hay = (
+      card.dataset.tag + " " +
+      card.dataset.desc + " " +
+      card.dataset.group + " " +
+      "<" + card.dataset.tag + "> " +
+      (card.dataset.example || "")
+    ).toLowerCase();
+    const ok = !q || hay.includes(q);
+    card.classList.toggle("hidden", !ok);
+    if (ok) {
+      match++;
+      visibleGroups.add(card.dataset.groupId);
+    }
+  });
+
+  document.querySelectorAll(".group").forEach((sec) => {
+    const any = sec.querySelector(".card:not(.hidden)");
+    sec.classList.toggle("hidden", !any);
+  });
+
+  document.querySelectorAll("#toc a").forEach((a) => {
+    a.classList.toggle("hidden", q && !visibleGroups.has(a.dataset.group));
+  });
+
+  empty.classList.toggle("show", match === 0);
+  main.classList.toggle("hidden", match === 0);
+  updateStats(match, TOTAL);
+  refreshAz();
+}
+
+function updateStats(m, t) {
+  stats.innerHTML = "匹配 <strong>" + m + "</strong> / 总计 <strong>" + t + "</strong>";
+}
+
+function refreshAz() {
+  const letters = new Set();
+  document.querySelectorAll(".card:not(.hidden)").forEach((c) => letters.add(c.dataset.letter));
+  azEl.querySelectorAll("button").forEach((btn) => {
+    btn.disabled = !letters.has(btn.dataset.letter);
+  });
+}
+
+function jumpLetter(L) {
+  const card = document.querySelector('.card:not(.hidden)[data-letter="' + L + '"]');
+  if (card) {
+    card.scrollIntoView({ behavior: "smooth", block: "start" });
+    card.style.outline = "2px solid var(--accent)";
+    setTimeout(() => { card.style.outline = ""; }, 1200);
+  }
+}
+
+search.addEventListener("input", filter);
+
+window.addEventListener("scroll", () => {
+  const h = document.documentElement;
+  const max = h.scrollHeight - h.clientHeight;
+  progress.style.width = (max > 0 ? (h.scrollTop / max) * 100 : 0) + "%";
+}, { passive: true });
+
+navToggle.addEventListener("click", () => {
+  sidebar.classList.add("open");
+  overlay.classList.add("open");
+});
+overlay.addEventListener("click", () => {
+  sidebar.classList.remove("open");
+  overlay.classList.remove("open");
+});
+toc.addEventListener("click", (e) => {
+  if (e.target.tagName === "A") {
+    sidebar.classList.remove("open");
+    overlay.classList.remove("open");
+  }
+});
+
+document.getElementById("download").addEventListener("click", () => {
+  const blob = new Blob([document.documentElement.outerHTML], { type: "text/html;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "html-elements-reference.html";
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
+build();
+</script>
+</body>
+</html>

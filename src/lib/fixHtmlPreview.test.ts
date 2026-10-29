@@ -5,6 +5,10 @@ import {
   replaceColorizeFunction,
 } from "./fixHtmlPreview";
 import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 function escapeHtml(s: string) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -85,7 +89,10 @@ function build(){}
   });
 
   it("rewrites colorize in the real html-elements-reference sample", () => {
-    const raw = readFileSync("/workspace/html-elements-reference.html", "utf8");
+    const raw = readFileSync(
+      join(__dirname, "__fixtures__", "html-elements-reference.html"),
+      "utf8",
+    );
     expect(raw).toContain("function colorize(src)");
     const fixed = prepareHtmlPreview(raw);
     expect(fixed).toContain("holders");
