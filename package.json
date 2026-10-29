@@ -74,5 +74,8 @@
     "typescript": "^5",
     "vitest": "^4.1.12"
   },
-  "description": "琅嬛 · 私人藏书阁知识库"
+  "description": "琅嬛 · 私人藏书阁知识库",
+  "engines": {
+    "node": ">=20"
+  }
 }

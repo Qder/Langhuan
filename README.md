@@ -1,3 +1,5 @@
+[![CI](https://github.com/Qder/Langhuan/actions/workflows/ci.yml/badge.svg)](https://github.com/Qder/Langhuan/actions/workflows/ci.yml)
+
 # 琅嬛 Langhuan
 
 私人藏书阁：把 Markdown 笔记与完整 HTML 页面收进同一套目录、标签与全文搜索。文档与附件保存在仓库根目录 `content/`（经本地 Next API 读写，默认 gitignore）；浏览器 IndexedDB 只留主题/标签页等偏好。支持全库 zip 备份/恢复、版本历史与回收站；无需账号。
