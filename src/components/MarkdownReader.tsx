@@ -54,6 +54,15 @@ import { PreviewContextMenu, type ContextMenuItem } from "./locate/PreviewContex
 import { subscribeScrollSync } from "@/lib/locate/scrollBus";
 import { probeRender, probeSection } from "@/lib/dev/perfProbe";
 import { AssetImage } from "./editor/AssetImage";
+import { InlineMdBlockEditor } from "./editor/InlineMdBlockEditor";
+import {
+  findEditableSrcBlock,
+  guessCursorInSlice,
+  isMonoSrcSlice,
+  plainOffsetInElement,
+  prepareAppendAtEnd,
+  replaceRange,
+} from "@/lib/mdInlineEdit";
 import "highlight.js/styles/github-dark.css";
 import "katex/dist/katex.min.css";
 
@@ -528,6 +537,37 @@ export function MarkdownReader({ doc }: { doc: Document }) {
     srcLine?: number;
   } | null>(null);
 
+  type InlineEditState =
+    | {
+        kind: "block";
+        start: number;
+        end: number;
+        text: string;
+        mono: boolean;
+        cursorAt: number;
+        el: HTMLElement;
+      }
+    | {
+        kind: "append";
+        start: number;
+        end: number;
+        text: string;
+        mono: boolean;
+        cursorAt: number;
+      };
+  const [inlineEdit, setInlineEdit] = React.useState<InlineEditState | null>(null);
+  const inlineEditRef = React.useRef<InlineEditState | null>(null);
+  inlineEditRef.current = inlineEdit;
+  const suppressBlurCommitRef = React.useRef(false);
+  const scrollRestoreRef = React.useRef<number | null>(null);
+  const pendingOpenRef = React.useRef<{
+    start: number;
+    end: number;
+    text: string;
+    mono: boolean;
+    cursorAt: number;
+  } | null>(null);
+
   // Outline scroll-spy: cached content tops; scroll only does math (no layout reads).
   React.useEffect(() => {
     const root = document.getElementById("reader-scroll");
@@ -592,6 +632,169 @@ export function MarkdownReader({ doc }: { doc: Document }) {
     applyLocateResult(result, { select, focus, highlight: true });
     setMenu(null);
   }, [content, applyLocateResult, setStatus]);
+
+  const captureScroll = React.useCallback(() => {
+    const root = document.getElementById("reader-scroll");
+    scrollRestoreRef.current = root ? root.scrollTop : null;
+  }, []);
+
+  const commitInlineEdit = React.useCallback(
+    (opts?: { openNext?: { start: number; end: number; text: string; mono: boolean; cursorAt: number } }) => {
+      const ed = inlineEditRef.current;
+      // Blur after an already-committed switch: keep pendingOpenRef intact.
+      if (!ed) {
+        if (opts?.openNext) pendingOpenRef.current = opts.openNext;
+        return;
+      }
+      const cur = getContent(doc.id);
+      const after = replaceRange(cur, ed.start, ed.end, ed.text);
+      captureScroll();
+      if (after !== cur) setDraft(doc.id, after);
+      if (opts?.openNext) {
+        let { start, end, text } = opts.openNext;
+        const { mono, cursorAt } = opts.openNext;
+        const delta = after.length - cur.length;
+        if (start >= ed.end) {
+          start += delta;
+          end += delta;
+          text = after.slice(start, end);
+        } else if (end <= ed.start) {
+          text = after.slice(start, end);
+        } else {
+          pendingOpenRef.current = null;
+          setInlineEdit(null);
+          return;
+        }
+        pendingOpenRef.current = { start, end, text, mono, cursorAt };
+      }
+      setInlineEdit(null);
+    },
+    [captureScroll, doc.id, getContent, setDraft]
+  );
+
+  const cancelInlineEdit = React.useCallback(() => {
+    suppressBlurCommitRef.current = true;
+    pendingOpenRef.current = null;
+    setInlineEdit(null);
+  }, []);
+
+  const beginBlockEdit = React.useCallback(
+    (
+      el: HTMLElement,
+      start: number,
+      end: number,
+      click?: { clientX: number; clientY: number }
+    ) => {
+      const cur = getContent(doc.id);
+      const slice = cur.slice(start, end);
+      const hint = click ? plainOffsetInElement(el, click.clientX, click.clientY) : null;
+      const cursorAt = guessCursorInSlice(slice, {
+        clickText: hint?.clickText,
+        approxOffset: hint?.approxOffset,
+      });
+      setInlineEdit({
+        kind: "block",
+        start,
+        end,
+        text: slice,
+        mono: isMonoSrcSlice(slice),
+        cursorAt,
+        el,
+      });
+    },
+    [doc.id, getContent]
+  );
+
+  const beginAppendEdit = React.useCallback(() => {
+    const cur = getContent(doc.id);
+    const { prepared, start, end } = prepareAppendAtEnd(cur);
+    captureScroll();
+    if (prepared !== cur) {
+      setDraft(doc.id, prepared);
+      pendingOpenRef.current = {
+        start,
+        end,
+        text: "",
+        mono: false,
+        cursorAt: 0,
+      };
+      setInlineEdit(null);
+      return;
+    }
+    setInlineEdit({
+      kind: "append",
+      start,
+      end,
+      text: "",
+      mono: false,
+      cursorAt: 0,
+    });
+  }, [captureScroll, doc.id, getContent, setDraft]);
+
+  // Restore scroll after content rewrite from inline edit; open pending block/append.
+  React.useLayoutEffect(() => {
+    if (scrollRestoreRef.current != null) {
+      const root = document.getElementById("reader-scroll");
+      if (root) root.scrollTop = scrollRestoreRef.current;
+      scrollRestoreRef.current = null;
+    }
+    const pending = pendingOpenRef.current;
+    if (!pending) return;
+    pendingOpenRef.current = null;
+    const article = articleRef.current;
+    if (!article) return;
+    if (pending.start === pending.end) {
+      setInlineEdit({
+        kind: "append",
+        start: pending.start,
+        end: pending.end,
+        text: pending.text,
+        mono: pending.mono,
+        cursorAt: pending.cursorAt,
+      });
+      return;
+    }
+    const nodes = [
+      ...article.querySelectorAll<HTMLElement>("[data-src-start]"),
+    ];
+    let el =
+      nodes.find(
+        (n) =>
+          Number(n.getAttribute("data-src-start")) === pending.start &&
+          Number(n.getAttribute("data-src-end") || 0) === pending.end
+      ) ?? null;
+    if (!el) {
+      // Prefer outer wrapper with same start
+      el =
+        nodes.find(
+          (n) => Number(n.getAttribute("data-src-start")) === pending.start
+        ) ?? null;
+    }
+    if (!el) {
+      setInlineEdit({
+        kind: "append",
+        start: pending.start,
+        end: pending.end,
+        text: pending.text,
+        mono: pending.mono,
+        cursorAt: pending.cursorAt,
+      });
+      return;
+    }
+    const wrap = el.closest(".lh-codeblock, .lh-mermaid");
+    if (wrap instanceof HTMLElement && wrap.hasAttribute("data-src-start")) {
+      el = wrap;
+    }
+    setInlineEdit({
+      kind: "block",
+      start: pending.start,
+      end: Number(el.getAttribute("data-src-end") || pending.end),
+      text: pending.text,
+      mono: pending.mono,
+      cursorAt: pending.cursorAt,
+      el,
+    });
+  }, [body]);
 
   const invalidateAnchorCache = React.useCallback(() => {
     anchorsCacheRef.current = null;
@@ -720,8 +923,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
     });
   }, [doc.id, getSyncScrollEnabled, ensureSortedAnchors]);
 
-  // Click preview block → locate source only in split (highlight).
-  // Preview-only: plain click must NOT remember locate — use右键「定位源码」。
+  // Click: split → locate; preview → inline edit (offset slice).
   React.useEffect(() => {
     const root = articleRef.current;
     if (!root) return;
@@ -729,17 +931,76 @@ export function MarkdownReader({ doc }: { doc: Document }) {
       if (e.altKey || e.shiftKey) return;
       const t = e.target as HTMLElement | null;
       if (!t) return;
+      if (t.closest("[data-lh-inline-editor]")) return;
       if (t.closest("a, button, input, textarea, summary")) return;
-      if (useStore.getState().viewMode === "preview") return;
-      const el = t.closest<HTMLElement>("[data-src-start]");
-      if (!el) return;
-      // Ignore pure text-selection clicks
+      const mode = useStore.getState().viewMode;
+
+      // Ignore pure text-selection clicks (keep划词/批注), unless double-click.
       const sel = window.getSelection();
       if (sel && !sel.isCollapsed && String(sel).trim() && e.detail < 2) return;
+
+      if (mode === "preview") {
+        const found = findEditableSrcBlock(t, root);
+        if (!found) {
+          // Only empty doc or click below the last block → append ("继续写")
+          if (t.closest("header")) return;
+          const blocks = [
+            ...root.querySelectorAll<HTMLElement>("[data-src-start]"),
+          ].filter(
+            (b) =>
+              !(b.tagName === "SPAN" && b.hasAttribute("data-src-line"))
+          );
+          const last = blocks[blocks.length - 1];
+          const below =
+            !last || e.clientY > last.getBoundingClientRect().bottom + 4;
+          if (below) {
+            if (inlineEditRef.current) {
+              suppressBlurCommitRef.current = true;
+              commitInlineEdit();
+            }
+            beginAppendEdit();
+          }
+          return;
+        }
+        const { el, start, end } = found;
+        const cur = inlineEditRef.current;
+        if (cur && cur.kind === "block" && cur.start === start && cur.end === end) {
+          return;
+        }
+        if (cur) {
+          suppressBlurCommitRef.current = true;
+          const slice = getContent(doc.id).slice(start, end);
+          commitInlineEdit({
+            openNext: {
+              start,
+              end,
+              text: slice,
+              mono: isMonoSrcSlice(slice),
+              cursorAt: guessCursorInSlice(
+                slice,
+                plainOffsetInElement(el, e.clientX, e.clientY) ?? undefined
+              ),
+            },
+          });
+          return;
+        }
+        beginBlockEdit(el, start, end, {
+          clientX: e.clientX,
+          clientY: e.clientY,
+        });
+        return;
+      }
+
+      // split / source-adjacent: locate as before
+      const el = t.closest<HTMLElement>("[data-src-start]");
+      if (!el) return;
       const start = Number(el.getAttribute("data-src-start"));
       const end = Number(el.getAttribute("data-src-end") || start);
       if (!Number.isFinite(start)) return;
-      const line = Number(el.getAttribute("data-src-line") || content.slice(0, start).split("\n").length);
+      const line = Number(
+        el.getAttribute("data-src-line") ||
+          content.slice(0, start).split("\n").length
+      );
       const isCodeLine = el.tagName === "SPAN" && el.hasAttribute("data-src-line");
       const result: LocateResult = {
         start,
@@ -752,20 +1013,34 @@ export function MarkdownReader({ doc }: { doc: Document }) {
       };
       const select = !!(e.metaKey || e.ctrlKey || e.detail >= 2);
       applyLocateResult(result, { select, focus: select, highlight: true });
-      // Flash preview element
       el.classList.add("lh-preview-flash");
       window.setTimeout(() => el.classList.remove("lh-preview-flash"), 1200);
     };
     root.addEventListener("click", onClick);
     return () => root.removeEventListener("click", onClick);
-  }, [content, applyLocateResult, body]);
+  }, [
+    content,
+    applyLocateResult,
+    body,
+    beginAppendEdit,
+    beginBlockEdit,
+    commitInlineEdit,
+    doc.id,
+    getContent,
+  ]);
 
   // 框选 alone does NOT auto-locate. User right-clicks → 「定位源码」 in context menu.
 
-  // ⌘/Ctrl+Enter
+  // ⌘/Ctrl+Enter: commit inline edit when active; else locate source (existing).
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey) || e.key !== "Enter" || e.shiftKey) return;
+      if (inlineEditRef.current) {
+        e.preventDefault();
+        suppressBlurCommitRef.current = true;
+        commitInlineEdit();
+        return;
+      }
       const root = articleRef.current;
       if (!root) return;
       const sel = window.getSelection();
@@ -776,7 +1051,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [runLocate]);
+  }, [runLocate, commitInlineEdit]);
 
   // Source → Preview highlight. Caret follow flashes without scrolling unless
   // explicitly requested — scrolling would drive sync back into the editor.
@@ -831,6 +1106,11 @@ export function MarkdownReader({ doc }: { doc: Document }) {
   const onContextMenu = (e: React.MouseEvent) => {
     const root = articleRef.current;
     if (!root) return;
+    const t = e.target as HTMLElement | null;
+    if (t?.closest?.("[data-lh-inline-editor]")) {
+      // Native menu inside the editor
+      return;
+    }
     const info = getPreviewSelectionInfo(root);
     const hasSel = !!(info && !isTrivialSelection(info.text));
     const target = e.target as HTMLElement | null;
@@ -1050,7 +1330,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
         >
         <article
           ref={articleRef}
-          className="prose-langhuan w-full min-w-0 animate-enter"
+          className="prose-langhuan relative w-full min-w-0 animate-enter"
           style={{
             maxWidth: readingPrefs.lineWidth,
             fontSize: readingPrefs.fontSize,
@@ -1140,6 +1420,62 @@ export function MarkdownReader({ doc }: { doc: Document }) {
             assets={assets}
             docPath={doc.path}
           />
+          {inlineEdit?.kind === "block" && (
+            <InlineMdBlockEditor
+              anchorEl={inlineEdit.el}
+              value={inlineEdit.text}
+              mono={inlineEdit.mono}
+              cursorAt={inlineEdit.cursorAt}
+              suppressBlurRef={suppressBlurCommitRef}
+              onChange={(text) =>
+                setInlineEdit((cur) => (cur ? { ...cur, text } : cur))
+              }
+              onCommit={() => commitInlineEdit()}
+              onCancel={cancelInlineEdit}
+            />
+          )}
+          {inlineEdit?.kind === "append" && (
+            <div
+              data-lh-inline-editor="1"
+              className="lh-inline-edit-box mt-4 rounded-lg ring-1 ring-[var(--accent)]/45 bg-[var(--bg-elevated)]/80 px-2 py-1.5 shadow-sm"
+            >
+              <textarea
+                autoFocus
+                data-lh-inline-editor="textarea"
+                value={inlineEdit.text}
+                aria-label="继续写"
+                className="w-full resize-none bg-transparent border-0 outline-none p-0 m-0 font-serif text-[length:inherit] leading-relaxed text-[var(--fg)] whitespace-pre-wrap"
+                style={{ minHeight: 32, fontSize: "inherit", lineHeight: "inherit" }}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setInlineEdit((cur) => (cur ? { ...cur, text: v } : cur));
+                  e.target.style.height = "0px";
+                  e.target.style.height = `${Math.max(e.target.scrollHeight, 32)}px`;
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    e.preventDefault();
+                    cancelInlineEdit();
+                    return;
+                  }
+                  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                    e.preventDefault();
+                    suppressBlurCommitRef.current = true;
+                    commitInlineEdit();
+                  }
+                }}
+                onBlur={() => {
+                  window.setTimeout(() => {
+                    if (suppressBlurCommitRef.current) {
+                      suppressBlurCommitRef.current = false;
+                      return;
+                    }
+                    commitInlineEdit();
+                  }, 0);
+                }}
+              />
+            </div>
+          )}
         </article>
         {showRail && (
           <DocAside
