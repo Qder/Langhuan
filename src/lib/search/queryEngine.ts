@@ -2,32 +2,8 @@ import type { Document } from "../types";
 import { parseSearchQuery, segmentTerms } from "../searchQuery";
 import { getTags } from "../tags";
 import type { SearchIndex, SearchField } from "./index";
+import { scoreDocumentRanked } from "./rank";
 import type { SearchHit } from "./types";
-
-/** Legacy-compatible field weights (commit: inverted index). Ranking commit may replace. */
-const WEIGHTS: Record<SearchField, number> = {
-  title: 10,
-  aliases: 8,
-  path: 6,
-  tags: 5,
-  body: 1,
-};
-
-function scoreField(hay: string, terms: string[], weight: number): number {
-  if (!terms.length) return 0;
-  let s = 0;
-  let matched = 0;
-  for (const t of terms) {
-    if (!t) continue;
-    if (!hay.includes(t)) continue;
-    matched += 1;
-    s += weight;
-    if (hay.startsWith(t)) s += weight * 0.5;
-  }
-  if (matched === 0) return 0;
-  if (terms.length >= 2 && matched < Math.ceil(terms.length * 0.5)) return 0;
-  return s;
-}
 
 function snippetAround(text: string, terms: string[]): string {
   let i = 0;
@@ -59,8 +35,7 @@ function passesFilters(
 }
 
 /**
- * Index-backed search with legacy-compatible scoring.
- * Candidate generation uses the inverted index; scoring mirrors searchDocumentsLegacy.
+ * Index-backed search with ranked scoring (see rank.ts).
  */
 export function searchWithIndex(
   index: SearchIndex,
@@ -68,7 +43,7 @@ export function searchWithIndex(
   query: string
 ): SearchHit[] {
   const parsed = parseSearchQuery(query);
-  const terms = segmentTerms(parsed.text);
+  const terms = segmentTerms(parsed.text).map((t) => t.toLowerCase());
   const hasFilters = parsed.tags.length > 0 || !!parsed.path || !!parsed.type;
   if (!terms.length && !hasFilters) return [];
 
@@ -78,8 +53,6 @@ export function searchWithIndex(
   if (!terms.length) {
     candidateIds = new Set(index.allDocs().map((d) => d.id));
   } else {
-    // Soft-AND across terms: keep docs matching >= ceil(n/2) terms (doc-level),
-    // matching legacy's "any field can contribute" by unioning per-term hits first.
     const perTerm = terms.map((t) => index.candidatesForTerm(t));
     const counts = new Map<string, number>();
     for (const set of perTerm) {
@@ -90,23 +63,14 @@ export function searchWithIndex(
     for (const [id, n] of counts) {
       if (n >= need) candidateIds.add(id);
     }
-    // Recall safety: also include any doc legacy would find via full field scan
-    // for docs that soft-AND might miss due to per-field legacy quirk.
     for (const d of index.allDocs()) {
       if (candidateIds.has(d.id)) continue;
       let matchedTerms = 0;
       for (const t of terms) {
         if (index.docHasSubstring(d.id, t)) matchedTerms += 1;
       }
-      // Legacy keeps a doc if ANY field returns score>0; a single-term field hit is enough.
-      if (matchedTerms >= 1) {
-        // Replicate legacy: sum of per-field scores with per-field soft-AND.
-        const fields: SearchField[] = ["title", "aliases", "path", "tags", "body"];
-        let score = 0;
-        for (const f of fields) {
-          score += scoreField(d.fields[f], terms, WEIGHTS[f]);
-        }
-        if (score > 0) candidateIds.add(d.id);
+      if (matchedTerms >= 1 && scoreDocumentRanked(d.fields, terms, d.updatedAt) > 0) {
+        candidateIds.add(d.id);
       }
     }
   }
@@ -118,12 +82,9 @@ export function searchWithIndex(
     if (!indexed || !raw) continue;
     if (!passesFilters(indexed, raw, parsed)) continue;
 
-    let score = 0;
+    let score: number;
     if (terms.length) {
-      const fields: SearchField[] = ["title", "aliases", "path", "tags", "body"];
-      for (const f of fields) {
-        score += scoreField(indexed.fields[f], terms, WEIGHTS[f]);
-      }
+      score = scoreDocumentRanked(indexed.fields, terms, indexed.updatedAt);
       if (score <= 0) continue;
     } else {
       score = 1;
@@ -134,7 +95,7 @@ export function searchWithIndex(
       path: indexed.path,
       type: indexed.type,
       score,
-      snippet: snippetAround(indexed.fields.body, terms.length ? terms.map((t) => t.toLowerCase()) : [""]),
+      snippet: snippetAround(indexed.fields.body, terms.length ? terms : [""]),
     });
   }
 
