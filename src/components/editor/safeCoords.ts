@@ -69,3 +69,34 @@ export function scrollEditorToSourceOffset(view: EditorView, offset: number): vo
     scroll.scrollTop = next;
   }
 }
+
+/**
+ * Last-wins requestAnimationFrame coalesce for scrollEditorToSourceOffset.
+ * Scroll-sync can fire many times per frame; only the latest offset is applied.
+ */
+export function createRafScrollToOffset(): {
+  schedule: (view: EditorView, offset: number) => void;
+  cancel: () => void;
+} {
+  let raf = 0;
+  let pendingView: EditorView | null = null;
+  let pendingOffset = 0;
+  return {
+    schedule(view: EditorView, offset: number) {
+      pendingView = view;
+      pendingOffset = offset;
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        const v = pendingView;
+        pendingView = null;
+        if (v) scrollEditorToSourceOffset(v, pendingOffset);
+      });
+    },
+    cancel() {
+      if (raf) cancelAnimationFrame(raf);
+      raf = 0;
+      pendingView = null;
+    },
+  };
+}

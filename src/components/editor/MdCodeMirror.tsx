@@ -29,7 +29,7 @@ import {
   locateHighlightExtensions,
   scheduleRevealRangeInView,
 } from "./locateHighlight";
-import { safeCoordsAtPos, scrollEditorToSourceOffset } from "./safeCoords";
+import { safeCoordsAtPos, createRafScrollToOffset } from "./safeCoords";
 import { subscribeScrollSync } from "@/lib/locate/scrollBus";
 
 function offsetToLineCol(text: string, offset: number): { line: number; col: number } {
@@ -83,6 +83,8 @@ export function MdCodeMirror({
   const machineDrive = React.useRef<"preview" | "editor" | null>(null);
   const resetTimer = React.useRef<number | null>(null);
   const cursorThrottle = React.useRef(0);
+  const scrollPublishRaf = React.useRef(0);
+  const rafScrollTo = React.useRef(createRafScrollToOffset());
   const publishScrollSync = useStore((s) => s.publishScrollSync);
   const getSyncScrollEnabled = useStore((s) => s.getSyncScrollEnabled);
   const readOnlyComp = React.useRef(new Compartment());
@@ -204,23 +206,31 @@ export function MdCodeMirror({
 
     const scrollHandler = EditorView.domEventHandlers({
       scroll(_e, view) {
+        // Cheapest gates first; posAtCoords only inside rAF (last-wins).
+        if (useStore.getState().viewMode !== "split") return false;
+        if (!useStore.getState().getSyncScrollEnabled(doc.id)) return false;
         const now = Date.now();
         if (now < ignoreScrollUntil.current) return false;
         if (now < unfollowUntil.current) return false;
-        if (!useStore.getState().getSyncScrollEnabled(doc.id)) return false;
-        if (useStore.getState().viewMode !== "split") return false;
         if (machineDrive.current === "preview") return false;
         machineDrive.current = "editor";
         if (resetTimer.current) window.clearTimeout(resetTimer.current);
         resetTimer.current = window.setTimeout(() => {
           machineDrive.current = null;
         }, 150);
-        const scroll = view.scrollDOM;
-        const rect = scroll.getBoundingClientRect();
-        const pos =
-          view.posAtCoords({ x: rect.left + 8, y: rect.top + 8 }) ??
-          view.state.selection.main.head;
-        publishScrollSync({ docId: doc.id, from: "editor", sourceOffset: pos });
+        if (scrollPublishRaf.current) return false;
+        scrollPublishRaf.current = requestAnimationFrame(() => {
+          scrollPublishRaf.current = 0;
+          const v = viewRef.current ?? view;
+          if (useStore.getState().viewMode !== "split") return;
+          if (!useStore.getState().getSyncScrollEnabled(doc.id)) return;
+          const scroll = v.scrollDOM;
+          const rect = scroll.getBoundingClientRect();
+          const pos =
+            v.posAtCoords({ x: rect.left + 8, y: rect.top + 8 }) ??
+            v.state.selection.main.head;
+          publishScrollSync({ docId: doc.id, from: "editor", sourceOffset: pos });
+        });
         return false;
       },
     });
@@ -520,6 +530,11 @@ export function MdCodeMirror({
       viewRef.current = null;
       setEditorCaret(null);
       if (resetTimer.current) window.clearTimeout(resetTimer.current);
+      if (scrollPublishRaf.current) {
+        cancelAnimationFrame(scrollPublishRaf.current);
+        scrollPublishRaf.current = 0;
+      }
+      rafScrollTo.current.cancel();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount once per doc
   }, [doc.id]);
@@ -575,7 +590,8 @@ export function MdCodeMirror({
       ignoreScrollUntil.current = Date.now() + 100;
       if (ev.sourceOffset == null || !Number.isFinite(ev.sourceOffset)) return;
       // coordsAtPos can throw RangeError even after clamp (DocView race / EOF side).
-      scrollEditorToSourceOffset(view, ev.sourceOffset);
+      // rAF last-wins: many preview scroll events per frame → one editor scroll.
+      rafScrollTo.current.schedule(view, ev.sourceOffset);
       if (resetTimer.current) window.clearTimeout(resetTimer.current);
       resetTimer.current = window.setTimeout(() => {
         machineDrive.current = null;

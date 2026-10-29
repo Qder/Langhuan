@@ -36,7 +36,7 @@ import {
   locateHighlightExtensions,
   scheduleRevealRangeInView,
 } from "./locateHighlight";
-import { scrollEditorToSourceOffset } from "./safeCoords";
+import { createRafScrollToOffset } from "./safeCoords";
 
 function offsetToLineCol(text: string, offset: number): { line: number; col: number } {
   const o = Math.max(0, Math.min(offset, text.length));
@@ -88,6 +88,8 @@ export function HtmlCodeMirror({
   const resetTimer = React.useRef<number | null>(null);
   const readOnlyComp = React.useRef(new Compartment());
   const cursorThrottle = React.useRef(0);
+  const scrollPublishRaf = React.useRef(0);
+  const rafScrollTo = React.useRef(createRafScrollToOffset());
 
   const content = getContent(doc.id);
 
@@ -127,19 +129,27 @@ export function HtmlCodeMirror({
 
     const scrollHandler = EditorView.domEventHandlers({
       scroll: (_e, view) => {
+        // Cheapest gates first; posAtCoords only inside rAF (last-wins).
+        if (useStore.getState().viewMode !== "split") return false;
+        if (!useStore.getState().getSyncScrollEnabled(doc.id)) return false;
         const now = Date.now();
         if (now < ignoreScrollUntil.current) return false;
         if (now < unfollowUntil.current) return false;
-        if (!useStore.getState().getSyncScrollEnabled(doc.id)) return false;
-        if (useStore.getState().viewMode !== "split") return false;
         if (machineDrive.current === "preview") return false;
         machineDrive.current = "editor";
         if (resetTimer.current) window.clearTimeout(resetTimer.current);
         resetTimer.current = window.setTimeout(() => {
           machineDrive.current = null;
         }, 150);
-        const offset = topLineOffset(view);
-        publishScrollSync({ docId: doc.id, from: "editor", sourceOffset: offset });
+        if (scrollPublishRaf.current) return false;
+        scrollPublishRaf.current = requestAnimationFrame(() => {
+          scrollPublishRaf.current = 0;
+          const v = viewRef.current ?? view;
+          if (useStore.getState().viewMode !== "split") return;
+          if (!useStore.getState().getSyncScrollEnabled(doc.id)) return;
+          const offset = topLineOffset(v);
+          publishScrollSync({ docId: doc.id, from: "editor", sourceOffset: offset });
+        });
         return false;
       },
       keydown: (e, view) => {
@@ -212,6 +222,11 @@ export function HtmlCodeMirror({
       viewRef.current = null;
       setEditorCaret(null);
       if (resetTimer.current) window.clearTimeout(resetTimer.current);
+      if (scrollPublishRaf.current) {
+        cancelAnimationFrame(scrollPublishRaf.current);
+        scrollPublishRaf.current = 0;
+      }
+      rafScrollTo.current.cancel();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [doc.id]);
@@ -272,7 +287,7 @@ export function HtmlCodeMirror({
 
       const offset = ev.sourceOffset;
       if (typeof offset === "number" && Number.isFinite(offset)) {
-        scrollEditorToSourceOffset(view, offset);
+        rafScrollTo.current.schedule(view, offset);
         return;
       }
 
