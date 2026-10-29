@@ -1,23 +1,13 @@
 import type { Document } from "../types";
 import { parseSearchQuery, segmentTerms } from "../searchQuery";
 import { getTags } from "../tags";
-import type { SearchIndex, SearchField } from "./index";
+import type { SearchIndex } from "./index";
 import { scoreDocumentRanked } from "./rank";
+import { buildSnippet } from "./snippets";
 import type { SearchHit } from "./types";
 
-function snippetAround(text: string, terms: string[]): string {
-  let i = 0;
-  for (const t of terms) {
-    const idx = text.indexOf(t);
-    if (idx >= 0) {
-      i = idx;
-      break;
-    }
-  }
-  const start = Math.max(0, i - 24);
-  const end = Math.min(text.length, i + (terms[0]?.length || 0) + 56);
-  return (start > 0 ? "…" : "") + text.slice(start, end) + (end < text.length ? "…" : "");
-}
+/** Snippets are only needed for visible palette rows; skip deep tail. */
+const SNIPPET_TOP_K = 80;
 
 function passesFilters(
   doc: { id: string; path: string; type: Document["type"] },
@@ -58,21 +48,7 @@ export function searchWithIndex(
     for (const set of perTerm) {
       for (const id of set) counts.set(id, (counts.get(id) || 0) + 1);
     }
-    const need = terms.length >= 2 ? Math.ceil(terms.length * 0.5) : 1;
-    candidateIds = new Set<string>();
-    for (const [id, n] of counts) {
-      if (n >= need) candidateIds.add(id);
-    }
-    for (const d of index.allDocs()) {
-      if (candidateIds.has(d.id)) continue;
-      let matchedTerms = 0;
-      for (const t of terms) {
-        if (index.docHasSubstring(d.id, t)) matchedTerms += 1;
-      }
-      if (matchedTerms >= 1 && scoreDocumentRanked(d.fields, terms, d.updatedAt) > 0) {
-        candidateIds.add(d.id);
-      }
-    }
+    candidateIds = new Set(counts.keys());
   }
 
   const hits: SearchHit[] = [];
@@ -95,9 +71,20 @@ export function searchWithIndex(
       path: indexed.path,
       type: indexed.type,
       score,
-      snippet: snippetAround(indexed.fields.body, terms.length ? terms : [""]),
+      snippet: "",
     });
   }
 
-  return hits.sort((a, b) => b.score - a.score || a.path.localeCompare(b.path, "zh"));
+  hits.sort((a, b) => b.score - a.score || a.path.localeCompare(b.path, "zh"));
+
+  const top = Math.min(SNIPPET_TOP_K, hits.length);
+  for (let i = 0; i < top; i++) {
+    const indexed = index.getDoc(hits[i].id);
+    if (!indexed) continue;
+    const snip = buildSnippet(indexed.fields.body, terms.length ? terms : [], 40);
+    hits[i].snippet = snip.text;
+    hits[i].marks = snip.marks;
+  }
+
+  return hits;
 }

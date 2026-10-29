@@ -6,6 +6,7 @@ import { Dialog } from "./ui/dialog";
 import { useStore } from "@/lib/store";
 import { themeLabel } from "@/lib/theme";
 import { searchDocuments } from "@/lib/search";
+import { renderSnippetMarks } from "@/lib/search/highlight";
 import { titleOf, cn } from "@/lib/utils";
 import { importClipboardAs } from "@/lib/clipboardImport";
 
@@ -62,7 +63,7 @@ export function CommandPalette() {
   const recent = [...documents].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 6);
   const hits = q.trim() ? searchDocuments(documents, q) : [];
 
-  type Item = { key: string; label: string; hint?: string; icon: React.ReactNode; run: () => void; keepOpen?: boolean };
+  type Item = { key: string; label: string; hint?: React.ReactNode; icon: React.ReactNode; run: () => void; keepOpen?: boolean };
   const items: Item[] = [];
 
   if (!q.trim()) {
@@ -339,7 +340,7 @@ export function CommandPalette() {
       items.push({
         key: "hit-" + h.id,
         label: titleOf(h.path),
-        hint: h.snippet,
+        hint: renderSnippetMarks(h.snippet, h.marks),
         icon: h.type === "html" ? <Globe className="h-4 w-4 text-[var(--teal)]" /> : <FileText className="h-4 w-4" />,
         run: () => openDoc(h.id),
       });
