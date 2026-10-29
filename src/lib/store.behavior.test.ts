@@ -10,11 +10,15 @@ vi.mock("idb-keyval", () => ({
   del: vi.fn(async () => undefined),
 }));
 
-const pushVersion = vi.fn(async (_payload?: unknown) => undefined);
-const clearVersions = vi.fn(async (_id?: unknown) => undefined);
+const pushVersion = vi.fn(async (...args: unknown[]) => {
+  void args;
+});
+const clearVersions = vi.fn(async (...args: unknown[]) => {
+  void args;
+});
 vi.mock("./storage/versions", () => ({
-  pushVersion: (payload: unknown) => pushVersion(payload),
-  clearVersions: (id: unknown) => clearVersions(id),
+  pushVersion: (...args: unknown[]) => pushVersion(...args),
+  clearVersions: (...args: unknown[]) => clearVersions(...args),
 }));
 
 vi.mock("./storage/contentApi", () => ({
@@ -511,7 +515,12 @@ describe("store behavior snapshots", () => {
     expect(useStore.getState().isDirty(doc.id)).toBe(false);
     expect(useStore.getState().documents[0]?.content).toBe("changed");
     expect(pushVersion).toHaveBeenCalled();
-    expect(pushVersion.mock.calls.at(0)?.at(0)).toMatchObject({
+    const first = pushVersion.mock.calls[0]?.[0] as {
+      docId: string;
+      content: string;
+      path: string;
+    };
+    expect(first).toMatchObject({
       docId: doc.id,
       content: "orig",
       path: "d.md",
