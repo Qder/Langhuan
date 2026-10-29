@@ -265,3 +265,107 @@ export function isSelfOrDescendantFolder(
   if (cand === old) return true;
   return cand.startsWith(old + "/");
 }
+
+export type DocTypeExt = "md" | "html";
+
+export type ParseDocPathInputOk = {
+  ok: true;
+  /** Full library-relative path including extension. */
+  fullPath: string;
+  /** Parent folder path ("" = library root). */
+  folderPath: string;
+  fileName: string;
+};
+
+export type ParseDocPathInputResult = ParseDocPathInputOk | ParseFolderInputErr;
+
+/** Default filename when the user leaves the name field empty. */
+export function defaultDocFileName(type: DocTypeExt): string {
+  return type === "md" ? "未命名笔记.md" : "未命名页面.html";
+}
+
+/**
+ * Sanitize a single document filename (last path segment).
+ * Forces the extension to match `type`. Rejects `.` / `..` and path separators.
+ */
+export function sanitizeDocFileName(
+  raw: string,
+  type: DocTypeExt
+): string | null {
+  let name = raw.trim();
+  if (!name) return null;
+  if (name === "." || name === "..") return null;
+  if (/[/\\]/.test(name)) return null;
+  if (/[\u0000-\u001f\u007f]/.test(name)) return null;
+  // Strip Windows-forbidden characters in filenames.
+  name = name.replace(/[?%*:|"<>]/g, "-");
+  const ext = type === "md" ? ".md" : ".html";
+  const lower = name.toLowerCase();
+  if (lower.endsWith(".md") || lower.endsWith(".html") || lower.endsWith(".htm")) {
+    name = name.replace(/\.(md|html|htm)$/i, "");
+  }
+  name = name.trim();
+  if (!name || name === "." || name === "..") return null;
+  return name + ext;
+}
+
+/**
+ * Parse user document path input (may nest folders: `算法/图论/最短路`).
+ * Empty `raw` → default unnamed file under parent.
+ * Leading `/` ignores parentPath (library-root absolute).
+ */
+export function parseDocPathInput(
+  raw: string,
+  parentPath: string,
+  type: DocTypeExt
+): ParseDocPathInputResult {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    const fileName = defaultDocFileName(type);
+    const parent = normalizeFolderPath(parentPath || "");
+    const fullPath = parent ? `${parent}/${fileName}` : fileName;
+    return { ok: true, fullPath, folderPath: parent, fileName };
+  }
+  const fromRoot = trimmed.startsWith("/") || trimmed.startsWith("\\");
+  const normalized = trimmed.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+  if (!normalized) {
+    const fileName = defaultDocFileName(type);
+    return { ok: true, fullPath: fileName, folderPath: "", fileName };
+  }
+  const parts = normalized.split("/");
+  if (parts.some((p) => p === "")) {
+    return { ok: false, reason: "路径中不能有空段" };
+  }
+  const fileRaw = parts[parts.length - 1]!;
+  const folderSegs = parts.slice(0, -1);
+  for (const part of folderSegs) {
+    if (part === "." || part === "..") {
+      return { ok: false, reason: "路径中不能包含 . 或 .." };
+    }
+    const seg = sanitizeFolderSegment(part);
+    if (!seg) {
+      return {
+        ok: false,
+        reason: "文件夹名无效（不能为空、. / ..，也不能含 / \\ 或控制字符）",
+      };
+    }
+  }
+  const fileName = sanitizeDocFileName(fileRaw, type);
+  if (!fileName) {
+    return {
+      ok: false,
+      reason: "文件名无效（不能为空、. / ..，也不能含 / \\ 或控制字符）",
+    };
+  }
+  const parent = fromRoot ? "" : normalizeFolderPath(parentPath || "");
+  const folderJoined = folderSegs
+    .map((p) => sanitizeFolderSegment(p)!)
+    .join("/");
+  const folderPath = parent
+    ? folderJoined
+      ? `${parent}/${folderJoined}`
+      : parent
+    : folderJoined;
+  const fullPath = folderPath ? `${folderPath}/${fileName}` : fileName;
+  return { ok: true, fullPath, folderPath, fileName };
+}

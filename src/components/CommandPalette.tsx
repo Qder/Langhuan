@@ -9,6 +9,7 @@ import { searchDocuments } from "@/lib/search";
 import { renderSnippetMarks } from "@/lib/search/highlight";
 import { titleOf, cn } from "@/lib/utils";
 import { importClipboardAs } from "@/lib/clipboardImport";
+import { openCreateDocDialog } from "@/lib/createDocDialogBus";
 import { SaveSearchDialog } from "./BatchOpsDialogs";
 
 export function CommandPalette() {
@@ -84,13 +85,13 @@ export function CommandPalette() {
         key: "cmd-md",
         label: "新建 Markdown 笔记",
         icon: <FilePlus2 className="h-4 w-4 text-[var(--accent)]" />,
-        run: () => createDoc({ type: "md" }),
+        run: () => openCreateDocDialog({ type: "md" }),
       },
       {
         key: "cmd-html",
         label: "新建 HTML 页面",
         icon: <Globe className="h-4 w-4 text-[var(--teal)]" />,
-        run: () => createDoc({ type: "html" }),
+        run: () => openCreateDocDialog({ type: "html" }),
       },
       {
         key: "cmd-clip-md",
@@ -354,7 +355,7 @@ export function CommandPalette() {
         label: `创建「${q.trim()}」`,
         hint: "新建 Markdown 笔记",
         icon: <FilePlus2 className="h-4 w-4 text-[var(--accent)]" />,
-        run: () => createDoc({ type: "md", path: `${q.trim()}.md` }),
+        run: () => openCreateDocDialog({ type: "md", defaultName: q.trim() }),
       });
     }
     items.push({

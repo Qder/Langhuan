@@ -9,6 +9,9 @@ import {
   parentFolderForNew,
   isSelfOrDescendantFolder,
   parseFolderInput,
+  parseDocPathInput,
+  sanitizeDocFileName,
+  defaultDocFileName,
   pruneEmptyFolders,
   remapEmptyFolders,
   removeFolderAndDescendants,
@@ -172,5 +175,53 @@ describe("remapEmptyFolders / isSelfOrDescendantFolder", () => {
     expect(isSelfOrDescendantFolder("a/b", "a/b/c")).toBe(true);
     expect(isSelfOrDescendantFolder("a/b", "a")).toBe(false);
     expect(isSelfOrDescendantFolder("a/b", "")).toBe(false);
+  });
+});
+
+describe("parseDocPathInput", () => {
+  const cases: {
+    raw: string;
+    parent?: string;
+    type?: "md" | "html";
+    ok: boolean;
+    fullPath?: string;
+    folderPath?: string;
+    fileName?: string;
+  }[] = [
+    { raw: "", ok: true, fullPath: "未命名笔记.md", folderPath: "", fileName: "未命名笔记.md" },
+    { raw: "", parent: "算法", ok: true, fullPath: "算法/未命名笔记.md", folderPath: "算法", fileName: "未命名笔记.md" },
+    { raw: "", type: "html", ok: true, fullPath: "未命名页面.html", folderPath: "", fileName: "未命名页面.html" },
+    { raw: "最短路", ok: true, fullPath: "最短路.md", folderPath: "", fileName: "最短路.md" },
+    { raw: "最短路.md", ok: true, fullPath: "最短路.md", folderPath: "", fileName: "最短路.md" },
+    { raw: "page.html", type: "md", ok: true, fullPath: "page.md", folderPath: "", fileName: "page.md" },
+    { raw: "算法/图论/最短路", ok: true, fullPath: "算法/图论/最短路.md", folderPath: "算法/图论", fileName: "最短路.md" },
+    { raw: "/算法/笔记", parent: "忽略", ok: true, fullPath: "算法/笔记.md", folderPath: "算法", fileName: "笔记.md" },
+    { raw: "子/孙", parent: "算法", ok: true, fullPath: "算法/子/孙.md", folderPath: "算法/子", fileName: "孙.md" },
+    { raw: "a//b", ok: false },
+    { raw: "a/../b", ok: false },
+    { raw: ".", ok: false },
+    { raw: "..", ok: false },
+  ];
+
+  it.each(cases)(
+    "parseDoc %# $raw parent=$parent type=$type",
+    ({ raw, parent, type, ok, fullPath, folderPath, fileName }) => {
+      const r = parseDocPathInput(raw, parent ?? "", type ?? "md");
+      expect(r.ok).toBe(ok);
+      if (ok && r.ok) {
+        expect(r.fullPath).toBe(fullPath);
+        expect(r.folderPath).toBe(folderPath);
+        expect(r.fileName).toBe(fileName);
+      } else if (!ok && !r.ok) {
+        expect(r.reason.length).toBeGreaterThan(0);
+      }
+    }
+  );
+
+  it("sanitizeDocFileName forces extension", () => {
+    expect(sanitizeDocFileName("x", "md")).toBe("x.md");
+    expect(sanitizeDocFileName("x.html", "md")).toBe("x.md");
+    expect(sanitizeDocFileName("x.md", "html")).toBe("x.html");
+    expect(defaultDocFileName("md")).toBe("未命名笔记.md");
   });
 });

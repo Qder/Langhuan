@@ -37,6 +37,7 @@ import { collectTagCounts } from "@/lib/tags";
 import { dirname, titleOf, cn, relativeTime, basename } from "@/lib/utils";
 import { buildTree, isPathUnderFolder, type FolderTreeNode } from "@/lib/folders";
 import { CreateFolderDialog } from "./CreateFolderDialog";
+import { openCreateDocDialog } from "@/lib/createDocDialogBus";
 import { MoveFolderDialog, RenameFolderDialog } from "./FolderOpsDialogs";
 import { PasteSourceDialog } from "./PasteSourceDialog";
 import { AddTagsDialog, MoveDocsDialog } from "./BatchOpsDialogs";
@@ -543,18 +544,9 @@ export function Sidebar() {
 
   const createInFolder = React.useCallback(
     (folderPath: string, type: "md" | "html") => {
-      const name = type === "md" ? "未命名笔记.md" : "未命名页面.html";
-      const path = folderPath ? `${folderPath}/${name}` : name;
-      if (folderPath) {
-        setExpanded((prev) => {
-          const next = new Set(prev);
-          next.add(folderPath);
-          return next;
-        });
-      }
-      createDoc({ type, path, open: true });
+      openCreateDocDialog({ type, defaultParent: folderPath });
     },
-    [createDoc]
+    []
   );
 
   const [createFolderOpen, setCreateFolderOpen] = React.useState(false);
@@ -894,8 +886,8 @@ export function Sidebar() {
               </Button>
             }
           >
-            <DropdownItem onClick={() => createDoc({ type: "md" })}>Markdown 笔记</DropdownItem>
-            <DropdownItem onClick={() => createDoc({ type: "html" })}>HTML 页面</DropdownItem>
+            <DropdownItem onClick={() => openCreateDocDialog({ type: "md" })}>Markdown 笔记</DropdownItem>
+            <DropdownItem onClick={() => openCreateDocDialog({ type: "html" })}>HTML 页面</DropdownItem>
             <DropdownItem onClick={() => onCreateFolder()}>
               <FolderPlus className="h-3.5 w-3.5" /> 新建文件夹
             </DropdownItem>
@@ -1422,8 +1414,8 @@ export function Sidebar() {
           </button>
         }
       >
-        <DropdownItem onClick={() => createDoc({ type: "md" })}>Markdown 笔记</DropdownItem>
-        <DropdownItem onClick={() => createDoc({ type: "html" })}>HTML 页面</DropdownItem>
+        <DropdownItem onClick={() => openCreateDocDialog({ type: "md" })}>Markdown 笔记</DropdownItem>
+        <DropdownItem onClick={() => openCreateDocDialog({ type: "html" })}>HTML 页面</DropdownItem>
         <DropdownItem onClick={() => onCreateFolder()}>新建文件夹</DropdownItem>
         <DropdownItem onClick={() => openDailyNote()}>今日笔记</DropdownItem>
         <DropdownItem onClick={() => setTemplateDialogOpen(true)}>从模板新建</DropdownItem>

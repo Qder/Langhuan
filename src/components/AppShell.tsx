@@ -23,6 +23,8 @@ import { ClipUrlDialog } from "./ClipUrlDialog";
 import { TemplateDialog } from "./TemplateDialog";
 import { ExportDialog } from "./ExportDialog";
 import { ShortcutsDialog } from "./ShortcutsDialog";
+import { CreateDocDialogHost } from "./CreateDocDialog";
+import { openCreateDocDialog } from "@/lib/createDocDialogBus";
 import { RegisterSW } from "./pwa/RegisterSW";
 import { AUTOSAVE_DEBOUNCE_MS } from "@/lib/storage/constants";
 import { matchShortcut, normalizeShortcuts } from "@/lib/shortcuts";
@@ -48,7 +50,6 @@ export function AppShell() {
   const autosaveEnabled = useStore((s) => s.autosaveEnabled);
   const activeIdForSave = useStore((s) => s.activeId);
   const customShortcuts = useStore((s) => s.customShortcuts);
-  const createDoc = useStore((s) => s.createDoc);
   const openDailyNote = useStore((s) => s.openDailyNote);
   const toggleDocSplit = useStore((s) => s.toggleDocSplit);
   const closeTab = useStore((s) => s.closeTab);
@@ -125,7 +126,7 @@ export function AppShell() {
       }
       if (matchShortcut(e, shortcuts.newMd) && !typing) {
         e.preventDefault();
-        createDoc({ type: "md" });
+        openCreateDocDialog({ type: "md" });
         return;
       }
       if (matchShortcut(e, shortcuts.dailyNote) && !typing) {
@@ -195,7 +196,6 @@ export function AppShell() {
     setStatus,
     viewMode,
     shortcuts,
-    createDoc,
     openDailyNote,
     toggleDocSplit,
     closeTab,
@@ -249,6 +249,7 @@ export function AppShell() {
       <TemplateDialog />
       <ExportDialog />
       <ShortcutsDialog />
+      <CreateDocDialogHost />
       <RegisterSW />
     </div>
   );

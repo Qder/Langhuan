@@ -17,6 +17,7 @@ import {
 import { ImportFolderDialog, type PendingImportAsset, type PendingImportDoc } from "./ImportFolderDialog";
 import { importClipboardAs } from "@/lib/clipboardImport";
 import { PasteSourceDialog } from "./PasteSourceDialog";
+import { openCreateDocDialog } from "@/lib/createDocDialogBus";
 import {
   isImportableImagePath,
   isImportableLibraryPath,
@@ -62,8 +63,8 @@ export function HomeView() {
   };
 
   const shortcuts = [
-    { title: "新建笔记", desc: "写一篇 Markdown", icon: FilePlus2, onClick: () => createDoc({ type: "md" }) },
-    { title: "新建页面", desc: "收藏 HTML", icon: Globe, onClick: () => createDoc({ type: "html" }) },
+    { title: "新建笔记", desc: "写一篇 Markdown", icon: FilePlus2, onClick: () => openCreateDocDialog({ type: "md" }) },
+    { title: "新建页面", desc: "收藏 HTML", icon: Globe, onClick: () => openCreateDocDialog({ type: "html" }) },
     { title: "粘贴源码", desc: "快速收入片段", icon: FileCode2, onClick: onPaste },
     { title: "网页剪藏", desc: "剪贴板 → Markdown", icon: Globe, onClick: () => void onClipperMd() },
     { title: "导入文件夹", desc: "保留目录结构", icon: FolderInput, onClick: () => folderRef.current?.click() },
@@ -155,7 +156,7 @@ export function HomeView() {
             <div className="font-serif text-xl">书架空空如也</div>
             <p className="text-sm text-[var(--muted)]">新建一篇笔记，或恢复内置示例文档。</p>
             <div className="flex justify-center gap-2">
-              <button type="button" className="rounded-xl bg-[var(--accent)] text-white px-4 py-2 text-sm" onClick={() => createDoc({ type: "md" })}>
+              <button type="button" className="rounded-xl bg-[var(--accent)] text-white px-4 py-2 text-sm" onClick={() => openCreateDocDialog({ type: "md" })}>
                 新建笔记
               </button>
               <button type="button" className="rounded-xl border border-[var(--border)] px-4 py-2 text-sm" onClick={resetSeed}>
