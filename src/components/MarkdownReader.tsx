@@ -55,6 +55,7 @@ import { subscribeScrollSync } from "@/lib/locate/scrollBus";
 import { probeRender, probeSection } from "@/lib/dev/perfProbe";
 import { AssetImage } from "./editor/AssetImage";
 import { InlineMdBlockEditor } from "./editor/InlineMdBlockEditor";
+import { InlineVisualBlockEditor } from "./editor/InlineVisualBlockEditor";
 import {
   findEditableSrcBlock,
   guessCursorInSlice,
@@ -63,6 +64,18 @@ import {
   prepareAppendAtEnd,
   replaceRange,
 } from "@/lib/mdInlineEdit";
+import {
+  classifyMdBlock,
+  isVisualEditableType,
+  serializeVisualBlock,
+  type VisualBlockType,
+} from "@/lib/mdVisualSerialize";
+
+function isSourceMonoFallback(t: VisualBlockType): boolean {
+  // table/callout/unknown stay on source textarea (safer than bad serialize).
+  return t === "table" || t === "callout" || t === "unknown";
+}
+
 import "highlight.js/styles/github-dark.css";
 import "katex/dist/katex.min.css";
 
@@ -540,12 +553,17 @@ export function MarkdownReader({ doc }: { doc: Document }) {
   type InlineEditState =
     | {
         kind: "block";
+        mode: "visual" | "source";
+        blockType: VisualBlockType;
         start: number;
         end: number;
+        /** Draft text for source mode; for visual = original slice until commit. */
         text: string;
         mono: boolean;
         cursorAt: number;
         el: HTMLElement;
+        clientX?: number;
+        clientY?: number;
       }
     | {
         kind: "append";
@@ -566,6 +584,10 @@ export function MarkdownReader({ doc }: { doc: Document }) {
     text: string;
     mono: boolean;
     cursorAt: number;
+    mode?: "visual" | "source";
+    blockType?: VisualBlockType;
+    clientX?: number;
+    clientY?: number;
   } | null>(null);
 
   // Outline scroll-spy: cached content tops; scroll only does math (no layout reads).
@@ -639,7 +661,20 @@ export function MarkdownReader({ doc }: { doc: Document }) {
   }, []);
 
   const commitInlineEdit = React.useCallback(
-    (opts?: { openNext?: { start: number; end: number; text: string; mono: boolean; cursorAt: number } }) => {
+    (opts?: {
+      text?: string;
+      openNext?: {
+        start: number;
+        end: number;
+        text: string;
+        mono: boolean;
+        cursorAt: number;
+        mode?: "visual" | "source";
+        blockType?: VisualBlockType;
+        clientX?: number;
+        clientY?: number;
+      };
+    }) => {
       const ed = inlineEditRef.current;
       // Blur after an already-committed switch: keep pendingOpenRef intact.
       if (!ed) {
@@ -647,12 +682,24 @@ export function MarkdownReader({ doc }: { doc: Document }) {
         return;
       }
       const cur = getContent(doc.id);
-      const after = replaceRange(cur, ed.start, ed.end, ed.text);
+      let writeText = opts?.text ?? ed.text;
+      if (
+        opts?.text == null &&
+        ed.kind === "block" &&
+        ed.mode === "visual"
+      ) {
+        writeText = serializeVisualBlock({
+          originalSlice: ed.text,
+          blockType: ed.blockType,
+          element: ed.el,
+        });
+      }
+      const after = replaceRange(cur, ed.start, ed.end, writeText);
       captureScroll();
       if (after !== cur) setDraft(doc.id, after);
       if (opts?.openNext) {
         let { start, end, text } = opts.openNext;
-        const { mono, cursorAt } = opts.openNext;
+        const { mono, cursorAt, mode, blockType, clientX, clientY } = opts.openNext;
         const delta = after.length - cur.length;
         if (start >= ed.end) {
           start += delta;
@@ -665,7 +712,17 @@ export function MarkdownReader({ doc }: { doc: Document }) {
           setInlineEdit(null);
           return;
         }
-        pendingOpenRef.current = { start, end, text, mono, cursorAt };
+        pendingOpenRef.current = {
+          start,
+          end,
+          text,
+          mono,
+          cursorAt,
+          mode,
+          blockType,
+          clientX,
+          clientY,
+        };
       }
       setInlineEdit(null);
     },
@@ -687,22 +744,32 @@ export function MarkdownReader({ doc }: { doc: Document }) {
     ) => {
       const cur = getContent(doc.id);
       const slice = cur.slice(start, end);
+      const blockType = classifyMdBlock(slice);
+      const mono = isMonoSrcSlice(slice) || isSourceMonoFallback(blockType);
+      const visual = isVisualEditableType(blockType) && !mono;
       const hint = click ? plainOffsetInElement(el, click.clientX, click.clientY) : null;
       const cursorAt = guessCursorInSlice(slice, {
         clickText: hint?.clickText,
         approxOffset: hint?.approxOffset,
       });
+      if (mono) {
+        setStatus("此块需编辑源码");
+      }
       setInlineEdit({
         kind: "block",
+        mode: visual ? "visual" : "source",
+        blockType,
         start,
         end,
         text: slice,
-        mono: isMonoSrcSlice(slice),
+        mono,
         cursorAt,
         el,
+        clientX: click?.clientX,
+        clientY: click?.clientY,
       });
     },
-    [doc.id, getContent]
+    [doc.id, getContent, setStatus]
   );
 
   const beginAppendEdit = React.useCallback(() => {
@@ -785,14 +852,25 @@ export function MarkdownReader({ doc }: { doc: Document }) {
     if (wrap instanceof HTMLElement && wrap.hasAttribute("data-src-start")) {
       el = wrap;
     }
+    const end = Number(el.getAttribute("data-src-end") || pending.end);
+    const blockType = pending.blockType ?? classifyMdBlock(pending.text);
+    const visual =
+      (pending.mode === "visual" ||
+        (pending.mode == null && isVisualEditableType(blockType) && !pending.mono)) &&
+      isVisualEditableType(blockType) &&
+      !pending.mono;
     setInlineEdit({
       kind: "block",
+      mode: visual ? "visual" : "source",
+      blockType,
       start: pending.start,
-      end: Number(el.getAttribute("data-src-end") || pending.end),
+      end,
       text: pending.text,
       mono: pending.mono,
       cursorAt: pending.cursorAt,
       el,
+      clientX: pending.clientX,
+      clientY: pending.clientY,
     });
   }, [body]);
 
@@ -931,7 +1009,18 @@ export function MarkdownReader({ doc }: { doc: Document }) {
       if (e.altKey || e.shiftKey) return;
       const t = e.target as HTMLElement | null;
       if (!t) return;
-      if (t.closest("[data-lh-inline-editor]")) return;
+      // Inside active visual/source editor chrome: ignore (caret / typing).
+      const editingHost = t.closest("[data-lh-inline-editor], [contenteditable=true]");
+      if (editingHost) {
+        const cur = inlineEditRef.current;
+        if (
+          cur?.kind === "block" &&
+          (cur.el === editingHost || cur.el.contains(editingHost))
+        ) {
+          return;
+        }
+        // Click landed in editor chrome that is not the active block — fall through.
+      }
       if (t.closest("a, button, input, textarea, summary")) return;
       const mode = useStore.getState().viewMode;
 
@@ -970,16 +1059,27 @@ export function MarkdownReader({ doc }: { doc: Document }) {
         if (cur) {
           suppressBlurCommitRef.current = true;
           const slice = getContent(doc.id).slice(start, end);
+          const nextType = classifyMdBlock(slice);
+          const nextMono =
+            isMonoSrcSlice(slice) ||
+            nextType === "table" ||
+            nextType === "callout" ||
+            nextType === "unknown";
+          const nextVisual = isVisualEditableType(nextType) && !nextMono;
           commitInlineEdit({
             openNext: {
               start,
               end,
               text: slice,
-              mono: isMonoSrcSlice(slice),
+              mono: nextMono,
               cursorAt: guessCursorInSlice(
                 slice,
                 plainOffsetInElement(el, e.clientX, e.clientY) ?? undefined
               ),
+              mode: nextVisual ? "visual" : "source",
+              blockType: nextType,
+              clientX: e.clientX,
+              clientY: e.clientY,
             },
           });
           return;
@@ -1500,7 +1600,19 @@ export function MarkdownReader({ doc }: { doc: Document }) {
             assets={assets}
             docPath={doc.path}
           />
-          {inlineEdit?.kind === "block" && (
+          {inlineEdit?.kind === "block" && inlineEdit.mode === "visual" && (
+            <InlineVisualBlockEditor
+              anchorEl={inlineEdit.el}
+              originalSlice={inlineEdit.text}
+              blockType={inlineEdit.blockType}
+              clientX={inlineEdit.clientX}
+              clientY={inlineEdit.clientY}
+              suppressBlurRef={suppressBlurCommitRef}
+              onCommit={(nextSlice) => commitInlineEdit({ text: nextSlice })}
+              onCancel={cancelInlineEdit}
+            />
+          )}
+          {inlineEdit?.kind === "block" && inlineEdit.mode === "source" && (
             <InlineMdBlockEditor
               anchorEl={inlineEdit.el}
               value={inlineEdit.text}
