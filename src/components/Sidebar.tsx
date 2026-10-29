@@ -35,7 +35,8 @@ import { useStore, filteredDocuments } from "@/lib/store";
 import { THEME_IDS, THEME_HINTS, THEME_LABELS, isDarkTheme, themeLabel } from "@/lib/theme";
 import { collectTagCounts } from "@/lib/tags";
 import { dirname, titleOf, cn, relativeTime, basename } from "@/lib/utils";
-import { buildTree, isPathUnderFolder, parentFolderForNew, type FolderTreeNode } from "@/lib/folders";
+import { buildTree, isPathUnderFolder, type FolderTreeNode } from "@/lib/folders";
+import { CreateFolderDialog } from "./CreateFolderDialog";
 import { formatBytes } from "@/lib/storage/usage";
 import { ImportFolderDialog, type PendingImportAsset, type PendingImportDoc } from "./ImportFolderDialog";
 import { importClipboardAs } from "@/lib/clipboardImport";
@@ -324,7 +325,6 @@ export function Sidebar() {
   const openHome = useStore((s) => s.requestOpenHome);
   const activeId = useStore((s) => s.activeId);
   const createDoc = useStore((s) => s.createDoc);
-  const createFolder = useStore((s) => s.createFolder);
   const emptyFolders = useStore((s) => s.emptyFolders);
   const setStatus = useStore((s) => s.setStatus);
   const setCommandOpen = useStore((s) => s.setCommandOpen);
@@ -536,33 +536,29 @@ export function Sidebar() {
     [createDoc]
   );
 
-  const onCreateFolder = React.useCallback(
-    (parentOverride?: string) => {
-      const parent =
-        parentOverride !== undefined
-          ? parentOverride
-          : parentFolderForNew(activeDoc?.path);
-      const raw = window.prompt(
-        parent ? `在「${parent}」下新建文件夹` : "新建文件夹（位于库根目录）",
-        "新建文件夹"
-      );
-      if (raw == null) return;
-      const full = createFolder(raw, parent);
-      if (!full) return;
+  const [createFolderOpen, setCreateFolderOpen] = React.useState(false);
+  const [createFolderParent, setCreateFolderParent] = React.useState("");
+
+  const onCreateFolder = React.useCallback((parentOverride?: string) => {
+    // Topbar / Plus: library root. Context menu: that folder (editable in dialog).
+    setCreateFolderParent(parentOverride !== undefined ? parentOverride : "");
+    setCreateFolderOpen(true);
+  }, [setCreateFolderParent, setCreateFolderOpen]);
+
+  const onFolderCreated = React.useCallback(
+    (full: string) => {
       setExpanded((prev) => {
         const next = new Set(prev);
         next.add(full);
-        // expand ancestors
         const parts = full.split("/");
         for (let i = 1; i < parts.length; i++) {
           next.add(parts.slice(0, i).join("/"));
         }
-        if (parent) next.add(parent);
         return next;
       });
       setSidebarPanel("docs");
     },
-    [activeDoc?.path, createFolder, setSidebarPanel]
+    [setSidebarPanel]
   );
 
   const folderMenuItems: ContextMenuItem[] = React.useMemo(() => {
@@ -1501,6 +1497,15 @@ export function Sidebar() {
           ariaLabel="文件菜单"
         />
       )}
+      {createFolderOpen ? (
+        <CreateFolderDialog
+          key={`${createFolderParent}::${createFolderOpen}`}
+          open={createFolderOpen}
+          onClose={() => setCreateFolderOpen(false)}
+          defaultParent={createFolderParent}
+          onCreated={onFolderCreated}
+        />
+      ) : null}
       <Dialog
         open={!!deleteConfirm}
         onClose={() => setDeleteConfirm(null)}
