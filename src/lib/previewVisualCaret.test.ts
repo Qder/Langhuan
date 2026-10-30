@@ -3,6 +3,9 @@ import { JSDOM } from "jsdom";
 import { replaceRange } from "./mdInlineEdit";
 import {
   mergeVisualSlices,
+  mdVisibleToPlainLength,
+  isCaretAtVisualBlockStart,
+  plainCaretOffsetIn,
   splitVisualSlice,
   isMergeBoundaryType,
   mountIsolatedVisualHost,
@@ -300,5 +303,76 @@ describe("splitVisualAtCaret — isolated host Enter path", () => {
     expect(right).toContain("`id`");
     expect(left.includes("`id`")).toBe(false);
     expect(right.includes("`name`")).toBe(false);
+  });
+});
+
+describe("mdVisibleToPlainLength — merge caret vs DOM", () => {
+  it("strips inline code markers so caret lands at junction", () => {
+    expect(mdVisibleToPlainLength("ab`cd`ef")).toBe(6);
+    expect(mdVisibleToPlainLength("你好**世界**")).toBe(4);
+  });
+
+  it("merge caretPlain uses plain length not md length", () => {
+    const merged = mergeVisualSlices({
+      prevSlice: "see `x` now\n",
+      nextSlice: "more\n",
+      prevType: "paragraph",
+      nextType: "paragraph",
+    });
+    expect(merged).not.toBeNull();
+    // visible "see `x` now" md len 11, plain "see x now" len 9
+    expect(merged!.caretPlain).toBe(9);
+    expect(merged!.writeText).toBe("see `x` nowmore\n");
+  });
+});
+
+describe("isCaretAtVisualBlockStart — null-safe Backspace gate", () => {
+  it("returns false when selection is missing (no false merge)", () => {
+    const dom = new JSDOM(`<p id="h">hello</p>`);
+    const el = dom.window.document.getElementById("h") as HTMLElement;
+    expect(isCaretAtVisualBlockStart(el)).toBe(false);
+  });
+
+  it("returns true at offset 0 on empty / ZWSP-only host", () => {
+    const dom = new JSDOM(`<!DOCTYPE html><p id="h"></p>`);
+    const el = dom.window.document.getElementById("h") as HTMLElement;
+    el.textContent = "\u200b";
+    const doc = dom.window.document;
+    const range = doc.createRange();
+    range.setStart(el.firstChild!, 0);
+    range.collapse(true);
+    const sel = dom.window.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(range);
+    expect(plainCaretOffsetIn(el)).toBe(0);
+    expect(isCaretAtVisualBlockStart(el)).toBe(true);
+  });
+
+  it("returns false when caret mid-block", () => {
+    const dom = new JSDOM(`<!DOCTYPE html><p id="h">hello</p>`);
+    const el = dom.window.document.getElementById("h") as HTMLElement;
+    const doc = dom.window.document;
+    const range = doc.createRange();
+    range.setStart(el.firstChild!, 3);
+    range.collapse(true);
+    const sel = dom.window.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(range);
+    expect(plainCaretOffsetIn(el)).toBe(3);
+    expect(isCaretAtVisualBlockStart(el)).toBe(false);
+  });
+
+  it("does not merge when leading ZWSP precedes real text", () => {
+    const dom = new JSDOM(`<!DOCTYPE html><p id="h"></p>`);
+    const el = dom.window.document.getElementById("h") as HTMLElement;
+    el.textContent = "\u200b" + "hi";
+    const doc = dom.window.document;
+    const range = doc.createRange();
+    range.setStart(el.firstChild!, 0);
+    range.collapse(true);
+    const sel = dom.window.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(range);
+    expect(isCaretAtVisualBlockStart(el)).toBe(false);
   });
 });

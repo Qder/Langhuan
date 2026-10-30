@@ -249,7 +249,8 @@ export function mergeVisualSlices(args: {
 
   const prevBody = visibleBodyFromSlice(prevSlice, prevType);
   const nextBody = visibleBodyFromSlice(nextSlice, nextType);
-  const caretPlain = prevBody.length;
+  // DOM caret index (not md-marker length) so placeCaretPlain hits the junction.
+  const caretPlain = mdVisibleToPlainLength(prevBody);
 
   if (prevType === "heading") {
     const { core, nl } = stripTrailingNl(prevSlice);
@@ -298,26 +299,62 @@ export function classifySlice(slice: string): VisualBlockType {
 
 /**
  * Plain-text caret offset inside a contenteditable element.
+ * Returns null when the selection is missing or not inside `el` —
+ * callers must NOT treat null as "offset 0" (that false-positive fired merge).
  */
-export function plainCaretOffsetIn(el: HTMLElement): number {
+export function plainCaretOffsetIn(el: HTMLElement): number | null {
   const doc = el.ownerDocument;
-  if (!doc) return 0;
+  if (!doc) return null;
   const sel = doc.getSelection?.() || window.getSelection();
-  if (!sel || sel.rangeCount === 0) return 0;
+  if (!sel || sel.rangeCount === 0) return null;
   const range = sel.getRangeAt(0);
-  if (!el.contains(range.startContainer)) return 0;
+  if (!el.contains(range.startContainer)) return null;
   try {
     const pre = doc.createRange();
     pre.selectNodeContents(el);
     pre.setEnd(range.startContainer, range.startOffset);
     return pre.toString().length;
   } catch {
-    return 0;
+    return null;
   }
 }
 
 export function plainTextOf(el: HTMLElement): string {
   return el.textContent || "";
+}
+
+/**
+ * Approximate DOM plain length of a markdown visible body (strip inline markers).
+ * Used so merge caret lands at the junction, not past the end of the next slice.
+ */
+export function mdVisibleToPlainLength(visible: string): number {
+  let s = visible;
+  s = s.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_m, t: string, a?: string) => a || t);
+  s = s.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+  s = s.replace(/`([^`]+)`/g, "$1");
+  s = s.replace(/\*\*([^*]+)\*\*/g, "$1");
+  s = s.replace(/\*([^*]+)\*/g, "$1");
+  s = s.replace(/~~([^~]+)~~/g, "$1");
+  s = s.replace(/\$([^$\n]+)\$/g, "$1");
+  s = s.replace(/\u200b/g, "");
+  return s.length;
+}
+
+/**
+ * True only when collapsed caret is reliably at the start of the visual host.
+ * Leading ZWSP placeholders: let the browser delete them first (no merge).
+ * Empty / ZWSP-only blocks: merge (delete empty block).
+ */
+export function isCaretAtVisualBlockStart(el: HTMLElement): boolean {
+  const off = plainCaretOffsetIn(el);
+  if (off == null || off > 0) return false;
+  const text = plainTextOf(el);
+  const withoutZwsp = text.replace(/\u200b/g, "");
+  if (text.startsWith("\u200b") && withoutZwsp.length > 0) {
+    // Real content after ZWSP — Backspace should remove ZWSP, not merge.
+    return false;
+  }
+  return true;
 }
 
 export type CaretEdge = "start" | "end" | null;
@@ -335,6 +372,7 @@ export function caretEdgeInBlock(
   const sel = doc.getSelection?.() || window.getSelection();
   if (!sel || sel.rangeCount === 0 || !sel.isCollapsed) return null;
   const offset = plainCaretOffsetIn(el);
+  if (offset == null) return null;
   const len = plainTextOf(el).length;
 
   if (key === "ArrowLeft" && offset <= 0) return "start";
@@ -375,9 +413,13 @@ export function placeCaretPlain(
   const doc = el.ownerDocument;
   if (!doc) return;
   try {
-    el.focus();
+    el.focus({ preventScroll: true });
   } catch {
-    /* ignore */
+    try {
+      el.focus();
+    } catch {
+      /* ignore */
+    }
   }
   const target =
     at === "start" ? 0 : at === "end" ? Infinity : Math.max(0, Math.floor(at));
@@ -435,7 +477,7 @@ export function splitVisualAtCaret(args: {
   const { element: el, blockType, originalSlice } = args;
   const doc = el.ownerDocument;
   const plain = plainTextOf(el);
-  const plainOffset = plainCaretOffsetIn(el);
+  const plainOffset = plainCaretOffsetIn(el) ?? plain.length;
 
   if (!doc) {
     return splitVisualSlice({

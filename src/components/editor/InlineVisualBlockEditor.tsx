@@ -7,9 +7,9 @@ import {
 } from "@/lib/mdVisualSerialize";
 import {
   caretEdgeInBlock,
+  isCaretAtVisualBlockStart,
   mountIsolatedVisualHost,
   placeCaretPlain,
-  plainCaretOffsetIn,
   splitVisualAtCaret,
   type SplitResult,
 } from "@/lib/previewVisualCaret";
@@ -172,20 +172,25 @@ export function InlineVisualBlockEditor({
         return;
       }
 
-      // Backspace at start → merge with previous visual block
+      // Backspace at *true* block start → merge previous visual.
+      // Mid-block / unknown selection: let the browser delete in place (no jump).
       if (e.key === "Backspace" && !e.metaKey && !e.ctrlKey && !e.altKey) {
-        const sel = el.ownerDocument?.getSelection?.() || window.getSelection();
-        if (sel && sel.isCollapsed && plainCaretOffsetIn(el) <= 0) {
-          e.preventDefault();
-          e.stopPropagation();
-          const serialized = serializeNow();
-          const handler = onMergePrevRef.current;
-          if (handler && handler(serialized)) {
-            markHandled();
-            return;
-          }
+        if ((e as KeyboardEvent & { isComposing?: boolean }).isComposing || e.keyCode === 229) {
           return;
         }
+        const sel = el.ownerDocument?.getSelection?.() || window.getSelection();
+        if (!sel || !sel.isCollapsed) return; // selection delete = native
+        if (!isCaretAtVisualBlockStart(el)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const serialized = serializeNow();
+        const handler = onMergePrevRef.current;
+        if (handler && handler(serialized)) {
+          markHandled();
+          return;
+        }
+        // Boundary / no prev: swallow so we do not jump; stay put.
+        return;
       }
 
       // Arrow keys at edge → adjacent visual block
@@ -302,13 +307,25 @@ function placeCaretFromPoint(
 ): void {
   const doc = el.ownerDocument;
   if (!doc) {
-    el.focus();
+    try {
+      el.focus({ preventScroll: true });
+    } catch {
+      try {
+        el.focus();
+      } catch {
+        /* ignore */
+      }
+    }
     return;
   }
   try {
-    el.focus();
+    el.focus({ preventScroll: true });
   } catch {
-    /* ignore */
+    try {
+      el.focus();
+    } catch {
+      /* ignore */
+    }
   }
   if (
     typeof clientX === "number" &&
