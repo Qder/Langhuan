@@ -61,4 +61,11 @@ describe("shortcuts", () => {
       )
     ).toBe(true);
   });
+
+  it("search defaults to mod+f", () => {
+    expect(DEFAULT_SHORTCUTS.search).toBe("mod+f");
+    expect(
+      matchShortcut(keyEvent({ key: "f", ctrlKey: true }), DEFAULT_SHORTCUTS.search)
+    ).toBe(true);
+  });
 });

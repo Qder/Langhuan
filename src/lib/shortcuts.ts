@@ -11,6 +11,7 @@ export type ShortcutAction =
   | "closeTab"
   | "exportActive"
   | "findReplace"
+  | "search"
   | "previewUndo"
   | "previewRedo";
 
@@ -28,6 +29,7 @@ export const DEFAULT_SHORTCUTS: ShortcutMap = {
   closeTab: "mod+w",
   exportActive: "mod+shift+e",
   findReplace: "mod+shift+h",
+  search: "mod+f",
   previewUndo: "mod+z",
   previewRedo: "mod+shift+z",
 };
@@ -43,6 +45,7 @@ export const SHORTCUT_LABELS: Record<ShortcutAction, string> = {
   closeTab: "关闭当前标签",
   exportActive: "导出当前文档",
   findReplace: "查找替换",
+  search: "搜索",
   previewUndo: "撤销预览编辑",
   previewRedo: "重做预览编辑",
 };

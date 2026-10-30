@@ -116,6 +116,18 @@ export function AppShell() {
         setCommandOpen(true);
         return;
       }
+      // Library search (command palette). Leave Ctrl/Cmd+F to CodeMirror when in source.
+      if (matchShortcut(e, shortcuts.search)) {
+        const inCm =
+          !!target &&
+          typeof (target as HTMLElement).closest === "function" &&
+          !!(target as HTMLElement).closest(".cm-editor");
+        if (!inCm) {
+          e.preventDefault();
+          setCommandOpen(true);
+          return;
+        }
+      }
       if (matchShortcut(e, shortcuts.save)) {
         e.preventDefault();
         saveDoc();

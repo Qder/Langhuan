@@ -14,6 +14,7 @@ import {
   titleOf,
   cn,
 } from "@/lib/utils";
+import { DEFAULT_SHORTCUTS, formatShortcut } from "@/lib/shortcuts";
 import { ImportFolderDialog, type PendingImportAsset, type PendingImportDoc } from "./ImportFolderDialog";
 import { importClipboardAs } from "@/lib/clipboardImport";
 import { PasteSourceDialog } from "./PasteSourceDialog";
@@ -107,7 +108,7 @@ export function HomeView() {
             >
               <Search className="h-4 w-4 text-[var(--muted)]" />
               <span className="flex-1 text-[var(--muted)] text-sm">搜索文档、标签或命令…</span>
-              <kbd className="rounded-md border border-[var(--border)] px-1.5 py-0.5 text-[10px] font-mono text-[var(--muted)]">⌘K</kbd>
+              <kbd className="rounded-md border border-[var(--border)] px-1.5 py-0.5 text-[10px] font-mono text-[var(--muted)]">{formatShortcut(DEFAULT_SHORTCUTS.search)}</kbd>
             </button>
           </div>
         </section>

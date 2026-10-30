@@ -36,6 +36,7 @@ import { THEME_IDS, THEME_HINTS, THEME_LABELS, isDarkTheme, themeLabel } from "@
 import { collectTagCounts } from "@/lib/tags";
 import { reviewBadgeCount } from "@/lib/quiz";
 import { dirname, titleOf, cn, relativeTime, basename } from "@/lib/utils";
+import { DEFAULT_SHORTCUTS, formatShortcut } from "@/lib/shortcuts";
 import { buildTree, isPathUnderFolder, type FolderTreeNode } from "@/lib/folders";
 import { CreateFolderDialog } from "./CreateFolderDialog";
 import { openCreateDocDialog } from "@/lib/createDocDialogBus";
@@ -877,7 +878,7 @@ export function Sidebar() {
           <Search className="h-4 w-4 shrink-0" />
           <span className="flex-1 min-w-0 truncate text-left">搜索文档、标签、命令…</span>
           <kbd className="shrink-0 rounded-md border border-[var(--border)] px-1.5 py-0.5 text-[10px] font-mono leading-none">
-            ⌘K
+            {formatShortcut(DEFAULT_SHORTCUTS.search)}
           </kbd>
         </button>
 
@@ -1418,7 +1419,7 @@ export function Sidebar() {
         onClick={() => setCommandOpen(true)}
         className="inline-flex h-9 w-9 items-center justify-center rounded-xl hover:bg-[var(--hover)]"
         aria-label="搜索"
-        title="搜索 ⌘K"
+        title={`搜索 ${formatShortcut(DEFAULT_SHORTCUTS.search)}`}
       >
         <Search className="h-4 w-4" />
       </button>
