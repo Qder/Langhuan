@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  findGapInsertAt,
   guessCursorInSlice,
   isClientYBelowLastSrcBlock,
   isMonoSrcSlice,
   normalizeAppendWriteText,
   prepareAppendAtEnd,
+  prepareInsertBetween,
   replaceRange,
   trailingNewline,
 } from "./mdInlineEdit";
@@ -215,5 +217,75 @@ describe("isClientYBelowLastSrcBlock", () => {
     } as unknown as ParentNode;
     expect(isClientYBelowLastSrcBlock(root, 104)).toBe(false);
     expect(isClientYBelowLastSrcBlock(root, 105)).toBe(true);
+  });
+});
+
+describe("prepareInsertBetween", () => {
+  it("inserts a paragraph between two blocks without touching neighbors", () => {
+    const src = "第一段\n\n第二段\n";
+    // data-src-end typically at end of first paragraph text
+    const at = "第一段".length;
+    const { prepared, start, end } = prepareInsertBetween(src, at);
+    const slice = normalizeAppendWriteText("新增内容");
+    const next = replaceRange(prepared, start, end, slice);
+    expect(next.startsWith("第一段")).toBe(true);
+    expect(next).toContain("新增内容");
+    expect(next.endsWith("第二段\n") || next.includes("第二段")).toBe(true);
+    expect(next.indexOf("新增内容")).toBeGreaterThan(next.indexOf("第一段"));
+    expect(next.indexOf("第二段")).toBeGreaterThan(next.indexOf("新增内容"));
+  });
+
+  it("falls through to append when insertAt is at EOF", () => {
+    const src = "only\n";
+    const a = prepareInsertBetween(src, src.length);
+    const b = prepareAppendAtEnd(src);
+    expect(a).toEqual(b);
+  });
+
+  it("keeps front matter intact", () => {
+    const fm = "---\ntitle: X\n---\n\n";
+    const src = fm + "# Spring Boot\n\n# 自动配置原理\n";
+    const at = fm.length + "# Spring Boot".length;
+    const { prepared, start, end } = prepareInsertBetween(src, at);
+    const next = replaceRange(
+      prepared,
+      start,
+      end,
+      normalizeAppendWriteText("这里是新增的介绍内容。")
+    );
+    expect(next.startsWith(fm)).toBe(true);
+    expect(next).toContain("这里是新增的介绍内容。");
+    expect(next).toContain("# 自动配置原理");
+  });
+});
+
+describe("findGapInsertAt", () => {
+  it("returns null when fewer than 2 blocks", () => {
+    const root = {
+      querySelectorAll: () => [],
+    } as unknown as ParentNode;
+    expect(findGapInsertAt(root, 50)).toBeNull();
+  });
+
+  it("finds gap between two blocks by clientY", () => {
+    const mk = (start: number, end: number, top: number, bottom: number) => ({
+      tagName: "P",
+      hasAttribute: () => false,
+      getAttribute: (name: string) =>
+        name === "data-src-start"
+          ? String(start)
+          : name === "data-src-end"
+            ? String(end)
+            : null,
+      getBoundingClientRect: () => ({ top, bottom }),
+    });
+    const a = mk(0, 5, 0, 40);
+    const b = mk(10, 20, 80, 120);
+    const root = {
+      querySelectorAll: () => [a, b],
+    } as unknown as ParentNode;
+    expect(findGapInsertAt(root, 60)?.insertAt).toBe(5);
+    expect(findGapInsertAt(root, 20)).toBeNull();
+    expect(findGapInsertAt(root, 100)).toBeNull();
   });
 });

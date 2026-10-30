@@ -110,6 +110,98 @@ export function isClientYBelowLastSrcBlock(
   return clientY > last.getBoundingClientRect().bottom + slackPx;
 }
 
+export type SrcBlockGeom = {
+  el: HTMLElement;
+  start: number;
+  end: number;
+  top: number;
+  bottom: number;
+};
+
+/**
+ * Top-level annotated preview blocks (excludes per-line code spans and
+ * blocks fully contained in a larger annotated ancestor).
+ */
+export function listAnnotatedSrcBlocks(root: ParentNode): SrcBlockGeom[] {
+  const raw = [
+    ...root.querySelectorAll<HTMLElement>("[data-src-start]"),
+  ].filter(
+    (b) => !(b.tagName === "SPAN" && b.hasAttribute("data-src-line"))
+  );
+  const withGeom: SrcBlockGeom[] = [];
+  for (const el of raw) {
+    const start = Number(el.getAttribute("data-src-start"));
+    const end = Number(el.getAttribute("data-src-end") || start);
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) continue;
+    const rect = el.getBoundingClientRect();
+    withGeom.push({
+      el,
+      start,
+      end,
+      top: rect.top,
+      bottom: rect.bottom,
+    });
+  }
+  const filtered = withGeom.filter(
+    (b, _i, arr) =>
+      !arr.some(
+        (o) =>
+          o !== b &&
+          o.start <= b.start &&
+          o.end >= b.end &&
+          o.end - o.start > b.end - b.start
+      )
+  );
+  return filtered.sort((a, b) => a.top - b.top || a.start - b.start);
+}
+
+/**
+ * When clientY sits in the visual gap between two annotated blocks, return
+ * the source offset after the previous block (insert point for a new paragraph).
+ */
+export function findGapInsertAt(
+  root: ParentNode,
+  clientY: number,
+  slackPx = 2
+): { insertAt: number; prev: SrcBlockGeom; next: SrcBlockGeom } | null {
+  const blocks = listAnnotatedSrcBlocks(root);
+  for (let i = 0; i < blocks.length - 1; i++) {
+    const prev = blocks[i]!;
+    const next = blocks[i + 1]!;
+    if (clientY > prev.bottom + slackPx && clientY < next.top - slackPx) {
+      return { insertAt: prev.end, prev, next };
+    }
+  }
+  return null;
+}
+
+/**
+ * Prepare a mid-document paragraph insert at `insertAt` (typically previous
+ * block's data-src-end). Same contract as prepareAppendAtEnd: caller writes
+ * via replaceRange(prepared, start, end, normalizeAppendWriteText(...)).
+ */
+export function prepareInsertBetween(
+  source: string,
+  insertAt: number
+): {
+  prepared: string;
+  start: number;
+  end: number;
+} {
+  const at = clamp(Math.floor(insertAt), 0, source.length);
+  if (at >= source.length) return prepareAppendAtEnd(source);
+
+  let left = source.slice(0, at);
+  let right = source.slice(at);
+  if (left.length > 0 && !left.endsWith("\n")) left += "\n";
+  if (left.length > 0 && !left.endsWith("\n\n")) left += "\n";
+  right = right.replace(/^\n+/, "");
+  // writeText ends with \n; one extra \n before right → blank line separator.
+  const sep = right.length > 0 ? "\n" : "";
+  const prepared = left + sep + right;
+  return { prepared, start: left.length, end: left.length };
+}
+
 /**
  * Normalize user text from the append editor into a Markdown paragraph slice
  * inserted at EOF (after prepareAppendAtEnd). Empty/whitespace-only → "".

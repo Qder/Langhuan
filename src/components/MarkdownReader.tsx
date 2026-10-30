@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -58,12 +59,14 @@ import { InlineMdBlockEditor } from "./editor/InlineMdBlockEditor";
 import { InlineVisualBlockEditor } from "./editor/InlineVisualBlockEditor";
 import {
   findEditableSrcBlock,
+  findGapInsertAt,
   guessCursorInSlice,
   isClientYBelowLastSrcBlock,
   isMonoSrcSlice,
   normalizeAppendWriteText,
   plainOffsetInElement,
   prepareAppendAtEnd,
+  prepareInsertBetween,
   replaceRange,
 } from "@/lib/mdInlineEdit";
 import {
@@ -73,13 +76,102 @@ import {
   type VisualBlockType,
 } from "@/lib/mdVisualSerialize";
 
+import "highlight.js/styles/github-dark.css";
+import "katex/dist/katex.min.css";
+
+
 function isSourceMonoFallback(t: VisualBlockType): boolean {
   // table/callout/unknown stay on source textarea (safer than bad serialize).
   return t === "table" || t === "callout" || t === "unknown";
 }
 
-import "highlight.js/styles/github-dark.css";
-import "katex/dist/katex.min.css";
+/** Hosts a mid-doc insert textarea immediately after the previous preview block. */
+function InsertBetweenPortal({
+  anchorEl,
+  text,
+  onChange,
+  onCommit,
+  onCancel,
+  suppressBlurRef,
+  onBlurCommit,
+}: {
+  anchorEl: HTMLElement;
+  text: string;
+  onChange: (text: string) => void;
+  onCommit: () => void;
+  onCancel: () => void;
+  suppressBlurRef: React.MutableRefObject<boolean>;
+  onBlurCommit: () => void;
+}) {
+  const hostRef = React.useRef<HTMLDivElement | null>(null);
+  const [ready, setReady] = React.useState(false);
+
+  React.useLayoutEffect(() => {
+    const host = document.createElement("div");
+    host.setAttribute("data-lh-insert-host", "1");
+    host.className = "lh-inline-insert-host";
+    const parent = anchorEl.parentElement;
+    if (!parent) return;
+    if (anchorEl.nextSibling) {
+      parent.insertBefore(host, anchorEl.nextSibling);
+    } else {
+      parent.appendChild(host);
+    }
+    hostRef.current = host;
+    setReady(true);
+    return () => {
+      host.remove();
+      hostRef.current = null;
+    };
+  }, [anchorEl]);
+
+  if (!ready || !hostRef.current) return null;
+
+  return createPortal(
+    <div
+      data-lh-inline-editor="1"
+      className="lh-inline-edit-box my-3 rounded-md ring-1 ring-[var(--accent)]/40 bg-transparent px-1 py-1"
+    >
+      <textarea
+        autoFocus
+        data-lh-inline-editor="textarea"
+        value={text}
+        aria-label="在中间插入"
+        placeholder="在此插入新段落…"
+        className="w-full resize-none bg-transparent border-0 outline-none p-0 m-0 font-serif text-[length:inherit] leading-relaxed text-[var(--fg)] whitespace-pre-wrap placeholder:text-[var(--muted)]"
+        style={{ minHeight: 32, fontSize: "inherit", lineHeight: "inherit" }}
+        onChange={(e) => {
+          const v = e.target.value;
+          onChange(v);
+          e.target.style.height = "0px";
+          e.target.style.height = `${Math.max(e.target.scrollHeight, 32)}px`;
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            e.preventDefault();
+            onCancel();
+            return;
+          }
+          if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+            e.preventDefault();
+            onCommit();
+          }
+        }}
+        onBlur={() => {
+          window.setTimeout(() => {
+            if (suppressBlurRef.current) {
+              suppressBlurRef.current = false;
+              return;
+            }
+            onBlurCommit();
+          }, 0);
+        }}
+      />
+    </div>,
+    hostRef.current
+  );
+}
+
 
 function WikiText({ text, docs, onOpen }: { text: string; docs: Document[]; onOpen: (id: string) => void }) {
   const parts = text.split(/(!?\[\[[^\]]+\]\])/g);
@@ -576,6 +668,16 @@ export function MarkdownReader({ doc }: { doc: Document }) {
         text: string;
         mono: boolean;
         cursorAt: number;
+      }
+    | {
+        kind: "insert";
+        /** Source offset after the previous block (data-src-end). */
+        insertAt: number;
+        text: string;
+        mono: boolean;
+        cursorAt: number;
+        /** Previous block element — portal host for the insert editor. */
+        anchorEl: HTMLElement;
       };
   const [inlineEdit, setInlineEdit] = React.useState<InlineEditState | null>(null);
   const inlineEditRef = React.useRef<InlineEditState | null>(null);
@@ -705,6 +807,24 @@ export function MarkdownReader({ doc }: { doc: Document }) {
         return;
       }
 
+      // Mid-doc gap insert (between annotated blocks) via replaceRange only.
+      if (ed.kind === "insert") {
+        const writeText = normalizeAppendWriteText(opts?.text ?? ed.text);
+        if (!writeText) {
+          setInlineEdit(null);
+          return;
+        }
+        const { prepared, start, end } = prepareInsertBetween(cur, ed.insertAt);
+        const after = replaceRange(prepared, start, end, writeText);
+        captureScroll();
+        if (after !== cur) {
+          pushPreviewUndo(doc.id, cur);
+          setDraft(doc.id, after);
+        }
+        setInlineEdit(null);
+        return;
+      }
+
       let writeText = opts?.text ?? ed.text;
       if (
         opts?.text == null &&
@@ -809,6 +929,20 @@ export function MarkdownReader({ doc }: { doc: Document }) {
       cursorAt: 0,
     });
   }, []);
+
+  const beginInsertBetween = React.useCallback(
+    (insertAt: number, anchorEl: HTMLElement) => {
+      setInlineEdit({
+        kind: "insert",
+        insertAt,
+        text: "",
+        mono: false,
+        cursorAt: 0,
+        anchorEl,
+      });
+    },
+    []
+  );
 
   // Restore scroll after content rewrite from inline edit; open pending block/append.
   React.useLayoutEffect(() => {
@@ -1045,8 +1179,20 @@ export function MarkdownReader({ doc }: { doc: Document }) {
         const onAppendZone = !!(t.closest("[data-lh-append-zone]"));
         const found = onAppendZone ? null : findEditableSrcBlock(t, root);
         if (!found) {
-          // Empty doc, append zone, or click below the last block → append
+          // Empty doc, append zone, or click below the last block → append.
+          // Click in the visual gap between two blocks → mid-doc insert.
           if (t.closest("header")) return;
+          if (!onAppendZone) {
+            const gap = findGapInsertAt(root, e.clientY);
+            if (gap) {
+              if (inlineEditRef.current) {
+                suppressBlurCommitRef.current = true;
+                commitInlineEdit();
+              }
+              beginInsertBetween(gap.insertAt, gap.prev.el);
+              return;
+            }
+          }
           const below =
             onAppendZone || isClientYBelowLastSrcBlock(root, e.clientY);
           if (below) {
@@ -1130,6 +1276,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
     applyLocateResult,
     body,
     beginAppendEdit,
+    beginInsertBetween,
     beginBlockEdit,
     commitInlineEdit,
     doc.id,
@@ -1633,7 +1780,9 @@ export function MarkdownReader({ doc }: { doc: Document }) {
             assets={assets}
             docPath={doc.path}
           />
-          {viewMode === "preview" && inlineEdit?.kind !== "append" && (
+          {viewMode === "preview" &&
+            inlineEdit?.kind !== "append" &&
+            inlineEdit?.kind !== "insert" && (
             <div
               data-lh-append-zone="1"
               className="group/append mt-1 min-h-[28vh] w-full cursor-text rounded-md"
@@ -1712,6 +1861,22 @@ export function MarkdownReader({ doc }: { doc: Document }) {
                 }}
               />
             </div>
+          )}
+          {inlineEdit?.kind === "insert" && (
+            <InsertBetweenPortal
+              anchorEl={inlineEdit.anchorEl}
+              text={inlineEdit.text}
+              onChange={(text) =>
+                setInlineEdit((cur) => (cur ? { ...cur, text } : cur))
+              }
+              onCommit={() => {
+                suppressBlurCommitRef.current = true;
+                commitInlineEdit();
+              }}
+              onCancel={cancelInlineEdit}
+              suppressBlurRef={suppressBlurCommitRef}
+              onBlurCommit={() => commitInlineEdit()}
+            />
           )}
         </article>
         {showRail && (

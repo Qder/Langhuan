@@ -31,6 +31,7 @@ import {
 } from "./locateHighlight";
 import { safeCoordsAtPos, createRafScrollToOffset } from "./safeCoords";
 import { subscribeScrollSync } from "@/lib/locate/scrollBus";
+import { applyExternalDoc } from "@/lib/editorExternalSync";
 
 function offsetToLineCol(text: string, offset: number): { line: number; col: number } {
   const o = Math.max(0, Math.min(offset, text.length));
@@ -442,6 +443,10 @@ export function MdCodeMirror({
         },
         ".cm-content": {
           padding: "12px 8px",
+          /* Tall bottom padding so clicks below the last line still place the caret
+             and the user can continue writing at EOF without hunting a thin edge. */
+          paddingBottom: "40vh",
+          minHeight: "100%",
           caretColor: "var(--fg)",
         },
         ".cm-gutters": {
@@ -539,18 +544,29 @@ export function MdCodeMirror({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount once per doc
   }, [doc.id]);
 
-  // Sync external draft changes (e.g. mixed mode / autosave discard)
+  // Sync external draft changes (e.g. preview inline edit / discard).
+  // Preserve caret; skip while IME is composing so CJK input is not aborted.
   React.useEffect(() => {
     const view = viewRef.current;
     if (!view) return;
-    const cur = view.state.doc.toString();
-    if (cur === content) return;
-    applyingExternal.current = true;
-    view.dispatch({
-      changes: { from: 0, to: cur.length, insert: content },
-    });
-    applyingExternal.current = false;
-  }, [content]);
+    const tryApply = () => {
+      applyingExternal.current = true;
+      const result = applyExternalDoc(view, content);
+      applyingExternal.current = false;
+      return result;
+    };
+    const result = tryApply();
+    if (result.applied === false && result.reason === "composing") {
+      const onEnd = () => {
+        // Re-read store: composition may have already synced via updateListener.
+        applyingExternal.current = true;
+        applyExternalDoc(view, useStore.getState().getContent(doc.id));
+        applyingExternal.current = false;
+      };
+      view.contentDOM.addEventListener("compositionend", onEnd);
+      return () => view.contentDOM.removeEventListener("compositionend", onEnd);
+    }
+  }, [content, doc.id]);
 
   // pending reveal — defer while preview-only (editor may be mounted but hidden).
   // After display:none → split, CM6 needs measure + rAF or scroll/highlight no-ops.

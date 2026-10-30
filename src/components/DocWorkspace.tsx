@@ -79,14 +79,6 @@ export function DocWorkspace({ docId }: { docId?: string }) {
 
   if (!active) return null;
 
-  if (viewMode === "source") {
-    return (
-      <div className="h-full" onMouseDown={onFocusPane}>
-        <SourceEditor doc={active} />
-      </div>
-    );
-  }
-
   if (viewMode === "mixed" && active.type === "md") {
     return (
       <div className="h-full" onMouseDown={onFocusPane}>
@@ -96,6 +88,8 @@ export function DocWorkspace({ docId }: { docId?: string }) {
   }
 
   const isSplit = viewMode === "split";
+  const isSource = viewMode === "source";
+  const isPreview = viewMode === "preview";
   const reader =
     active.type === "html" ? (
       <HtmlReader doc={active} />
@@ -103,9 +97,11 @@ export function DocWorkspace({ docId }: { docId?: string }) {
       <MarkdownReader doc={active} />
     );
 
-  // flex-basis percentages keep panes proportional; gutter stays shrink-0
-  const sourceFlex = `${splitRatio} 1 0%`;
-  const previewFlex = isSplit ? `${1 - splitRatio} 1 0%` : "1 1 auto";
+  // Keep SourceEditor mounted across source ↔ preview ↔ split so CM6 history,
+  // caret, and IME state survive mode switches (drafts already preserve text).
+  // Preview reader stays mounted for the same reason (iframe / scroll).
+  const sourceFlex = isSplit ? `${splitRatio} 1 0%` : isSource ? "1 1 auto" : undefined;
+  const previewFlex = isSplit ? `${1 - splitRatio} 1 0%` : isPreview ? "1 1 auto" : undefined;
 
   return (
     <div
@@ -118,10 +114,10 @@ export function DocWorkspace({ docId }: { docId?: string }) {
     >
       <div
         data-pane="source"
-        className={cn("min-h-0 overflow-hidden", !isSplit && "hidden")}
+        className={cn("min-h-0 overflow-hidden", isPreview && "hidden")}
         style={{
           order: splitSourceFirst ? 1 : 3,
-          flex: isSplit ? sourceFlex : undefined,
+          flex: sourceFlex,
           borderColor: "var(--border)",
         }}
       >
@@ -158,7 +154,10 @@ export function DocWorkspace({ docId }: { docId?: string }) {
 
       <div
         data-pane="preview"
-        className="min-h-0 overflow-hidden h-full"
+        className={cn(
+          "min-h-0 overflow-hidden h-full",
+          isSource && "hidden"
+        )}
         style={{
           order: splitSourceFirst ? 3 : 1,
           flex: previewFlex,
