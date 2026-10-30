@@ -9,6 +9,8 @@ import {
   classifyMdBlock,
   isSourceEditType,
   isVisualEditableType,
+  serializeVisualDomHalf,
+  serializeVisualBlock,
   type VisualBlockType,
 } from "./mdVisualSerialize";
 
@@ -415,6 +417,107 @@ export function placeCaretPlain(
     /* ignore */
   }
 }
+
+
+/** Zero-width space so an empty split target still renders a <p> for caret reopen. */
+export const EMPTY_PARA_PLACEHOLDER = "\u200b";
+
+/**
+ * Split the live contenteditable host at the caret into two Markdown slices.
+ * Uses DOM Range clones so inline <code>/<strong>/… survive (unlike plain-text split).
+ * Empty right half becomes a ZWSP paragraph so rehype still emits a node to open.
+ */
+export function splitVisualAtCaret(args: {
+  element: HTMLElement;
+  blockType: VisualBlockType;
+  originalSlice: string;
+}): SplitResult {
+  const { element: el, blockType, originalSlice } = args;
+  const doc = el.ownerDocument;
+  const plain = plainTextOf(el);
+  const plainOffset = plainCaretOffsetIn(el);
+
+  if (!doc) {
+    return splitVisualSlice({
+      slice: originalSlice,
+      blockType,
+      plainOffset,
+      plainText: plain,
+    });
+  }
+
+  const sel = doc.getSelection?.() || window.getSelection();
+  const leftWrap = doc.createElement(el.tagName);
+  const rightWrap = doc.createElement(el.tagName);
+
+  let usedRange = false;
+  if (sel && sel.rangeCount > 0) {
+    const caret = sel.getRangeAt(0);
+    if (el.contains(caret.startContainer)) {
+      try {
+        const leftRange = doc.createRange();
+        leftRange.selectNodeContents(el);
+        leftRange.setEnd(caret.startContainer, caret.startOffset);
+        leftWrap.appendChild(leftRange.cloneContents());
+
+        const rightRange = doc.createRange();
+        rightRange.selectNodeContents(el);
+        rightRange.setStart(caret.startContainer, caret.startOffset);
+        rightWrap.appendChild(rightRange.cloneContents());
+        usedRange = true;
+      } catch {
+        usedRange = false;
+      }
+    }
+  }
+
+  if (!usedRange) {
+    // Fallback: plain-text split of a fresh serialize
+    const serialized = serializeVisualBlock({
+      originalSlice,
+      blockType,
+      element: el,
+    });
+    return splitVisualSlice({
+      slice: serialized,
+      blockType,
+      plainOffset,
+      plainText: plain,
+    });
+  }
+
+  if (blockType === "paragraph") {
+    const nl = originalSlice.match(/\r?\n$/)?.[0] || "\n";
+    let leftMd = serializeVisualDomHalf("paragraph", leftWrap, originalSlice);
+    let rightMd = serializeVisualDomHalf("paragraph", rightWrap, originalSlice);
+    if (!/\r?\n$/.test(leftMd)) leftMd += nl;
+    if (!/\r?\n$/.test(rightMd)) rightMd += nl;
+    const leftPlain = plainTextOf(leftWrap).replace(/\u200b/g, "");
+    const rightPlain = plainTextOf(rightWrap).replace(/\u200b/g, "");
+    // Empty half must still render a <p> so pendingOpen can place the caret.
+    if (!rightPlain) rightMd = EMPTY_PARA_PLACEHOLDER + nl;
+    if (!leftPlain) leftMd = EMPTY_PARA_PLACEHOLDER + nl;
+    // left ends with nl; one extra \n → blank line between paragraphs
+    const writeText = leftMd + "\n" + rightMd;
+    const nextLocalStart = leftMd.length + 1;
+    return {
+      kind: "split",
+      writeText,
+      nextLocalStart,
+      nextLocalEnd: writeText.length,
+      nextBlockType: "paragraph",
+    };
+  }
+
+  // Heading / list / quote: markers live in originalSlice; plain-offset split is enough.
+  return splitVisualSlice({
+    slice: serializeVisualBlock({ originalSlice, blockType, element: el }),
+    blockType,
+    plainOffset,
+    plainText: plain,
+  });
+}
+
 
 /**
  * Clone a React-managed preview block into an isolated contenteditable host.

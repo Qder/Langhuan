@@ -10,8 +10,7 @@ import {
   mountIsolatedVisualHost,
   placeCaretPlain,
   plainCaretOffsetIn,
-  plainTextOf,
-  splitVisualSlice,
+  splitVisualAtCaret,
   type SplitResult,
 } from "@/lib/previewVisualCaret";
 
@@ -112,7 +111,41 @@ export function InlineVisualBlockEditor({
       if (suppressBlurRef) suppressBlurRef.current = true;
     };
 
+    const performSplit = () => {
+      if (committedRef.current) return;
+      try {
+        const serialized = serializeNow();
+        const result = splitVisualAtCaret({
+          element: el,
+          blockType,
+          originalSlice,
+        });
+        const handler = onSplitRef.current;
+        if (handler && handler(result, serialized)) {
+          markHandled();
+          return;
+        }
+        finishCommit();
+      } catch {
+        // Never leave Enter as a silent no-op after preventDefault.
+        try {
+          finishCommit();
+        } catch {
+          /* ignore */
+        }
+      }
+    };
+
+    const onBeforeInput = (e: InputEvent) => {
+      if (e.inputType !== "insertParagraph") return;
+      // insertLineBreak = Shift+Enter soft break — leave to the browser.
+      e.preventDefault();
+      e.stopPropagation();
+      performSplit();
+    };
+
     const onKeyDown = (e: KeyboardEvent) => {
+
       if (e.key === "Escape") {
         e.preventDefault();
         e.stopPropagation();
@@ -128,25 +161,14 @@ export function InlineVisualBlockEditor({
         return;
       }
 
-      // Enter → split (no shift=soft break inside block)
+      // Enter → hard-split (Shift+Enter keeps browser soft <br>)
       if (e.key === "Enter" && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
-        e.preventDefault();
-        e.stopPropagation();
-        const serialized = serializeNow();
-        const plainOffset = plainCaretOffsetIn(el);
-        const plainText = plainTextOf(el);
-        const result = splitVisualSlice({
-          slice: serialized,
-          blockType,
-          plainOffset,
-          plainText,
-        });
-        const handler = onSplitRef.current;
-        if (handler && handler(result, serialized)) {
-          markHandled();
+        if ((e as KeyboardEvent & { isComposing?: boolean }).isComposing || e.keyCode === 229) {
           return;
         }
-        finishCommit();
+        e.preventDefault();
+        e.stopPropagation();
+        performSplit();
         return;
       }
 
@@ -249,11 +271,14 @@ export function InlineVisualBlockEditor({
       }, 0);
     };
 
-    el.addEventListener("keydown", onKeyDown);
+    // Capture so we win over any bubble-phase CE/default handlers.
+    el.addEventListener("beforeinput", onBeforeInput, true);
+    el.addEventListener("keydown", onKeyDown, true);
     el.addEventListener("blur", onBlur);
 
     return () => {
-      el.removeEventListener("keydown", onKeyDown);
+      el.removeEventListener("beforeinput", onBeforeInput, true);
+      el.removeEventListener("keydown", onKeyDown, true);
       el.removeEventListener("blur", onBlur);
       dispose();
     };

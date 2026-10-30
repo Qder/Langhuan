@@ -90,6 +90,23 @@ export function serializeVisualBlock(args: SerializeVisualArgs): string {
   }
 }
 
+/**
+ * Serialize from live DOM structure (code/strong/em → md), ignoring whether
+ * originalSlice still contains inline markers. Used when splitting a CE host
+ * into left/right halves that no longer match the full original slice.
+ */
+export function serializeVisualDomHalf(
+  blockType: VisualBlockType,
+  element: Element,
+  originalSlice: string
+): string {
+  if (blockType === "paragraph") {
+    return serializeParagraphFromDom(originalSlice, element);
+  }
+  // Headings / lists / quotes still need marker prefixes from originalSlice.
+  return serializeVisualBlock({ originalSlice, blockType, element });
+}
+
 // ─── heading ───────────────────────────────────────────────────────────────
 
 function serializeHeading(originalSlice: string, element: Element): string {
@@ -205,22 +222,39 @@ function hasInlineSyntax(slice: string): boolean {
   );
 }
 
+function serializeParagraphFromDom(originalSlice: string, element: Element): string {
+  const nl = trailingNewline(originalSlice) || "\n";
+  const core = nl && originalSlice.endsWith(nl)
+    ? originalSlice.slice(0, -nl.length)
+    : originalSlice.replace(/\n$/, "");
+  const ctx = { wikiUsed: new Set<number>(), mathUsed: new Set<number>() };
+  let out = "";
+  for (const c of Array.from(element.childNodes)) {
+    out += serializeInlineNode(c, core || out, ctx, false);
+  }
+  if (core && hasInlineSyntax(core)) {
+    out = conserveMarkers(core, out);
+  }
+  // Strip ZWSP placeholders (empty-split targets); keep truly empty as "".
+  out = out.replace(/^\u200b+|\u200b+$/g, "");
+  return out + nl;
+}
+
 function serializeParagraph(originalSlice: string, element: Element): string {
   const nl = trailingNewline(originalSlice);
   const core = nl ? originalSlice.slice(0, -nl.length) : originalSlice;
 
-  if (!hasInlineSyntax(core)) {
-    const visible = elementTextWithBreaks(element);
-    return visible + nl;
+  // Prefer DOM walk when the live tree has inline elements (CE may have
+  // introduced <strong>/<code> even if originalSlice markers drifted).
+  if (
+    hasInlineSyntax(core) ||
+    element.querySelector?.("code, strong, b, em, i, a, del, s, .wiki-link, .katex")
+  ) {
+    return serializeParagraphFromDom(originalSlice, element);
   }
 
-  const ctx = { wikiUsed: new Set<number>(), mathUsed: new Set<number>() };
-  let out = "";
-  for (const c of Array.from(element.childNodes)) {
-    out += serializeInlineNode(c, core, ctx, false);
-  }
-  out = conserveMarkers(core, out);
-  return out + nl;
+  const visible = elementTextWithBreaks(element).replace(/^\u200b+|\u200b+$/g, "");
+  return visible + nl;
 }
 
 function elementTextWithBreaks(el: Element): string {
