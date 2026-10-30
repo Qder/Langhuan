@@ -4,6 +4,8 @@ import {
   guessCursorInSlice,
   isClientYBelowLastSrcBlock,
   isMonoSrcSlice,
+  listGapHitRects,
+  listGapSrcBlocks,
   normalizeAppendWriteText,
   prepareAppendAtEnd,
   prepareInsertBetween,
@@ -278,6 +280,7 @@ describe("findGapInsertAt", () => {
             ? String(end)
             : null,
       getBoundingClientRect: () => ({ top, bottom }),
+      contains: () => false,
     });
     const a = mk(0, 5, 0, 40);
     const b = mk(10, 20, 80, 120);
@@ -287,5 +290,108 @@ describe("findGapInsertAt", () => {
     expect(findGapInsertAt(root, 60)?.insertAt).toBe(5);
     expect(findGapInsertAt(root, 20)).toBeNull();
     expect(findGapInsertAt(root, 100)).toBeNull();
+  });
+
+  it("hits collapsed gap via midpoint strip", () => {
+    const mk = (start: number, end: number, top: number, bottom: number) => ({
+      tagName: "LI",
+      hasAttribute: () => false,
+      getAttribute: (name: string) =>
+        name === "data-src-start"
+          ? String(start)
+          : name === "data-src-end"
+            ? String(end)
+            : null,
+      getBoundingClientRect: () => ({ top, bottom }),
+      contains: () => false,
+    });
+    const a = mk(0, 5, 0, 20);
+    const b = mk(6, 12, 22, 40); // 2px gap
+    const root = {
+      querySelectorAll: () => [a, b],
+    } as unknown as ParentNode;
+    expect(findGapInsertAt(root, 21)?.insertAt).toBe(5);
+  });
+
+  it("detects before-first strip", () => {
+    const a = {
+      tagName: "P",
+      hasAttribute: () => false,
+      getAttribute: (name: string) =>
+        name === "data-src-start" ? "3" : name === "data-src-end" ? "10" : null,
+      getBoundingClientRect: () => ({ top: 50, bottom: 80 }),
+      contains: () => false,
+    };
+    const root = {
+      querySelectorAll: () => [a],
+    } as unknown as ParentNode;
+    const hit = findGapInsertAt(root, 40);
+    expect(hit?.placeBefore).toBe(true);
+    expect(hit?.insertAt).toBe(3);
+  });
+});
+
+describe("listGapSrcBlocks", () => {
+  it("prefers li over ul wrapper for gap candidates", () => {
+    const li1 = {
+      tagName: "LI",
+      hasAttribute: () => false,
+      getAttribute: (name: string) =>
+        name === "data-src-start" ? "0" : name === "data-src-end" ? "5" : null,
+      getBoundingClientRect: () => ({ top: 0, bottom: 20 }),
+      contains: () => false,
+    };
+    const li2 = {
+      tagName: "LI",
+      hasAttribute: () => false,
+      getAttribute: (name: string) =>
+        name === "data-src-start" ? "6" : name === "data-src-end" ? "12" : null,
+      getBoundingClientRect: () => ({ top: 30, bottom: 50 }),
+      contains: () => false,
+    };
+    const ul = {
+      tagName: "UL",
+      hasAttribute: () => false,
+      getAttribute: (name: string) =>
+        name === "data-src-start" ? "0" : name === "data-src-end" ? "12" : null,
+      getBoundingClientRect: () => ({ top: 0, bottom: 50 }),
+      contains: (n: unknown) => n === li1 || n === li2,
+    };
+    const root = {
+      querySelectorAll: () => [ul, li1, li2],
+    } as unknown as ParentNode;
+    const gaps = listGapSrcBlocks(root);
+    expect(gaps.map((g) => g.el.tagName)).toEqual(["LI", "LI"]);
+    expect(gaps.map((g) => g.end)).toEqual([5, 12]);
+  });
+});
+
+describe("listGapHitRects", () => {
+  it("emits before-first and between-block hit rects", () => {
+    const mk = (start: number, end: number, top: number, bottom: number) => ({
+      tagName: "P",
+      hasAttribute: () => false,
+      getAttribute: (name: string) =>
+        name === "data-src-start"
+          ? String(start)
+          : name === "data-src-end"
+            ? String(end)
+            : null,
+      getBoundingClientRect: () => ({ top, bottom, left: 0, width: 100 }),
+      contains: () => false,
+    });
+    const a = mk(0, 5, 40, 60);
+    const b = mk(10, 20, 80, 100);
+    const root = {
+      querySelectorAll: () => [a, b],
+      getBoundingClientRect: () => ({ top: 0, left: 0, width: 200, height: 120 }),
+    } as unknown as Element;
+    const rects = listGapHitRects(root, { topBoundClientY: 10, minHitPx: 14 });
+    expect(rects.length).toBe(2);
+    expect(rects[0]!.placeBefore).toBe(true);
+    expect(rects[0]!.insertAt).toBe(0);
+    expect(rects[1]!.placeBefore).toBe(false);
+    expect(rects[1]!.insertAt).toBe(5);
+    expect(rects[1]!.height).toBeGreaterThanOrEqual(14);
   });
 });

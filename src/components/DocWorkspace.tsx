@@ -77,19 +77,19 @@ export function DocWorkspace({ docId }: { docId?: string }) {
     }
   };
 
-  if (!active) return null;
-
-  if (viewMode === "mixed" && active.type === "md") {
-    return (
-      <div className="h-full" onMouseDown={onFocusPane}>
-        <MixedMdView doc={active} />
-      </div>
-    );
-  }
-
+  const isMixed = viewMode === "mixed" && active?.type === "md";
   const isSplit = viewMode === "split";
   const isSource = viewMode === "source";
   const isPreview = viewMode === "preview";
+
+  // Lazy-mount mixed once first opened; then keep it for remount-free switches.
+  const [mixedMounted, setMixedMounted] = React.useState(false);
+  React.useEffect(() => {
+    if (isMixed) setMixedMounted(true);
+  }, [isMixed]);
+
+  if (!active) return null;
+
   const reader =
     active.type === "html" ? (
       <HtmlReader doc={active} />
@@ -97,11 +97,18 @@ export function DocWorkspace({ docId }: { docId?: string }) {
       <MarkdownReader doc={active} />
     );
 
-  // Keep SourceEditor mounted across source ↔ preview ↔ split so CM6 history,
-  // caret, and IME state survive mode switches (drafts already preserve text).
-  // Preview reader stays mounted for the same reason (iframe / scroll).
-  const sourceFlex = isSplit ? `${splitRatio} 1 0%` : isSource ? "1 1 auto" : undefined;
-  const previewFlex = isSplit ? `${1 - splitRatio} 1 0%` : isPreview ? "1 1 auto" : undefined;
+  // Keep SourceEditor / preview / MixedMdView mounted across mode switches
+  // (hidden, not unmounted) so CM6 history, caret, IME, and mixed drafts survive.
+  const sourceFlex = isSplit
+    ? `${splitRatio} 1 0%`
+    : isSource
+      ? "1 1 auto"
+      : undefined;
+  const previewFlex = isSplit
+    ? `${1 - splitRatio} 1 0%`
+    : isPreview
+      ? "1 1 auto"
+      : undefined;
 
   return (
     <div
@@ -114,7 +121,10 @@ export function DocWorkspace({ docId }: { docId?: string }) {
     >
       <div
         data-pane="source"
-        className={cn("min-h-0 overflow-hidden", isPreview && "hidden")}
+        className={cn(
+          "min-h-0 overflow-hidden",
+          (isPreview || isMixed) && "hidden"
+        )}
         style={{
           order: splitSourceFirst ? 1 : 3,
           flex: sourceFlex,
@@ -156,7 +166,7 @@ export function DocWorkspace({ docId }: { docId?: string }) {
         data-pane="preview"
         className={cn(
           "min-h-0 overflow-hidden h-full",
-          isSource && "hidden"
+          (isSource || isMixed) && "hidden"
         )}
         style={{
           order: splitSourceFirst ? 3 : 1,
@@ -165,6 +175,19 @@ export function DocWorkspace({ docId }: { docId?: string }) {
       >
         {reader}
       </div>
+
+      {active.type === "md" && mixedMounted && (
+        <div
+          data-pane="mixed"
+          className={cn(
+            "min-h-0 overflow-hidden h-full",
+            !isMixed && "hidden"
+          )}
+          style={{ flex: isMixed ? "1 1 auto" : undefined, order: 4 }}
+        >
+          <MixedMdView doc={active} />
+        </div>
+      )}
     </div>
   );
 }

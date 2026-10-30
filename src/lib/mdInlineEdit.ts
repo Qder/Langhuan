@@ -119,10 +119,9 @@ export type SrcBlockGeom = {
 };
 
 /**
- * Top-level annotated preview blocks (excludes per-line code spans and
- * blocks fully contained in a larger annotated ancestor).
+ * Collect annotated preview blocks with geometry (excludes per-line code spans).
  */
-export function listAnnotatedSrcBlocks(root: ParentNode): SrcBlockGeom[] {
+function collectAnnotatedSrcGeoms(root: ParentNode): SrcBlockGeom[] {
   const raw = [
     ...root.querySelectorAll<HTMLElement>("[data-src-start]"),
   ].filter(
@@ -142,34 +141,172 @@ export function listAnnotatedSrcBlocks(root: ParentNode): SrcBlockGeom[] {
       bottom: rect.bottom,
     });
   }
-  const filtered = withGeom.filter(
-    (b, _i, arr) =>
-      !arr.some(
-        (o) =>
-          o !== b &&
-          o.start <= b.start &&
-          o.end >= b.end &&
-          o.end - o.start > b.end - b.start
-      )
-  );
-  return filtered.sort((a, b) => a.top - b.top || a.start - b.start);
+  return withGeom;
+}
+
+function dropContainedSrcBlocks(blocks: SrcBlockGeom[]): SrcBlockGeom[] {
+  return blocks
+    .filter(
+      (b, _i, arr) =>
+        !arr.some(
+          (o) =>
+            o !== b &&
+            o.start <= b.start &&
+            o.end >= b.end &&
+            o.end - o.start > b.end - b.start
+        )
+    )
+    .sort((a, b) => a.top - b.top || a.start - b.start);
 }
 
 /**
- * When clientY sits in the visual gap between two annotated blocks, return
+ * Top-level annotated preview blocks (excludes per-line code spans and
+ * blocks fully contained in a larger annotated ancestor).
+ */
+export function listAnnotatedSrcBlocks(root: ParentNode): SrcBlockGeom[] {
+  return dropContainedSrcBlocks(collectAnnotatedSrcGeoms(root));
+}
+
+/** Containers whose children (li / rows) are better gap candidates than the wrapper. */
+const GAP_DEFER_TAGS = new Set(["UL", "OL", "TABLE"]);
+
+/**
+ * Blocks used for mid-doc gap insertion. Prefers list items over ul/ol wrappers
+ * so clicks between list items map to source offsets; still drops nested
+ * duplicates (e.g. p inside li, td inside table when table kept).
+ */
+export function listGapSrcBlocks(root: ParentNode): SrcBlockGeom[] {
+  const raw = collectAnnotatedSrcGeoms(root);
+  const withoutDeferred = raw.filter((b) => {
+    if (!GAP_DEFER_TAGS.has(b.el.tagName)) return true;
+    return !raw.some((o) => o !== b && b.el.contains(o.el));
+  });
+  return dropContainedSrcBlocks(withoutDeferred);
+}
+
+export type GapHitRect = {
+  /** Source offset for prepareInsertBetween. */
+  insertAt: number;
+  /** Portal anchor: previous block, or the first block when placeBefore. */
+  anchorEl: HTMLElement;
+  /** Insert editor host before anchor (doc start / before first block). */
+  placeBefore: boolean;
+  /** Position relative to `root` (typically the article). */
+  top: number;
+  left: number;
+  width: number;
+  height: number;
+};
+
+const DEFAULT_MIN_GAP_HIT_PX = 14;
+
+/**
+ * Explicit clickable gap hit-areas between gap candidates (and before the first
+ * block). Coordinates are relative to `root.getBoundingClientRect()`.
+ */
+export function listGapHitRects(
+  root: Element,
+  opts?: { minHitPx?: number; topBoundClientY?: number }
+): GapHitRect[] {
+  const minHit = opts?.minHitPx ?? DEFAULT_MIN_GAP_HIT_PX;
+  const blocks = listGapSrcBlocks(root);
+  if (!blocks.length) return [];
+  const rootRect = root.getBoundingClientRect();
+  const out: GapHitRect[] = [];
+
+  const first = blocks[0]!;
+  const topBound =
+    typeof opts?.topBoundClientY === "number"
+      ? opts.topBoundClientY
+      : rootRect.top;
+  {
+    const gapTop = topBound;
+    const gapBottom = first.top;
+    const natural = gapBottom - gapTop;
+    if (natural > 2 || minHit > 0) {
+      const height = Math.max(natural, Math.min(minHit, 24));
+      const mid = (gapTop + gapBottom) / 2;
+      let top = mid - height / 2 - rootRect.top;
+      // Keep the hit strip in the space above the first block when possible.
+      const maxTop = first.top - rootRect.top - height;
+      if (maxTop >= 0) top = Math.min(top, maxTop);
+      top = Math.max(0, top);
+      out.push({
+        insertAt: first.start,
+        anchorEl: first.el,
+        placeBefore: true,
+        top,
+        left: 0,
+        width: rootRect.width,
+        height,
+      });
+    }
+  }
+
+  for (let i = 0; i < blocks.length - 1; i++) {
+    const prev = blocks[i]!;
+    const next = blocks[i + 1]!;
+    const natural = next.top - prev.bottom;
+    const height = Math.max(natural, minHit);
+    const mid = (prev.bottom + next.top) / 2;
+    const top = mid - height / 2 - rootRect.top;
+    out.push({
+      insertAt: prev.end,
+      anchorEl: prev.el,
+      placeBefore: false,
+      top,
+      left: 0,
+      width: rootRect.width,
+      height,
+    });
+  }
+  return out;
+}
+
+/**
+ * When clientY sits in the visual gap between two gap-candidate blocks, return
  * the source offset after the previous block (insert point for a new paragraph).
+ * Tiny / collapsed gaps still hit via a midpoint strip (±hitPad).
  */
 export function findGapInsertAt(
   root: ParentNode,
   clientY: number,
   slackPx = 2
-): { insertAt: number; prev: SrcBlockGeom; next: SrcBlockGeom } | null {
-  const blocks = listAnnotatedSrcBlocks(root);
+): {
+  insertAt: number;
+  prev: SrcBlockGeom;
+  next: SrcBlockGeom;
+  placeBefore?: boolean;
+} | null {
+  const blocks = listGapSrcBlocks(root);
+  if (!blocks.length) return null;
+
+  // Before first block (below optional topBound handled by hit-layer; here use
+  // a small strip above the first block when clientY is clearly above it).
+  const first = blocks[0]!;
+  if (clientY < first.top - slackPx && clientY > first.top - 28) {
+    return {
+      insertAt: first.start,
+      prev: first,
+      next: first,
+      placeBefore: true,
+    };
+  }
+
+  const hitPad = 8;
   for (let i = 0; i < blocks.length - 1; i++) {
     const prev = blocks[i]!;
     const next = blocks[i + 1]!;
-    if (clientY > prev.bottom + slackPx && clientY < next.top - slackPx) {
-      return { insertAt: prev.end, prev, next };
+    const natural = next.top - prev.bottom;
+    if (natural >= 4) {
+      if (clientY > prev.bottom + slackPx && clientY < next.top - slackPx) {
+        return { insertAt: prev.end, prev, next };
+      }
+    } else {
+      const mid = (prev.bottom + next.top) / 2;
+      if (clientY > mid - hitPad && clientY < mid + hitPad) {
+        return { insertAt: prev.end, prev, next };
+      }
     }
   }
   return null;

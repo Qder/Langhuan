@@ -63,11 +63,13 @@ import {
   guessCursorInSlice,
   isClientYBelowLastSrcBlock,
   isMonoSrcSlice,
+  listGapHitRects,
   normalizeAppendWriteText,
   plainOffsetInElement,
   prepareAppendAtEnd,
   prepareInsertBetween,
   replaceRange,
+  type GapHitRect,
 } from "@/lib/mdInlineEdit";
 import {
   classifyMdBlock,
@@ -88,6 +90,7 @@ function isSourceMonoFallback(t: VisualBlockType): boolean {
 /** Hosts a mid-doc insert textarea immediately after the previous preview block. */
 function InsertBetweenPortal({
   anchorEl,
+  placeBefore = false,
   text,
   onChange,
   onCommit,
@@ -96,6 +99,7 @@ function InsertBetweenPortal({
   onBlurCommit,
 }: {
   anchorEl: HTMLElement;
+  placeBefore?: boolean;
   text: string;
   onChange: (text: string) => void;
   onCommit: () => void;
@@ -112,7 +116,9 @@ function InsertBetweenPortal({
     host.className = "lh-inline-insert-host";
     const parent = anchorEl.parentElement;
     if (!parent) return;
-    if (anchorEl.nextSibling) {
+    if (placeBefore) {
+      parent.insertBefore(host, anchorEl);
+    } else if (anchorEl.nextSibling) {
       parent.insertBefore(host, anchorEl.nextSibling);
     } else {
       parent.appendChild(host);
@@ -123,7 +129,7 @@ function InsertBetweenPortal({
       host.remove();
       hostRef.current = null;
     };
-  }, [anchorEl]);
+  }, [anchorEl, placeBefore]);
 
   if (!ready || !hostRef.current) return null;
 
@@ -593,6 +599,76 @@ const MarkdownBody = React.memo(function MarkdownBody({
   );
 });
 
+/** Absolute hit strips between annotated blocks (collapsed HTML whitespace). */
+function PreviewGapHitLayer({
+  articleRef,
+  bodyKey,
+  enabled,
+}: {
+  articleRef: React.RefObject<HTMLElement | null>;
+  bodyKey: string;
+  enabled: boolean;
+}) {
+  const [hits, setHits] = React.useState<GapHitRect[]>([]);
+
+  React.useLayoutEffect(() => {
+    if (!enabled) {
+      setHits([]);
+      return;
+    }
+    const article = articleRef.current;
+    if (!article) return;
+
+    const measure = () => {
+      const header = article.querySelector("header");
+      const topBound = header
+        ? header.getBoundingClientRect().bottom
+        : article.getBoundingClientRect().top;
+      setHits(listGapHitRects(article, { topBoundClientY: topBound, minHitPx: 14 }));
+    };
+
+    measure();
+    const ro = new ResizeObserver(() => measure());
+    ro.observe(article);
+    const scroll = document.getElementById("reader-scroll");
+    scroll?.addEventListener("scroll", measure, { passive: true });
+    window.addEventListener("resize", measure);
+    return () => {
+      ro.disconnect();
+      scroll?.removeEventListener("scroll", measure);
+      window.removeEventListener("resize", measure);
+    };
+  }, [articleRef, bodyKey, enabled]);
+
+  if (!enabled || hits.length === 0) return null;
+
+  return (
+    <div
+      className="pointer-events-none absolute inset-x-0 top-0 bottom-0 z-[1]"
+      aria-hidden
+    >
+      {hits.map((h, i) => (
+        <div
+          key={`${h.insertAt}-${h.placeBefore ? "b" : "a"}-${i}`}
+          data-lh-gap-hit="1"
+          data-lh-gap-insert-at={h.insertAt}
+          data-lh-gap-before={h.placeBefore ? "1" : undefined}
+          data-lh-gap-anchor-start={h.anchorEl.getAttribute("data-src-start") || ""}
+          className="pointer-events-auto absolute cursor-text rounded-sm transition-colors hover:bg-[var(--accent)]/8"
+          style={{
+            top: h.top,
+            left: h.left,
+            width: h.width,
+            height: h.height,
+          }}
+          title="点击在此插入"
+        />
+      ))}
+    </div>
+  );
+}
+
+
 export function MarkdownReader({ doc }: { doc: Document }) {
   const documents = useStore((s) => s.documents);
   const getContent = useStore((s) => s.getContent);
@@ -671,13 +747,15 @@ export function MarkdownReader({ doc }: { doc: Document }) {
       }
     | {
         kind: "insert";
-        /** Source offset after the previous block (data-src-end). */
+        /** Source offset after the previous block (data-src-end), or first.start when placeBefore. */
         insertAt: number;
         text: string;
         mono: boolean;
         cursorAt: number;
         /** Previous block element — portal host for the insert editor. */
         anchorEl: HTMLElement;
+        /** Place insert editor before anchor (before first block). */
+        placeBefore?: boolean;
       };
   const [inlineEdit, setInlineEdit] = React.useState<InlineEditState | null>(null);
   const inlineEditRef = React.useRef<InlineEditState | null>(null);
@@ -931,7 +1009,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
   }, []);
 
   const beginInsertBetween = React.useCallback(
-    (insertAt: number, anchorEl: HTMLElement) => {
+    (insertAt: number, anchorEl: HTMLElement, placeBefore = false) => {
       setInlineEdit({
         kind: "insert",
         insertAt,
@@ -939,6 +1017,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
         mono: false,
         cursorAt: 0,
         anchorEl,
+        placeBefore,
       });
     },
     []
@@ -1177,7 +1256,31 @@ export function MarkdownReader({ doc }: { doc: Document }) {
       if (mode === "preview") {
         // Explicit continue-writing hit zone (padding below body).
         const onAppendZone = !!(t.closest("[data-lh-append-zone]"));
-        const found = onAppendZone ? null : findEditableSrcBlock(t, root);
+        const gapHit = t.closest<HTMLElement>("[data-lh-gap-hit]");
+        if (gapHit && !onAppendZone) {
+          const insertAt = Number(gapHit.getAttribute("data-lh-gap-insert-at"));
+          const placeBefore = gapHit.getAttribute("data-lh-gap-before") === "1";
+          const anchorStart = Number(
+            gapHit.getAttribute("data-lh-gap-anchor-start")
+          );
+          let anchor: HTMLElement | null = null;
+          if (Number.isFinite(anchorStart)) {
+            anchor =
+              [...root.querySelectorAll<HTMLElement>("[data-src-start]")].find(
+                (el) => Number(el.getAttribute("data-src-start")) === anchorStart
+              ) || null;
+          }
+          if (Number.isFinite(insertAt) && anchor) {
+            if (inlineEditRef.current) {
+              suppressBlurCommitRef.current = true;
+              commitInlineEdit();
+            }
+            beginInsertBetween(insertAt, anchor, placeBefore);
+            return;
+          }
+        }
+        const found =
+          onAppendZone || gapHit ? null : findEditableSrcBlock(t, root);
         if (!found) {
           // Empty doc, append zone, or click below the last block → append.
           // Click in the visual gap between two blocks → mid-doc insert.
@@ -1189,7 +1292,12 @@ export function MarkdownReader({ doc }: { doc: Document }) {
                 suppressBlurCommitRef.current = true;
                 commitInlineEdit();
               }
-              beginInsertBetween(gap.insertAt, gap.prev.el);
+              const anchorEl = gap.placeBefore ? gap.next.el : gap.prev.el;
+              beginInsertBetween(
+                gap.insertAt,
+                anchorEl,
+                !!gap.placeBefore
+              );
               return;
             }
           }
@@ -1680,7 +1788,10 @@ export function MarkdownReader({ doc }: { doc: Document }) {
 
   return (
     <div className="h-full flex min-h-0">
-      <div id="reader-scroll" className="flex-1 overflow-y-auto scroll-thin">
+      <div
+        id={viewMode === "mixed" ? undefined : "reader-scroll"}
+        className="flex-1 overflow-y-auto scroll-thin"
+      >
         <div
           className={cn(
             "mx-auto flex w-full justify-center px-4 md:px-8 py-8",
@@ -1783,6 +1894,15 @@ export function MarkdownReader({ doc }: { doc: Document }) {
           {viewMode === "preview" &&
             inlineEdit?.kind !== "append" &&
             inlineEdit?.kind !== "insert" && (
+            <PreviewGapHitLayer
+              articleRef={articleRef}
+              bodyKey={body}
+              enabled
+            />
+          )}
+          {viewMode === "preview" &&
+            inlineEdit?.kind !== "append" &&
+            inlineEdit?.kind !== "insert" && (
             <div
               data-lh-append-zone="1"
               className="group/append mt-1 min-h-[28vh] w-full cursor-text rounded-md"
@@ -1865,6 +1985,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
           {inlineEdit?.kind === "insert" && (
             <InsertBetweenPortal
               anchorEl={inlineEdit.anchorEl}
+              placeBefore={!!inlineEdit.placeBefore}
               text={inlineEdit.text}
               onChange={(text) =>
                 setInlineEdit((cur) => (cur ? { ...cur, text } : cur))

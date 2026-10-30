@@ -21,6 +21,7 @@ export function MixedMdView({ doc }: { doc: Document }) {
   const getContent = useStore((s) => s.getContent);
   const setDraft = useStore((s) => s.setDraft);
   const readingPrefs = useStore((s) => s.readingPrefs);
+  const viewMode = useStore((s) => s.viewMode);
   const content = getContent(doc.id);
   const { body } = parseFrontmatter(content);
   const fmOff = frontmatterOffset(content);
@@ -57,7 +58,7 @@ export function MixedMdView({ doc }: { doc: Document }) {
 
   return (
     <div
-      id="reader-scroll"
+      id={viewMode === "mixed" ? "reader-scroll" : undefined}
       className="h-full overflow-y-auto scroll-thin px-4 md:px-8 py-8"
     >
       <div
