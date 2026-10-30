@@ -40,14 +40,25 @@ export function InlineMdBlockEditor({
     const host = document.createElement("div");
     host.setAttribute("data-lh-inline-editor", "1");
     host.className = "lh-inline-edit-slot my-0";
-    parent.insertBefore(host, anchorEl);
+    // Hide first so slot + original never both paint.
     anchorEl.setAttribute("hidden", "");
+    anchorEl.setAttribute("aria-hidden", "true");
+    anchorEl.setAttribute("data-lh-visual-anchor-hidden", "1");
     anchorEl.classList.add("lh-inline-edit-hidden");
+    anchorEl.style.setProperty("display", "none", "important");
+    parent.insertBefore(host, anchorEl);
     setSlot(host);
     return () => {
+      try {
+        if (host.isConnected) host.remove();
+      } catch {
+        /* ignore */
+      }
       anchorEl.removeAttribute("hidden");
+      anchorEl.removeAttribute("aria-hidden");
+      anchorEl.removeAttribute("data-lh-visual-anchor-hidden");
       anchorEl.classList.remove("lh-inline-edit-hidden");
-      host.remove();
+      anchorEl.style.removeProperty("display");
       setSlot(null);
     };
   }, [anchorEl]);

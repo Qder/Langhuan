@@ -394,6 +394,13 @@ html.dark .prose-langhuan .katex {
   transition: background 1.2s ease-out, outline-color 1.2s ease-out;
 }
 
+/* Hide React-owned preview node while isolated CE / source slot is mounted.
+   Must beat Tailwind [hidden] (no !important) and list-item / prose display. */
+.lh-inline-edit-hidden,
+[data-lh-visual-anchor-hidden="1"] {
+  display: none !important;
+}
+
 /* Preview visual (contenteditable) — caret only, no accent box */
 .prose-langhuan .lh-visual-editing,
 .lh-visual-editing {

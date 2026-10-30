@@ -197,6 +197,9 @@ describe("mountIsolatedVisualHost", () => {
     expect(host.getAttribute("data-lh-inline-editor")).toBe("visual");
     expect(host.hasAttribute("data-src-start")).toBe(false);
     expect(anchor.hasAttribute("hidden")).toBe(true);
+    expect(anchor.classList.contains("lh-inline-edit-hidden")).toBe(true);
+    expect(anchor.getAttribute("data-lh-visual-anchor-hidden")).toBe("1");
+    expect(anchor.style.display).toBe("none");
     expect(anchor.getAttribute("data-src-start")).toBe("0");
 
     // Simulate bold/typing mutating only the isolated host (classic CE vs React crash).
@@ -208,6 +211,8 @@ describe("mountIsolatedVisualHost", () => {
 
     dispose();
     expect(anchor.hasAttribute("hidden")).toBe(false);
+    expect(anchor.classList.contains("lh-inline-edit-hidden")).toBe(false);
+    expect(anchor.style.display).toBe("");
     expect(anchor.innerHTML).toBe(before);
     expect(host.isConnected).toBe(false);
     // Src-range queries still see exactly one owner node
@@ -216,6 +221,48 @@ describe("mountIsolatedVisualHost", () => {
     ];
     expect(hits).toHaveLength(1);
     expect(hits[0]).toBe(anchor);
+  });
+
+  it("keeps only one visible copy for list items (no twin TOC line)", () => {
+    const dom = new JSDOM(
+      `<article><ul><li data-src-start="0" data-src-end="20"><a data-src-start="2" data-src-end="8">0. 目录</a></li></ul></article>`
+    );
+    const anchor = dom.window.document.querySelector("li") as HTMLElement;
+    const mounted = mountIsolatedVisualHost(anchor)!;
+    const { host, dispose } = mounted;
+    const ul = anchor.parentElement!;
+    const visualHosts = [
+      ...ul.querySelectorAll("[data-lh-inline-editor=visual]"),
+    ];
+    expect(visualHosts).toHaveLength(1);
+    expect(visualHosts[0]).toBe(host);
+    // Anchor fully suppressed; nested src stamps stripped from clone only.
+    expect(anchor.style.display).toBe("none");
+    expect(host.querySelector("[data-src-start]")).toBeNull();
+    expect(anchor.querySelector("[data-src-start]")?.getAttribute("data-src-start")).toBe("2");
+    dispose();
+    expect(ul.querySelectorAll("[data-lh-inline-editor=visual]")).toHaveLength(0);
+    expect(anchor.style.display).toBe("");
+  });
+
+  it("removes orphan hosts on remount and dispose is idempotent", () => {
+    const dom = new JSDOM(
+      `<article><p data-src-start="0" data-src-end="5">hi</p></article>`
+    );
+    const anchor = dom.window.document.querySelector("p") as HTMLElement;
+    const first = mountIsolatedVisualHost(anchor)!;
+    // Simulate interrupted cleanup: leave host, remount.
+    const second = mountIsolatedVisualHost(anchor)!;
+    expect(first.host.isConnected).toBe(false);
+    expect(
+      anchor.parentElement!.querySelectorAll("[data-lh-inline-editor=visual]")
+    ).toHaveLength(1);
+    second.dispose();
+    second.dispose(); // idempotent
+    expect(
+      anchor.parentElement!.querySelectorAll("[data-lh-inline-editor=visual]")
+    ).toHaveLength(0);
+    expect(anchor.hasAttribute("hidden")).toBe(false);
   });
 });
 

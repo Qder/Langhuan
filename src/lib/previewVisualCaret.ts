@@ -571,43 +571,102 @@ export type IsolatedVisualHost = {
   dispose: () => void;
 };
 
+/** Hide React-owned anchor while the isolated CE host is up. */
+function hideVisualAnchor(anchorEl: HTMLElement): void {
+  anchorEl.setAttribute("hidden", "");
+  anchorEl.setAttribute("aria-hidden", "true");
+  anchorEl.setAttribute("data-lh-visual-anchor-hidden", "1");
+  anchorEl.classList.add("lh-inline-edit-hidden");
+  // Belt-and-suspenders: Tailwind [hidden] is display:none *without* !important,
+  // so prose/list rules (or UA list-item) can leave the anchor visible → twin DOM.
+  anchorEl.style.setProperty("display", "none", "important");
+}
+
+function showVisualAnchor(anchorEl: HTMLElement): void {
+  anchorEl.removeAttribute("hidden");
+  anchorEl.removeAttribute("aria-hidden");
+  anchorEl.removeAttribute("data-lh-visual-anchor-hidden");
+  anchorEl.classList.remove("lh-inline-edit-hidden");
+  anchorEl.style.removeProperty("display");
+}
+
+/** Strip src-range stamps from a clone subtree so queries stay on the React node. */
+function stripSrcRangeAttrs(root: HTMLElement): void {
+  root.removeAttribute("data-src-start");
+  root.removeAttribute("data-src-end");
+  root.removeAttribute("data-src-line");
+  root.querySelectorAll<HTMLElement>("[data-src-start], [data-src-end], [data-src-line]").forEach((n) => {
+    n.removeAttribute("data-src-start");
+    n.removeAttribute("data-src-end");
+    n.removeAttribute("data-src-line");
+  });
+}
+
+/** Drop orphan visual hosts left beside an anchor (StrictMode / interrupted dispose). */
+function removeOrphanVisualHosts(parent: HTMLElement, anchorEl: HTMLElement): void {
+  for (const node of Array.from(parent.children)) {
+    if (node === anchorEl) continue;
+    // Avoid instanceof HTMLElement — vitest/jsdom realms differ from global.
+    if (node.nodeType !== 1) continue;
+    const el = node as HTMLElement;
+    if (el.getAttribute("data-lh-inline-editor") === "visual") {
+      try {
+        node.remove();
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+}
+
 export function mountIsolatedVisualHost(
   anchorEl: HTMLElement
 ): IsolatedVisualHost | null {
   const parent = anchorEl.parentElement;
   if (!parent) return null;
 
+  // Prior edit may have left a clone if dispose raced a remount.
+  removeOrphanVisualHosts(parent, anchorEl);
+
   const host = anchorEl.cloneNode(true) as HTMLElement;
   // Identity stays on the React-owned node; clone must not pollute queries.
-  host.removeAttribute("data-src-start");
-  host.removeAttribute("data-src-end");
+  stripSrcRangeAttrs(host);
   host.removeAttribute("hidden");
+  host.removeAttribute("aria-hidden");
+  host.removeAttribute("data-lh-visual-anchor-hidden");
   host.classList.remove("lh-inline-edit-hidden");
+  host.style.removeProperty("display");
 
   host.setAttribute("contenteditable", "true");
   host.setAttribute("spellcheck", "true");
   host.setAttribute("data-lh-inline-editor", "visual");
   host.classList.add("lh-visual-editing");
 
+  // Hide anchor *before* inserting the clone so there is never a twin-visible frame.
+  hideVisualAnchor(anchorEl);
   parent.insertBefore(host, anchorEl);
-  anchorEl.setAttribute("hidden", "");
-  anchorEl.classList.add("lh-inline-edit-hidden");
 
   const article = host.closest("article");
   if (article) article.setAttribute("data-lh-visual-editing", "1");
 
+  let disposed = false;
   return {
     host,
     dispose: () => {
-      if (article) article.removeAttribute("data-lh-visual-editing");
-      anchorEl.removeAttribute("hidden");
-      anchorEl.classList.remove("lh-inline-edit-hidden");
-      // Never touch anchorEl.innerHTML — React owns it.
+      if (disposed) return;
+      disposed = true;
+      // Remove host first — never unhide while the clone is still in the tree.
       try {
-        host.remove();
+        if (host.isConnected) host.remove();
       } catch {
         /* ignore */
       }
+      // Also sweep orphans in case a second host was inserted.
+      const p = anchorEl.parentElement;
+      if (p) removeOrphanVisualHosts(p, anchorEl);
+      showVisualAnchor(anchorEl);
+      if (article) article.removeAttribute("data-lh-visual-editing");
+      // Never touch anchorEl.innerHTML — React owns it.
     },
   };
 }
