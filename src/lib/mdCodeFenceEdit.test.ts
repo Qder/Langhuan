@@ -10,6 +10,7 @@ import {
   rebuildMarkdownFence,
 } from "./mdVisualSerialize";
 import { isMonoSrcSlice, replaceRange } from "./mdInlineEdit";
+import { removeOrphanCodeFenceHosts } from "@/components/editor/InlineCodeFenceEditor";
 
 describe("parseMarkdownFence / rebuildMarkdownFence", () => {
   it("parses ```lang body and preserves lang on rebuild", () => {
@@ -82,5 +83,38 @@ describe("previewBlockEditMode policy", () => {
     const m = "```mermaid\ngraph TD\nA-->B\n```\n";
     expect(classifyMdBlock(m)).toBe("mermaid");
     expect(previewBlockEditMode(classifyMdBlock(m), true)).toBe("source");
+  });
+});
+
+describe("removeOrphanCodeFenceHosts", () => {
+  it("removes implanted code hosts but can keep one", async () => {
+    const { JSDOM } = await import("jsdom");
+    const dom = new JSDOM("<!DOCTYPE html><html><body></body></html>");
+    const document = dom.window.document;
+    const scope = document.createElement("div");
+    const keep = document.createElement("div");
+    keep.setAttribute("data-lh-inline-editor", "code");
+    const orphan = document.createElement("div");
+    orphan.setAttribute("data-lh-inline-editor", "code");
+    const other = document.createElement("div");
+    other.setAttribute("data-lh-inline-editor", "1");
+    scope.append(keep, orphan, other);
+    expect(removeOrphanCodeFenceHosts(scope, keep)).toBe(1);
+    expect(scope.contains(keep)).toBe(true);
+    expect(scope.contains(orphan)).toBe(false);
+    expect(scope.contains(other)).toBe(true);
+  });
+
+  it("replaceRange after rebuild does not duplicate fence in source", () => {
+    const src = "intro\n\n```html\n<a/>\n```\n\noutro\n";
+    const start = src.indexOf("```html");
+    const end = src.indexOf("\n\noutro");
+    const slice = src.slice(start, end);
+    const p = parseMarkdownFence(slice)!;
+    const nextSlice = rebuildMarkdownFence(p, "<a lang/>");
+    const after = replaceRange(src, start, end, nextSlice);
+    const hits = after.split("```html").length - 1;
+    expect(hits).toBe(1);
+    expect(after).toContain("```html\n<a lang/>\n```");
   });
 });

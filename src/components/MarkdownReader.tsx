@@ -55,7 +55,10 @@ import { PreviewContextMenu, type ContextMenuItem } from "./locate/PreviewContex
 import { subscribeScrollSync } from "@/lib/locate/scrollBus";
 import { probeRender, probeSection } from "@/lib/dev/perfProbe";
 import { AssetImage } from "./editor/AssetImage";
-import { InlineCodeFenceEditor } from "./editor/InlineCodeFenceEditor";
+import {
+  InlineCodeFenceEditor,
+  removeOrphanCodeFenceHosts,
+} from "./editor/InlineCodeFenceEditor";
 import { InlineMdBlockEditor } from "./editor/InlineMdBlockEditor";
 import { InlineVisualBlockEditor } from "./editor/InlineVisualBlockEditor";
 import {
@@ -1010,6 +1013,17 @@ export function MarkdownReader({ doc }: { doc: Document }) {
     pendingOpenRef.current = null;
     setInlineEdit(null);
   }, []);
+
+  // Save / documents rewrite remounts MarkdownBody while a seamless code host may
+  // still be implanted. If the session already ended, sweep leftover hosts so we
+  // never paint Esc-chrome beside a fresh 复制 CodeBlock.
+  React.useLayoutEffect(() => {
+    const root = articleRef.current;
+    if (!root) return;
+    const ed = inlineEditRef.current;
+    if (ed?.kind === "block" && ed.mode === "code") return;
+    removeOrphanCodeFenceHosts(root);
+  }, [body, doc.updatedAt]);
 
   const beginBlockEdit = React.useCallback(
     (
@@ -2296,6 +2310,9 @@ export function MarkdownReader({ doc }: { doc: Document }) {
             <InlineCodeFenceEditor
               anchorEl={inlineEdit.el}
               originalSlice={inlineEdit.text}
+              srcStart={inlineEdit.start}
+              srcEnd={inlineEdit.end}
+              remountEpoch={`${doc.updatedAt}:${body.length}:${body.slice(0, 32)}`}
               cursorAt={inlineEdit.cursorAt}
               clientX={inlineEdit.clientX}
               clientY={inlineEdit.clientY}

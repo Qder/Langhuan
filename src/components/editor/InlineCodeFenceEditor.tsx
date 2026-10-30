@@ -14,6 +14,14 @@ export type InlineCodeFenceEditorProps = {
   anchorEl: HTMLElement;
   /** Full fenced Markdown slice including ``` / ~~~ wrappers. */
   originalSlice: string;
+  /** Source offsets — used to re-hide remounted React twins after save/body rewrite. */
+  srcStart: number;
+  srcEnd: number;
+  /**
+   * Bumps when preview markdown remounts (body / doc.updatedAt).
+   * Re-runs twin-hide + disconnect→commit.
+   */
+  remountEpoch: string | number;
   /** Caret offset inside the fence *body* (not the full slice). */
   cursorAt?: number;
   clientX?: number;
@@ -23,17 +31,59 @@ export type InlineCodeFenceEditorProps = {
   onCancel: () => void;
 };
 
+function hideAnchor(el: HTMLElement): void {
+  el.setAttribute("hidden", "");
+  el.setAttribute("aria-hidden", "true");
+  el.setAttribute("data-lh-visual-anchor-hidden", "1");
+  el.classList.add("lh-inline-edit-hidden");
+  el.style.setProperty("display", "none", "important");
+}
+
+function showAnchor(el: HTMLElement): void {
+  el.removeAttribute("hidden");
+  el.removeAttribute("aria-hidden");
+  el.removeAttribute("data-lh-visual-anchor-hidden");
+  el.classList.remove("lh-inline-edit-hidden");
+  el.style.removeProperty("display");
+}
+
+/** Drop orphan seamless code hosts (save remount / interrupted dispose). */
+export function removeOrphanCodeFenceHosts(
+  scope: ParentNode,
+  keep?: HTMLElement | null
+): number {
+  let n = 0;
+  for (const node of Array.from(
+    scope.querySelectorAll<HTMLElement>('[data-lh-inline-editor="code"]')
+  )) {
+    if (keep && (node === keep || keep.contains(node))) continue;
+    try {
+      node.remove();
+      n++;
+    } catch {
+      /* ignore */
+    }
+  }
+  return n;
+}
+
 /**
  * Seamless in-preview fenced-code editor.
  * Same chrome look as CodeBlock; textarea for body only (Enter = newline).
  * Esc cancel · ⌘/Ctrl+Enter commit · blur commit. No ringed "source" box.
+ *
+ * Host is implanted beside the React-owned `.lh-codeblock`. When save/body
+ * remounts MarkdownBody, a fresh CodeBlock can appear while this host remains
+ * — we re-hide matching anchors by src range, and if the original anchor is
+ * gone we flush-commit so only one fence stays visible.
  */
 export function InlineCodeFenceEditor({
   anchorEl,
   originalSlice,
+  srcStart,
+  srcEnd,
+  remountEpoch,
   cursorAt = 0,
-  clientX,
-  clientY,
   suppressBlurRef,
   onCommit,
   onCancel,
@@ -45,59 +95,129 @@ export function InlineCodeFenceEditor({
     () => parsedRef.current?.body ?? originalSlice
   );
   const bodyRef = React.useRef(body);
-  bodyRef.current = body;
+  React.useEffect(() => {
+    bodyRef.current = body;
+  }, [body]);
   const [slot, setSlot] = React.useState<HTMLDivElement | null>(null);
+  const hostRef = React.useRef<HTMLDivElement | null>(null);
   const taRef = React.useRef<HTMLTextAreaElement>(null);
   const committedRef = React.useRef(false);
+  const hiddenTwinsRef = React.useRef<Set<HTMLElement>>(new Set());
+  const onCommitRef = React.useRef(onCommit);
+  const onCancelRef = React.useRef(onCancel);
+  React.useEffect(() => {
+    onCommitRef.current = onCommit;
+    onCancelRef.current = onCancel;
+  }, [onCommit, onCancel]);
+
+  const finish = React.useCallback((mode: "commit" | "cancel") => {
+    if (committedRef.current) return;
+    committedRef.current = true;
+    if (mode === "cancel") {
+      onCancelRef.current();
+      return;
+    }
+    const parsed = parsedRef.current;
+    const curBody = bodyRef.current;
+    if (!parsed) {
+      onCommitRef.current(curBody);
+      return;
+    }
+    onCommitRef.current(rebuildMarkdownFence(parsed, curBody));
+  }, []);
+
+  const hideMatchingTwins = React.useCallback(
+    (scope: ParentNode) => {
+      const nodes = scope.querySelectorAll<HTMLElement>(
+        ".lh-codeblock[data-src-start]"
+      );
+      for (const el of Array.from(nodes)) {
+        // Skip our editor chrome (also has lh-codeblock class).
+        if (el.getAttribute("data-lh-inline-editor") === "code-chrome") continue;
+        if (el.closest('[data-lh-inline-editor="code"]')) continue;
+        const s = Number(el.getAttribute("data-src-start"));
+        const e = Number(el.getAttribute("data-src-end") || s);
+        if (s !== srcStart) continue;
+        if (
+          Number.isFinite(srcEnd) &&
+          Number.isFinite(e) &&
+          e !== srcEnd
+        ) {
+          continue;
+        }
+        hideAnchor(el);
+        hiddenTwinsRef.current.add(el);
+      }
+    },
+    [srcStart, srcEnd]
+  );
 
   React.useLayoutEffect(() => {
     const parent = anchorEl.parentElement;
     if (!parent) return;
+    const article =
+      anchorEl.closest("article") ??
+      document.getElementById("reader-scroll") ??
+      parent;
+
+    // Prior session may have left a host if dispose raced a remount.
+    removeOrphanCodeFenceHosts(article);
+
     const host = document.createElement("div");
     host.setAttribute("data-lh-inline-editor", "code");
+    host.setAttribute("data-lh-code-edit-start", String(srcStart));
+    host.setAttribute("data-lh-code-edit-end", String(srcEnd));
     host.className = "lh-inline-edit-slot my-0";
-    // Hide first so slot + original never both paint (same as visual/source).
-    anchorEl.setAttribute("hidden", "");
-    anchorEl.setAttribute("aria-hidden", "true");
-    anchorEl.setAttribute("data-lh-visual-anchor-hidden", "1");
-    anchorEl.classList.add("lh-inline-edit-hidden");
-    anchorEl.style.setProperty("display", "none", "important");
+    hostRef.current = host;
+
+    hideAnchor(anchorEl);
+    hiddenTwinsRef.current.add(anchorEl);
     parent.insertBefore(host, anchorEl);
     setSlot(host);
+
     return () => {
+      // Host first — never leave chrome beside a remounted React fence.
       try {
         if (host.isConnected) host.remove();
       } catch {
         /* ignore */
       }
-      anchorEl.removeAttribute("hidden");
-      anchorEl.removeAttribute("aria-hidden");
-      anchorEl.removeAttribute("data-lh-visual-anchor-hidden");
-      anchorEl.classList.remove("lh-inline-edit-hidden");
-      anchorEl.style.removeProperty("display");
+      removeOrphanCodeFenceHosts(article, null);
+      for (const el of hiddenTwinsRef.current) {
+        try {
+          if (el.isConnected) showAnchor(el);
+        } catch {
+          /* ignore */
+        }
+      }
+      hiddenTwinsRef.current.clear();
+      hostRef.current = null;
       setSlot(null);
     };
+    // intentional: remount host only when the React anchor identity changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [anchorEl]);
 
-  const finish = React.useCallback(
-    (mode: "commit" | "cancel") => {
-      if (committedRef.current) return;
-      committedRef.current = true;
-      if (mode === "cancel") {
-        onCancel();
-        return;
-      }
-      const parsed = parsedRef.current;
-      const curBody = bodyRef.current;
-      if (!parsed) {
-        // Unparseable — write back the edited text as-is (raw fence).
-        onCommit(curBody);
-        return;
-      }
-      onCommit(rebuildMarkdownFence(parsed, curBody));
-    },
-    [onCancel, onCommit]
-  );
+  // After save / body rewrite: MarkdownBody remounts a visible twin CodeBlock.
+  // Re-hide by src range; if original anchor is gone, flush-commit to end session.
+  React.useLayoutEffect(() => {
+    if (!slot) return;
+    const article =
+      slot.closest("article") ??
+      document.getElementById("reader-scroll") ??
+      slot.parentElement;
+    if (!article) return;
+
+    hideMatchingTwins(article);
+
+    if (!anchorEl.isConnected && !committedRef.current) {
+      // React replaced the fence under us (typical: save clears draft → documents
+      // prop change remounts MarkdownBody). Commit local textarea → one fence.
+      if (suppressBlurRef) suppressBlurRef.current = true;
+      finish("commit");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- epoch drives remount reaction
+  }, [remountEpoch, slot, hideMatchingTwins, finish, anchorEl, suppressBlurRef]);
 
   React.useLayoutEffect(() => {
     const ta = taRef.current;
@@ -113,23 +233,14 @@ export function InlineCodeFenceEditor({
         /* ignore */
       }
     }
-    // If click coords given, refine caret via textarea metrics after focus.
-    if (
-      clientX != null &&
-      clientY != null &&
-      typeof document.caretPositionFromPoint === "function"
-    ) {
-      try {
-        // Textarea caret from point is unreliable cross-browser; keep cursorAt.
-      } catch {
-        /* ignore */
-      }
-    }
     autosize(ta);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount into slot only
   }, [slot]);
 
-  const lang = parsedRef.current?.lang || "code";
+  const lang = React.useMemo(
+    () => parseMarkdownFence(originalSlice)?.lang || "code",
+    [originalSlice]
+  );
   const lineCount = Math.max(1, body.split("\n").length);
 
   if (!slot) return null;
@@ -183,8 +294,8 @@ export function InlineCodeFenceEditor({
               finish("commit");
               return;
             }
-            // Enter inserts newline inside fence (default textarea) — do NOT stop.
-            // Backspace at start stays inside fence — no merge into previous paragraph.
+            // Enter inserts newline inside fence (default textarea).
+            // Backspace at start stays inside — no merge into previous paragraph.
             if (e.key === "Tab") {
               e.preventDefault();
               const ta = e.currentTarget;
