@@ -7,6 +7,7 @@ import {
 } from "@/lib/mdVisualSerialize";
 import {
   caretEdgeInBlock,
+  mountIsolatedVisualHost,
   placeCaretPlain,
   plainCaretOffsetIn,
   plainTextOf,
@@ -39,9 +40,11 @@ export type InlineVisualBlockEditorProps = {
 };
 
 /**
- * Preview visual edit: make the rendered block contenteditable (no textarea).
- * Continuous-caret: Enter splits, Backspace merges, arrows cross blocks.
- * Commit serializes DOM → Markdown slice via serializeVisualBlock.
+ * Preview visual edit on an *isolated* contenteditable clone of the block.
+ * The React-managed rehype node stays hidden/untouched so CE mutations
+ * (bold/strong, italic, typing) cannot trigger removeChild NotFoundError
+ * when MarkdownBody re-renders. Continuous-caret: Enter splits, Backspace
+ * merges, arrows cross blocks. Commit via serializeVisualBlock + replaceRange.
  */
 export function InlineVisualBlockEditor({
   anchorEl,
@@ -58,7 +61,6 @@ export function InlineVisualBlockEditor({
   onNavigate,
 }: InlineVisualBlockEditorProps) {
   const committedRef = React.useRef(false);
-  const snapshotRef = React.useRef<string>("");
   const onCommitRef = React.useRef(onCommit);
   const onCancelRef = React.useRef(onCancel);
   const onSplitRef = React.useRef(onSplit);
@@ -75,15 +77,9 @@ export function InlineVisualBlockEditor({
 
   React.useLayoutEffect(() => {
     committedRef.current = false;
-    const el = anchorEl;
-    snapshotRef.current = el.innerHTML;
-    const article = el.closest("article");
-
-    el.setAttribute("contenteditable", "true");
-    el.setAttribute("spellcheck", "true");
-    el.setAttribute("data-lh-inline-editor", "visual");
-    el.classList.add("lh-visual-editing");
-    if (article) article.setAttribute("data-lh-visual-editing", "1");
+    const mounted = mountIsolatedVisualHost(anchorEl);
+    if (!mounted) return;
+    const { host: el, dispose } = mounted;
 
     if (caretAt != null) {
       placeCaretPlain(el, caretAt);
@@ -107,11 +103,7 @@ export function InlineVisualBlockEditor({
     const finishCancel = () => {
       if (committedRef.current) return;
       committedRef.current = true;
-      try {
-        el.innerHTML = snapshotRef.current;
-      } catch {
-        /* ignore */
-      }
+      // Original React node was never mutated — just tear down the host.
       onCancelRef.current();
     };
 
@@ -154,7 +146,6 @@ export function InlineVisualBlockEditor({
           markHandled();
           return;
         }
-        // Fallback: commit as-is if parent did not handle
         finishCommit();
         return;
       }
@@ -171,7 +162,6 @@ export function InlineVisualBlockEditor({
             markHandled();
             return;
           }
-          // Boundary (code/etc): stay put, do not delete into previous
           return;
         }
       }
@@ -188,9 +178,7 @@ export function InlineVisualBlockEditor({
           e.key as "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown"
         );
         if (edge) {
-          const dir: VisualNavDir =
-            edge === "start" ? "prev" : "next";
-          // Only navigate when moving further outward
+          const dir: VisualNavDir = edge === "start" ? "prev" : "next";
           const outward =
             (edge === "start" &&
               (e.key === "ArrowLeft" || e.key === "ArrowUp")) ||
@@ -267,18 +255,7 @@ export function InlineVisualBlockEditor({
     return () => {
       el.removeEventListener("keydown", onKeyDown);
       el.removeEventListener("blur", onBlur);
-      if (!committedRef.current) {
-        try {
-          el.innerHTML = snapshotRef.current;
-        } catch {
-          /* ignore */
-        }
-      }
-      el.removeAttribute("contenteditable");
-      el.removeAttribute("spellcheck");
-      el.removeAttribute("data-lh-inline-editor");
-      el.classList.remove("lh-visual-editing");
-      if (article) article.removeAttribute("data-lh-visual-editing");
+      dispose();
     };
   }, [
     anchorEl,

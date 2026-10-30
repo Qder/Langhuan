@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { JSDOM } from "jsdom";
 import { replaceRange } from "./mdInlineEdit";
 import {
   mergeVisualSlices,
   splitVisualSlice,
   isMergeBoundaryType,
+  mountIsolatedVisualHost,
 } from "./previewVisualCaret";
 import { classifyMdBlock } from "./mdVisualSerialize";
 
@@ -172,5 +174,42 @@ describe("classify helpers used by caret nav", () => {
     expect(classifyMdBlock("## H\n")).toBe("heading");
     expect(classifyMdBlock("- a\n")).toBe("listItem");
     expect(classifyMdBlock("para\n")).toBe("paragraph");
+  });
+});
+
+describe("mountIsolatedVisualHost", () => {
+  it("clones off the React-owned node and leaves anchor HTML untouched after CE mutation", () => {
+    const dom = new JSDOM(
+      `<article><p data-src-start="0" data-src-end="10">hello <strong>world</strong></p></article>`
+    );
+    const anchor = dom.window.document.querySelector("p") as HTMLElement;
+    const before = anchor.innerHTML;
+    const mounted = mountIsolatedVisualHost(anchor);
+    expect(mounted).not.toBeNull();
+    const { host, dispose } = mounted!;
+    expect(host).not.toBe(anchor);
+    expect(host.getAttribute("contenteditable")).toBe("true");
+    expect(host.getAttribute("data-lh-inline-editor")).toBe("visual");
+    expect(host.hasAttribute("data-src-start")).toBe(false);
+    expect(anchor.hasAttribute("hidden")).toBe(true);
+    expect(anchor.getAttribute("data-src-start")).toBe("0");
+
+    // Simulate bold/typing mutating only the isolated host (classic CE vs React crash).
+    const strong = host.querySelector("strong");
+    expect(strong).toBeTruthy();
+    strong!.replaceWith(dom.window.document.createTextNode("WORLD"));
+    expect(host.textContent).toContain("WORLD");
+    expect(anchor.innerHTML).toBe(before);
+
+    dispose();
+    expect(anchor.hasAttribute("hidden")).toBe(false);
+    expect(anchor.innerHTML).toBe(before);
+    expect(host.isConnected).toBe(false);
+    // Src-range queries still see exactly one owner node
+    const hits = [
+      ...dom.window.document.querySelectorAll("[data-src-start]"),
+    ];
+    expect(hits).toHaveLength(1);
+    expect(hits[0]).toBe(anchor);
   });
 });

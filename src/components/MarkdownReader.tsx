@@ -1517,16 +1517,10 @@ export function MarkdownReader({ doc }: { doc: Document }) {
       const t = e.target as HTMLElement | null;
       if (!t) return;
       // Inside active visual/source editor chrome: ignore (caret / typing).
+      // Visual CE runs on an *isolated clone* (not cur.el); match by marker.
       const editingHost = t.closest("[data-lh-inline-editor], [contenteditable=true]");
-      if (editingHost) {
-        const cur = inlineEditRef.current;
-        if (
-          cur?.kind === "block" &&
-          (cur.el === editingHost || cur.el.contains(editingHost))
-        ) {
-          return;
-        }
-        // Click landed in editor chrome that is not the active block — fall through.
+      if (editingHost && inlineEditRef.current?.kind === "block") {
+        return;
       }
       if (t.closest("a, button, input, textarea, summary")) return;
       const mode = useStore.getState().viewMode;

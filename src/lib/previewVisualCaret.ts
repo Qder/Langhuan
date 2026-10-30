@@ -415,3 +415,54 @@ export function placeCaretPlain(
     /* ignore */
   }
 }
+
+/**
+ * Clone a React-managed preview block into an isolated contenteditable host.
+ * The original anchor stays untouched (hidden) so React can re-render without
+ * fighting CE mutations (e.g. <strong> toggled by execCommand / typing).
+ */
+export type IsolatedVisualHost = {
+  host: HTMLElement;
+  dispose: () => void;
+};
+
+export function mountIsolatedVisualHost(
+  anchorEl: HTMLElement
+): IsolatedVisualHost | null {
+  const parent = anchorEl.parentElement;
+  if (!parent) return null;
+
+  const host = anchorEl.cloneNode(true) as HTMLElement;
+  // Identity stays on the React-owned node; clone must not pollute queries.
+  host.removeAttribute("data-src-start");
+  host.removeAttribute("data-src-end");
+  host.removeAttribute("hidden");
+  host.classList.remove("lh-inline-edit-hidden");
+
+  host.setAttribute("contenteditable", "true");
+  host.setAttribute("spellcheck", "true");
+  host.setAttribute("data-lh-inline-editor", "visual");
+  host.classList.add("lh-visual-editing");
+
+  parent.insertBefore(host, anchorEl);
+  anchorEl.setAttribute("hidden", "");
+  anchorEl.classList.add("lh-inline-edit-hidden");
+
+  const article = host.closest("article");
+  if (article) article.setAttribute("data-lh-visual-editing", "1");
+
+  return {
+    host,
+    dispose: () => {
+      if (article) article.removeAttribute("data-lh-visual-editing");
+      anchorEl.removeAttribute("hidden");
+      anchorEl.classList.remove("lh-inline-edit-hidden");
+      // Never touch anchorEl.innerHTML — React owns it.
+      try {
+        host.remove();
+      } catch {
+        /* ignore */
+      }
+    },
+  };
+}
