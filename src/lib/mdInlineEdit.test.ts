@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   guessCursorInSlice,
+  isClientYBelowLastSrcBlock,
   isMonoSrcSlice,
+  normalizeAppendWriteText,
   prepareAppendAtEnd,
   replaceRange,
   trailingNewline,
@@ -151,5 +153,67 @@ describe("guessCursorInSlice", () => {
 
   it("falls back to 0", () => {
     expect(guessCursorInSlice("hello", { clickText: "zzz" })).toBe(0);
+  });
+});
+
+describe("normalizeAppendWriteText", () => {
+  it("returns empty for blank input", () => {
+    expect(normalizeAppendWriteText("")).toBe("");
+    expect(normalizeAppendWriteText("   ")).toBe("");
+    expect(normalizeAppendWriteText("\n\n")).toBe("");
+  });
+
+  it("trims trailing whitespace and ends with one newline", () => {
+    expect(normalizeAppendWriteText("hello")).toBe("hello\n");
+    expect(normalizeAppendWriteText("hello\n\n")).toBe("hello\n");
+    expect(normalizeAppendWriteText("a\nb  ")).toBe("a\nb\n");
+  });
+});
+
+describe("append-at-end writeback", () => {
+  it("inserts a new paragraph after a list without changing prior bytes", () => {
+    const src = "# 2026-10-29\n\n## 今日焦点\n\n- 就是水树奈奈\n";
+    const { prepared, start, end } = prepareAppendAtEnd(src);
+    const slice = normalizeAppendWriteText("新段落");
+    const next = replaceRange(prepared, start, end, slice);
+    expect(next.slice(0, src.length)).toBe(src);
+    expect(next).toBe(src + "\n新段落\n");
+  });
+
+  it("preserves front matter when appending", () => {
+    const fm = "---\ntitle: Demo\n---\n\n";
+    const body = "para\n";
+    const src = fm + body;
+    const { prepared, start, end } = prepareAppendAtEnd(src);
+    const next = replaceRange(
+      prepared,
+      start,
+      end,
+      normalizeAppendWriteText("more")
+    );
+    expect(next.startsWith(fm)).toBe(true);
+    expect(next.endsWith("more\n")).toBe(true);
+  });
+});
+
+describe("isClientYBelowLastSrcBlock", () => {
+  it("true when no blocks", () => {
+    const root = {
+      querySelectorAll: () => [],
+    } as unknown as ParentNode;
+    expect(isClientYBelowLastSrcBlock(root, 10)).toBe(true);
+  });
+
+  it("compares against last block bottom + slack", () => {
+    const block = {
+      tagName: "P",
+      hasAttribute: () => false,
+      getBoundingClientRect: () => ({ bottom: 100 }),
+    };
+    const root = {
+      querySelectorAll: () => [block],
+    } as unknown as ParentNode;
+    expect(isClientYBelowLastSrcBlock(root, 104)).toBe(false);
+    expect(isClientYBelowLastSrcBlock(root, 105)).toBe(true);
   });
 });

@@ -59,7 +59,9 @@ import { InlineVisualBlockEditor } from "./editor/InlineVisualBlockEditor";
 import {
   findEditableSrcBlock,
   guessCursorInSlice,
+  isClientYBelowLastSrcBlock,
   isMonoSrcSlice,
+  normalizeAppendWriteText,
   plainOffsetInElement,
   prepareAppendAtEnd,
   replaceRange,
@@ -521,6 +523,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
   const setDraft = useStore((s) => s.setDraft);
   const pushPreviewUndo = useStore((s) => s.pushPreviewUndo);
   const saveDoc = useStore((s) => s.saveDoc);
+  const viewMode = useStore((s) => s.viewMode);
   const wide = useMediaQuery("(min-width: 1280px)");
   probeRender("MarkdownReader");
   const content = getContent(doc.id);
@@ -683,6 +686,25 @@ export function MarkdownReader({ doc }: { doc: Document }) {
         return;
       }
       const cur = getContent(doc.id);
+
+      // Append: compute EOF range at commit time so Esc/empty blur does not dirty the doc.
+      if (ed.kind === "append") {
+        const writeText = normalizeAppendWriteText(opts?.text ?? ed.text);
+        if (!writeText) {
+          setInlineEdit(null);
+          return;
+        }
+        const { prepared, start, end } = prepareAppendAtEnd(cur);
+        const after = replaceRange(prepared, start, end, writeText);
+        captureScroll();
+        if (after !== cur) {
+          pushPreviewUndo(doc.id, cur);
+          setDraft(doc.id, after);
+        }
+        setInlineEdit(null);
+        return;
+      }
+
       let writeText = opts?.text ?? ed.text;
       if (
         opts?.text == null &&
@@ -777,30 +799,16 @@ export function MarkdownReader({ doc }: { doc: Document }) {
   );
 
   const beginAppendEdit = React.useCallback(() => {
-    const cur = getContent(doc.id);
-    const { prepared, start, end } = prepareAppendAtEnd(cur);
-    captureScroll();
-    if (prepared !== cur) {
-      setDraft(doc.id, prepared);
-      pendingOpenRef.current = {
-        start,
-        end,
-        text: "",
-        mono: false,
-        cursorAt: 0,
-      };
-      setInlineEdit(null);
-      return;
-    }
+    // Offsets are computed in commitInlineEdit via prepareAppendAtEnd.
     setInlineEdit({
       kind: "append",
-      start,
-      end,
+      start: 0,
+      end: 0,
       text: "",
       mono: false,
       cursorAt: 0,
     });
-  }, [captureScroll, doc.id, getContent, setDraft]);
+  }, []);
 
   // Restore scroll after content rewrite from inline edit; open pending block/append.
   React.useLayoutEffect(() => {
@@ -1033,19 +1041,14 @@ export function MarkdownReader({ doc }: { doc: Document }) {
       if (sel && !sel.isCollapsed && String(sel).trim() && e.detail < 2) return;
 
       if (mode === "preview") {
-        const found = findEditableSrcBlock(t, root);
+        // Explicit continue-writing hit zone (padding below body).
+        const onAppendZone = !!(t.closest("[data-lh-append-zone]"));
+        const found = onAppendZone ? null : findEditableSrcBlock(t, root);
         if (!found) {
-          // Only empty doc or click below the last block → append ("继续写")
+          // Empty doc, append zone, or click below the last block → append
           if (t.closest("header")) return;
-          const blocks = [
-            ...root.querySelectorAll<HTMLElement>("[data-src-start]"),
-          ].filter(
-            (b) =>
-              !(b.tagName === "SPAN" && b.hasAttribute("data-src-line"))
-          );
-          const last = blocks[blocks.length - 1];
           const below =
-            !last || e.clientY > last.getBoundingClientRect().bottom + 4;
+            onAppendZone || isClientYBelowLastSrcBlock(root, e.clientY);
           if (below) {
             if (inlineEditRef.current) {
               suppressBlurCommitRef.current = true;
@@ -1132,6 +1135,32 @@ export function MarkdownReader({ doc }: { doc: Document }) {
     doc.id,
     getContent,
   ]);
+
+  // Clicks on #reader-scroll chrome below the article (outside <article>) also append.
+  React.useEffect(() => {
+    const scroll = document.getElementById("reader-scroll");
+    const article = articleRef.current;
+    if (!scroll || !article) return;
+    const onClick = (e: MouseEvent) => {
+      if (e.altKey || e.shiftKey) return;
+      if (useStore.getState().viewMode !== "preview") return;
+      const t = e.target as HTMLElement | null;
+      if (!t) return;
+      if (article.contains(t)) return; // article handler owns in-article clicks
+      if (t.closest("a, button, input, textarea, summary, [role='dialog']")) return;
+      if (t.closest("[data-lh-inline-editor]")) return;
+      const sel = window.getSelection();
+      if (sel && !sel.isCollapsed && String(sel).trim() && e.detail < 2) return;
+      if (!isClientYBelowLastSrcBlock(article, e.clientY)) return;
+      if (inlineEditRef.current) {
+        suppressBlurCommitRef.current = true;
+        commitInlineEdit();
+      }
+      beginAppendEdit();
+    };
+    scroll.addEventListener("click", onClick);
+    return () => scroll.removeEventListener("click", onClick);
+  }, [beginAppendEdit, commitInlineEdit, body]);
 
   // 框选 alone does NOT auto-locate. User right-clicks → 「定位源码」 in context menu.
 
@@ -1604,6 +1633,17 @@ export function MarkdownReader({ doc }: { doc: Document }) {
             assets={assets}
             docPath={doc.path}
           />
+          {viewMode === "preview" && inlineEdit?.kind !== "append" && (
+            <div
+              data-lh-append-zone="1"
+              className="group/append mt-1 min-h-[28vh] w-full cursor-text rounded-md"
+              aria-label="点击继续写"
+            >
+              <div className="pointer-events-none select-none pt-3 text-sm text-[var(--muted)] opacity-0 transition-opacity group-hover/append:opacity-70">
+                点击继续写
+              </div>
+            </div>
+          )}
           {inlineEdit?.kind === "block" && inlineEdit.mode === "visual" && (
             <InlineVisualBlockEditor
               anchorEl={inlineEdit.el}
@@ -1633,14 +1673,15 @@ export function MarkdownReader({ doc }: { doc: Document }) {
           {inlineEdit?.kind === "append" && (
             <div
               data-lh-inline-editor="1"
-              className="lh-inline-edit-box mt-4 rounded-lg ring-1 ring-[var(--accent)]/45 bg-[var(--bg-elevated)]/80 px-2 py-1.5 shadow-sm"
+              className="lh-inline-edit-box mt-4 rounded-md ring-1 ring-[var(--accent)]/40 bg-transparent px-1 py-1"
             >
               <textarea
                 autoFocus
                 data-lh-inline-editor="textarea"
                 value={inlineEdit.text}
                 aria-label="继续写"
-                className="w-full resize-none bg-transparent border-0 outline-none p-0 m-0 font-serif text-[length:inherit] leading-relaxed text-[var(--fg)] whitespace-pre-wrap"
+                placeholder="继续写…"
+                className="w-full resize-none bg-transparent border-0 outline-none p-0 m-0 font-serif text-[length:inherit] leading-relaxed text-[var(--fg)] whitespace-pre-wrap placeholder:text-[var(--muted)]"
                 style={{ minHeight: 32, fontSize: "inherit", lineHeight: "inherit" }}
                 onChange={(e) => {
                   const v = e.target.value;

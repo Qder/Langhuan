@@ -92,6 +92,35 @@ export function prepareAppendAtEnd(source: string): {
 }
 
 /**
+ * True when clientY is below the last annotated src block (or doc has none).
+ * Used for preview "click empty → append paragraph".
+ */
+export function isClientYBelowLastSrcBlock(
+  root: ParentNode,
+  clientY: number,
+  slackPx = 4
+): boolean {
+  const blocks = [
+    ...root.querySelectorAll<HTMLElement>("[data-src-start]"),
+  ].filter(
+    (b) => !(b.tagName === "SPAN" && b.hasAttribute("data-src-line"))
+  );
+  const last = blocks[blocks.length - 1];
+  if (!last) return true;
+  return clientY > last.getBoundingClientRect().bottom + slackPx;
+}
+
+/**
+ * Normalize user text from the append editor into a Markdown paragraph slice
+ * inserted at EOF (after prepareAppendAtEnd). Empty/whitespace-only → "".
+ */
+export function normalizeAppendWriteText(text: string): string {
+  if (!text.trim()) return "";
+  // Drop trailing whitespace/newlines, then end with a single \n.
+  return text.replace(/\s+$/u, "") + "\n";
+}
+
+/**
  * Guess caret offset inside a source slice from clicked preview text.
  * Falls back to 0 when no confident match.
  */
