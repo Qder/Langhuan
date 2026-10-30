@@ -394,12 +394,12 @@ html.dark .prose-langhuan .katex {
   transition: background 1.2s ease-out, outline-color 1.2s ease-out;
 }
 
-/* Preview visual (contenteditable) block edit — restrained accent outline */
+/* Preview visual (contenteditable) — caret only, no accent box */
 .prose-langhuan .lh-visual-editing,
 .lh-visual-editing {
-  outline: 1.5px solid color-mix(in srgb, var(--accent) 55%, transparent);
-  outline-offset: 3px;
-  border-radius: 4px;
+  outline: none;
+  box-shadow: none;
+  background: transparent;
   caret-color: var(--accent);
 }
 article[data-lh-visual-editing] {

@@ -5,6 +5,16 @@ import {
   serializeVisualBlock,
   type VisualBlockType,
 } from "@/lib/mdVisualSerialize";
+import {
+  caretEdgeInBlock,
+  placeCaretPlain,
+  plainCaretOffsetIn,
+  plainTextOf,
+  splitVisualSlice,
+  type SplitResult,
+} from "@/lib/previewVisualCaret";
+
+export type VisualNavDir = "prev" | "next";
 
 export type InlineVisualBlockEditorProps = {
   anchorEl: HTMLElement;
@@ -12,13 +22,25 @@ export type InlineVisualBlockEditorProps = {
   blockType: VisualBlockType;
   clientX?: number;
   clientY?: number;
+  /** Prefer over clientX/Y when reopening after split/merge/nav. */
+  caretAt?: "start" | "end" | number;
   suppressBlurRef?: React.MutableRefObject<boolean>;
   onCommit: (nextSlice: string) => void;
   onCancel: () => void;
+  /**
+   * Structural Enter: parent replaces range with writeText and opens next.
+   * Return true if handled.
+   */
+  onSplit?: (result: SplitResult, serializedBefore: string) => boolean;
+  /** Backspace at block start — parent merges with previous visual block. */
+  onMergePrev?: (serializedBefore: string) => boolean;
+  /** Arrow at edge — parent commits and opens adjacent visual block. */
+  onNavigate?: (dir: VisualNavDir, serializedBefore: string) => boolean;
 };
 
 /**
  * Preview visual edit: make the rendered block contenteditable (no textarea).
+ * Continuous-caret: Enter splits, Backspace merges, arrows cross blocks.
  * Commit serializes DOM → Markdown slice via serializeVisualBlock.
  */
 export function InlineVisualBlockEditor({
@@ -27,19 +49,29 @@ export function InlineVisualBlockEditor({
   blockType,
   clientX,
   clientY,
+  caretAt,
   suppressBlurRef,
   onCommit,
   onCancel,
+  onSplit,
+  onMergePrev,
+  onNavigate,
 }: InlineVisualBlockEditorProps) {
   const committedRef = React.useRef(false);
   const snapshotRef = React.useRef<string>("");
   const onCommitRef = React.useRef(onCommit);
   const onCancelRef = React.useRef(onCancel);
+  const onSplitRef = React.useRef(onSplit);
+  const onMergePrevRef = React.useRef(onMergePrev);
+  const onNavigateRef = React.useRef(onNavigate);
 
   React.useEffect(() => {
     onCommitRef.current = onCommit;
     onCancelRef.current = onCancel;
-  }, [onCommit, onCancel]);
+    onSplitRef.current = onSplit;
+    onMergePrevRef.current = onMergePrev;
+    onNavigateRef.current = onNavigate;
+  }, [onCommit, onCancel, onSplit, onMergePrev, onNavigate]);
 
   React.useLayoutEffect(() => {
     committedRef.current = false;
@@ -53,17 +85,23 @@ export function InlineVisualBlockEditor({
     el.classList.add("lh-visual-editing");
     if (article) article.setAttribute("data-lh-visual-editing", "1");
 
-    placeCaret(el, clientX, clientY);
+    if (caretAt != null) {
+      placeCaretPlain(el, caretAt);
+    } else {
+      placeCaretFromPoint(el, clientX, clientY);
+    }
 
-    const finishCommit = () => {
-      if (committedRef.current) return;
-      committedRef.current = true;
-      const next = serializeVisualBlock({
+    const serializeNow = () =>
+      serializeVisualBlock({
         originalSlice,
         blockType,
         element: el,
       });
-      onCommitRef.current(next);
+
+    const finishCommit = () => {
+      if (committedRef.current) return;
+      committedRef.current = true;
+      onCommitRef.current(serializeNow());
     };
 
     const finishCancel = () => {
@@ -75,6 +113,11 @@ export function InlineVisualBlockEditor({
         /* ignore */
       }
       onCancelRef.current();
+    };
+
+    const markHandled = () => {
+      committedRef.current = true;
+      if (suppressBlurRef) suppressBlurRef.current = true;
     };
 
     const onKeyDown = (e: KeyboardEvent) => {
@@ -92,6 +135,82 @@ export function InlineVisualBlockEditor({
         finishCommit();
         return;
       }
+
+      // Enter → split (no shift=soft break inside block)
+      if (e.key === "Enter" && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        const serialized = serializeNow();
+        const plainOffset = plainCaretOffsetIn(el);
+        const plainText = plainTextOf(el);
+        const result = splitVisualSlice({
+          slice: serialized,
+          blockType,
+          plainOffset,
+          plainText,
+        });
+        const handler = onSplitRef.current;
+        if (handler && handler(result, serialized)) {
+          markHandled();
+          return;
+        }
+        // Fallback: commit as-is if parent did not handle
+        finishCommit();
+        return;
+      }
+
+      // Backspace at start → merge with previous visual block
+      if (e.key === "Backspace" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        const sel = el.ownerDocument?.getSelection?.() || window.getSelection();
+        if (sel && sel.isCollapsed && plainCaretOffsetIn(el) <= 0) {
+          e.preventDefault();
+          e.stopPropagation();
+          const serialized = serializeNow();
+          const handler = onMergePrevRef.current;
+          if (handler && handler(serialized)) {
+            markHandled();
+            return;
+          }
+          // Boundary (code/etc): stay put, do not delete into previous
+          return;
+        }
+      }
+
+      // Arrow keys at edge → adjacent visual block
+      if (
+        e.key === "ArrowLeft" ||
+        e.key === "ArrowRight" ||
+        e.key === "ArrowUp" ||
+        e.key === "ArrowDown"
+      ) {
+        const edge = caretEdgeInBlock(
+          el,
+          e.key as "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown"
+        );
+        if (edge) {
+          const dir: VisualNavDir =
+            edge === "start" ? "prev" : "next";
+          // Only navigate when moving further outward
+          const outward =
+            (edge === "start" &&
+              (e.key === "ArrowLeft" || e.key === "ArrowUp")) ||
+            (edge === "end" &&
+              (e.key === "ArrowRight" || e.key === "ArrowDown"));
+          if (outward) {
+            const handler = onNavigateRef.current;
+            if (handler) {
+              e.preventDefault();
+              e.stopPropagation();
+              const serialized = serializeNow();
+              if (handler(dir, serialized)) {
+                markHandled();
+                return;
+              }
+            }
+          }
+        }
+      }
+
       if (e.metaKey || e.ctrlKey) {
         const k = e.key.toLowerCase();
         if (k === "b") {
@@ -161,12 +280,20 @@ export function InlineVisualBlockEditor({
       el.classList.remove("lh-visual-editing");
       if (article) article.removeAttribute("data-lh-visual-editing");
     };
-  }, [anchorEl, blockType, originalSlice, clientX, clientY, suppressBlurRef]);
+  }, [
+    anchorEl,
+    blockType,
+    originalSlice,
+    clientX,
+    clientY,
+    caretAt,
+    suppressBlurRef,
+  ]);
 
   return null;
 }
 
-function placeCaret(
+function placeCaretFromPoint(
   el: HTMLElement,
   clientX?: number,
   clientY?: number
@@ -214,16 +341,7 @@ function placeCaret(
       }
     }
   }
-  try {
-    const range = doc.createRange();
-    range.selectNodeContents(el);
-    range.collapse(false);
-    const sel = doc.getSelection?.() || window.getSelection();
-    sel?.removeAllRanges();
-    sel?.addRange(range);
-  } catch {
-    /* ignore */
-  }
+  placeCaretPlain(el, "end");
 }
 
 function wrapSelectionInlineCode(): void {

@@ -63,13 +63,16 @@ import {
   guessCursorInSlice,
   isClientYBelowLastSrcBlock,
   isMonoSrcSlice,
+  listAnnotatedSrcBlocks,
   listGapHitRects,
+  listGapSrcBlocks,
   normalizeAppendWriteText,
   plainOffsetInElement,
   prepareAppendAtEnd,
   prepareInsertBetween,
   replaceRange,
   type GapHitRect,
+  type SrcBlockGeom,
 } from "@/lib/mdInlineEdit";
 import {
   classifyMdBlock,
@@ -77,6 +80,11 @@ import {
   serializeVisualBlock,
   type VisualBlockType,
 } from "@/lib/mdVisualSerialize";
+import {
+  isMergeBoundaryType,
+  mergeVisualSlices,
+  type SplitResult,
+} from "@/lib/previewVisualCaret";
 
 import "highlight.js/styles/github-dark.css";
 import "katex/dist/katex.min.css";
@@ -661,7 +669,7 @@ function PreviewGapHitLayer({
             width: h.width,
             height: h.height,
           }}
-          title="点击在此插入"
+          title="点击继续编辑"
         />
       ))}
     </div>
@@ -736,6 +744,8 @@ export function MarkdownReader({ doc }: { doc: Document }) {
         el: HTMLElement;
         clientX?: number;
         clientY?: number;
+        /** Visual caret when reopening (split/merge/nav/gap). */
+        caretAt?: "start" | "end" | number;
       }
     | {
         kind: "append";
@@ -772,7 +782,10 @@ export function MarkdownReader({ doc }: { doc: Document }) {
     blockType?: VisualBlockType;
     clientX?: number;
     clientY?: number;
+    caretAt?: "start" | "end" | number;
   } | null>(null);
+  /** Bumped when openNext is queued without a body rewrite (empty append/insert). */
+  const [pendingOpenTick, setPendingOpenTick] = React.useState(0);
 
   // Outline scroll-spy: cached content tops; scroll only does math (no layout reads).
   React.useEffect(() => {
@@ -857,6 +870,9 @@ export function MarkdownReader({ doc }: { doc: Document }) {
         blockType?: VisualBlockType;
         clientX?: number;
         clientY?: number;
+        caretAt?: "start" | "end" | number;
+        /** start/end already absolute inside the new writeText. */
+        inReplacement?: boolean;
       };
     }) => {
       const ed = inlineEditRef.current;
@@ -871,6 +887,10 @@ export function MarkdownReader({ doc }: { doc: Document }) {
       if (ed.kind === "append") {
         const writeText = normalizeAppendWriteText(opts?.text ?? ed.text);
         if (!writeText) {
+          if (opts?.openNext) {
+            pendingOpenRef.current = opts.openNext;
+            setPendingOpenTick((n) => n + 1);
+          }
           setInlineEdit(null);
           return;
         }
@@ -881,6 +901,10 @@ export function MarkdownReader({ doc }: { doc: Document }) {
           pushPreviewUndo(doc.id, cur);
           setDraft(doc.id, after);
         }
+        if (opts?.openNext) {
+          pendingOpenRef.current = opts.openNext;
+          if (after === cur) setPendingOpenTick((n) => n + 1);
+        }
         setInlineEdit(null);
         return;
       }
@@ -889,6 +913,10 @@ export function MarkdownReader({ doc }: { doc: Document }) {
       if (ed.kind === "insert") {
         const writeText = normalizeAppendWriteText(opts?.text ?? ed.text);
         if (!writeText) {
+          if (opts?.openNext) {
+            pendingOpenRef.current = opts.openNext;
+            setPendingOpenTick((n) => n + 1);
+          }
           setInlineEdit(null);
           return;
         }
@@ -898,6 +926,10 @@ export function MarkdownReader({ doc }: { doc: Document }) {
         if (after !== cur) {
           pushPreviewUndo(doc.id, cur);
           setDraft(doc.id, after);
+        }
+        if (opts?.openNext) {
+          pendingOpenRef.current = opts.openNext;
+          if (after === cur) setPendingOpenTick((n) => n + 1);
         }
         setInlineEdit(null);
         return;
@@ -923,9 +955,24 @@ export function MarkdownReader({ doc }: { doc: Document }) {
       }
       if (opts?.openNext) {
         let { start, end, text } = opts.openNext;
-        const { mono, cursorAt, mode, blockType, clientX, clientY } = opts.openNext;
+        const {
+          mono,
+          cursorAt,
+          mode,
+          blockType,
+          clientX,
+          clientY,
+          caretAt,
+          inReplacement,
+        } = opts.openNext;
         const delta = after.length - cur.length;
-        if (start >= ed.end) {
+        const writeLen = writeText.length;
+        if (inReplacement) {
+          // Coordinates already absolute inside the new replacement at ed.start.
+          start = Math.max(ed.start, Math.min(start, ed.start + writeLen));
+          end = Math.max(start, Math.min(end, ed.start + writeLen));
+          text = after.slice(start, end);
+        } else if (start >= ed.end) {
           start += delta;
           end += delta;
           text = after.slice(start, end);
@@ -946,6 +993,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
           blockType,
           clientX,
           clientY,
+          caretAt,
         };
       }
       setInlineEdit(null);
@@ -964,18 +1012,32 @@ export function MarkdownReader({ doc }: { doc: Document }) {
       el: HTMLElement,
       start: number,
       end: number,
-      click?: { clientX: number; clientY: number }
+      click?: {
+        clientX?: number;
+        clientY?: number;
+        caretAt?: "start" | "end" | number;
+      }
     ) => {
       const cur = getContent(doc.id);
       const slice = cur.slice(start, end);
       const blockType = classifyMdBlock(slice);
       const mono = isMonoSrcSlice(slice) || isSourceMonoFallback(blockType);
       const visual = isVisualEditableType(blockType) && !mono;
-      const hint = click ? plainOffsetInElement(el, click.clientX, click.clientY) : null;
-      const cursorAt = guessCursorInSlice(slice, {
-        clickText: hint?.clickText,
-        approxOffset: hint?.approxOffset,
-      });
+      const hint =
+        click && click.clientX != null && click.clientY != null
+          ? plainOffsetInElement(el, click.clientX, click.clientY)
+          : null;
+      const cursorAt =
+        typeof click?.caretAt === "number"
+          ? click.caretAt
+          : click?.caretAt === "start"
+            ? 0
+            : click?.caretAt === "end"
+              ? slice.length
+              : guessCursorInSlice(slice, {
+                  clickText: hint?.clickText,
+                  approxOffset: hint?.approxOffset,
+                });
       if (mono) {
         setStatus("此块需编辑源码");
       }
@@ -991,6 +1053,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
         el,
         clientX: click?.clientX,
         clientY: click?.clientY,
+        caretAt: click?.caretAt,
       });
     },
     [doc.id, getContent, setStatus]
@@ -1021,6 +1084,224 @@ export function MarkdownReader({ doc }: { doc: Document }) {
       });
     },
     []
+  );
+
+  /** Top-level annotated blocks with classify + visual flag. */
+  const describeSrcBlocks = React.useCallback(
+    (root: ParentNode, source: string) => {
+      return listAnnotatedSrcBlocks(root).map((b) => {
+        const slice = source.slice(b.start, b.end);
+        const blockType = classifyMdBlock(slice);
+        const mono = isMonoSrcSlice(slice) || isSourceMonoFallback(blockType);
+        const visual = isVisualEditableType(blockType) && !mono;
+        return { ...b, slice, blockType, mono, visual };
+      });
+    },
+    []
+  );
+
+  const openNextForRange = React.useCallback(
+    (
+      source: string,
+      start: number,
+      end: number,
+      caretAt: "start" | "end" | number = "start"
+    ) => {
+      const slice = source.slice(start, end);
+      const blockType = classifyMdBlock(slice);
+      const mono = isMonoSrcSlice(slice) || isSourceMonoFallback(blockType);
+      const visual = isVisualEditableType(blockType) && !mono;
+      return {
+        start,
+        end,
+        text: slice,
+        mono,
+        cursorAt: typeof caretAt === "number" ? caretAt : caretAt === "end" ? slice.length : 0,
+        mode: (visual ? "visual" : "source") as "visual" | "source",
+        blockType,
+        caretAt,
+      };
+    },
+    []
+  );
+
+  /** Gap click → activate neighbor visual/source block (no insert textarea). */
+  const activateGapNeighbor = React.useCallback(
+    (
+      root: HTMLElement,
+      opts: {
+        placeBefore: boolean;
+        prev?: SrcBlockGeom | null;
+        next?: SrcBlockGeom | null;
+        prefer?: "prev" | "next";
+      }
+    ) => {
+      const prefer = opts.prefer ?? (opts.placeBefore ? "next" : "prev");
+      const target =
+        prefer === "prev"
+          ? opts.prev || opts.next
+          : opts.next || opts.prev;
+      if (!target) {
+        beginAppendEdit();
+        return;
+      }
+      // placeBefore / prefer next → start; prefer prev → end
+      const at: "start" | "end" = opts.placeBefore
+        ? "start"
+        : prefer === "next"
+          ? "start"
+          : "end";
+      if (inlineEditRef.current) {
+        suppressBlurCommitRef.current = true;
+        commitInlineEdit({
+          openNext: openNextForRange(
+            getContent(doc.id),
+            target.start,
+            target.end,
+            at
+          ),
+        });
+        return;
+      }
+      beginBlockEdit(target.el, target.start, target.end, { caretAt: at });
+    },
+    [beginAppendEdit, beginBlockEdit, commitInlineEdit, doc.id, getContent, openNextForRange]
+  );
+
+  const handleVisualSplit = React.useCallback(
+    (result: SplitResult, _serialized: string) => {
+      const ed = inlineEditRef.current;
+      if (!ed || ed.kind !== "block") return false;
+      if (result.kind === "delete") {
+        const root = articleRef.current;
+        const cur = getContent(doc.id);
+        const blocks = root ? describeSrcBlocks(root, cur) : [];
+        const idx = blocks.findIndex(
+          (b) => b.start === ed.start && b.end === ed.end
+        );
+        const prev = idx > 0 ? blocks[idx - 1] : null;
+        const next = idx >= 0 && idx < blocks.length - 1 ? blocks[idx + 1] : null;
+        // Prefer previous visual at end; else next at start.
+        let openNext = undefined as ReturnType<typeof openNextForRange> | undefined;
+        if (prev && prev.visual) {
+          openNext = openNextForRange(cur, prev.start, prev.end, "end");
+        } else if (next) {
+          // next offsets still valid after delete? delete shrinks — next has start >= ed.end
+          openNext = {
+            ...openNextForRange(cur, next.start, next.end, "start"),
+            // will get delta in commit because start >= ed.end
+          };
+        }
+        commitInlineEdit({ text: "", openNext });
+        return true;
+      }
+      const absStart = ed.start + result.nextLocalStart;
+      const absEnd = ed.start + result.nextLocalEnd;
+      const nextSlice = result.writeText.slice(
+        result.nextLocalStart,
+        result.nextLocalEnd
+      );
+      const nextType = result.nextBlockType;
+      const nextMono =
+        isMonoSrcSlice(nextSlice) || isSourceMonoFallback(nextType);
+      commitInlineEdit({
+        text: result.writeText,
+        openNext: {
+          start: absStart,
+          end: absEnd,
+          text: nextSlice,
+          mono: nextMono,
+          cursorAt: 0,
+          mode: isVisualEditableType(nextType) && !nextMono ? "visual" : "source",
+          blockType: nextType,
+          caretAt: "start",
+          inReplacement: true,
+        },
+      });
+      return true;
+    },
+    [commitInlineEdit, describeSrcBlocks, doc.id, getContent, openNextForRange]
+  );
+
+  const handleVisualMergePrev = React.useCallback(
+    (serialized: string) => {
+      const ed = inlineEditRef.current;
+      if (!ed || ed.kind !== "block") return false;
+      const root = articleRef.current;
+      if (!root) return false;
+      const cur = getContent(doc.id);
+      const blocks = describeSrcBlocks(root, cur);
+      const idx = blocks.findIndex(
+        (b) => b.start === ed.start && b.end === ed.end
+      );
+      if (idx <= 0) return false;
+      const prev = blocks[idx - 1]!;
+      if (isMergeBoundaryType(prev.blockType) || !prev.visual) {
+        // Stop at boundary — do not swallow code/mermaid/math/table/callout.
+        return true;
+      }
+      const merged = mergeVisualSlices({
+        prevSlice: prev.slice,
+        nextSlice: serialized,
+        prevType: prev.blockType,
+        nextType: ed.blockType,
+      });
+      if (!merged) return true;
+      // Temporarily expand edit range to cover prev+current for replaceRange.
+      inlineEditRef.current = {
+        ...ed,
+        start: prev.start,
+        end: ed.end,
+        text: cur.slice(prev.start, ed.end),
+        el: prev.el,
+        blockType: prev.blockType,
+        mode: "visual",
+        mono: false,
+      };
+      commitInlineEdit({
+        text: merged.writeText,
+        openNext: {
+          start: prev.start,
+          end: prev.start + merged.writeText.length,
+          text: merged.writeText,
+          mono: false,
+          cursorAt: merged.caretPlain,
+          mode: "visual",
+          blockType: prev.blockType,
+          caretAt: merged.caretPlain,
+          inReplacement: true,
+        },
+      });
+      return true;
+    },
+    [commitInlineEdit, describeSrcBlocks, doc.id, getContent]
+  );
+
+  const handleVisualNavigate = React.useCallback(
+    (dir: "prev" | "next", serialized: string) => {
+      const ed = inlineEditRef.current;
+      if (!ed || ed.kind !== "block") return false;
+      const root = articleRef.current;
+      if (!root) return false;
+      const cur = getContent(doc.id);
+      const blocks = describeSrcBlocks(root, cur);
+      const idx = blocks.findIndex(
+        (b) => b.start === ed.start && b.end === ed.end
+      );
+      if (idx < 0) return false;
+      const targetIdx = dir === "prev" ? idx - 1 : idx + 1;
+      // Skip to nearest visual block; if next is source-type, still open it (source editor).
+      if (targetIdx < 0 || targetIdx >= blocks.length) return false;
+      const target = blocks[targetIdx]!;
+      // Prefer visual neighbors for seamless caret; source blocks still openable.
+      const caretAt: "start" | "end" = dir === "prev" ? "end" : "start";
+      commitInlineEdit({
+        text: serialized,
+        openNext: openNextForRange(cur, target.start, target.end, caretAt),
+      });
+      return true;
+    },
+    [commitInlineEdit, describeSrcBlocks, doc.id, getContent, openNextForRange]
   );
 
   // Restore scroll after content rewrite from inline edit; open pending block/append.
@@ -1096,8 +1377,9 @@ export function MarkdownReader({ doc }: { doc: Document }) {
       el,
       clientX: pending.clientX,
       clientY: pending.clientY,
+      caretAt: pending.caretAt,
     });
-  }, [body]);
+  }, [body, pendingOpenTick]);
 
   const invalidateAnchorCache = React.useCallback(() => {
     anchorsCacheRef.current = null;
@@ -1258,24 +1540,44 @@ export function MarkdownReader({ doc }: { doc: Document }) {
         const onAppendZone = !!(t.closest("[data-lh-append-zone]"));
         const gapHit = t.closest<HTMLElement>("[data-lh-gap-hit]");
         if (gapHit && !onAppendZone) {
-          const insertAt = Number(gapHit.getAttribute("data-lh-gap-insert-at"));
           const placeBefore = gapHit.getAttribute("data-lh-gap-before") === "1";
-          const anchorStart = Number(
-            gapHit.getAttribute("data-lh-gap-anchor-start")
-          );
-          let anchor: HTMLElement | null = null;
-          if (Number.isFinite(anchorStart)) {
-            anchor =
-              [...root.querySelectorAll<HTMLElement>("[data-src-start]")].find(
-                (el) => Number(el.getAttribute("data-src-start")) === anchorStart
-              ) || null;
+          const gaps = listGapSrcBlocks(root);
+          if (placeBefore && gaps[0]) {
+            activateGapNeighbor(root, {
+              placeBefore: true,
+              next: gaps[0],
+              prefer: "next",
+            });
+            return;
           }
-          if (Number.isFinite(insertAt) && anchor) {
-            if (inlineEditRef.current) {
-              suppressBlurCommitRef.current = true;
-              commitInlineEdit();
+          const insertAt = Number(gapHit.getAttribute("data-lh-gap-insert-at"));
+          if (Number.isFinite(insertAt)) {
+            let prev: (typeof gaps)[number] | null = null;
+            let next: (typeof gaps)[number] | null = null;
+            for (let i = 0; i < gaps.length - 1; i++) {
+              if (gaps[i]!.end === insertAt || gaps[i]!.end === insertAt) {
+                prev = gaps[i]!;
+                next = gaps[i + 1]!;
+                break;
+              }
             }
-            beginInsertBetween(insertAt, anchor, placeBefore);
+            if (!prev) {
+              for (let i = 0; i < gaps.length - 1; i++) {
+                if (Math.abs(gaps[i]!.end - insertAt) < 2) {
+                  prev = gaps[i]!;
+                  next = gaps[i + 1]!;
+                  break;
+                }
+              }
+            }
+            // Mid-gap: upper half → prev end; lower → next start (via clientY later).
+            // Hit layer has no clientY preference stored; use prev end (continue writing).
+            activateGapNeighbor(root, {
+              placeBefore: false,
+              prev,
+              next,
+              prefer: "prev",
+            });
             return;
           }
         }
@@ -1288,16 +1590,19 @@ export function MarkdownReader({ doc }: { doc: Document }) {
           if (!onAppendZone) {
             const gap = findGapInsertAt(root, e.clientY);
             if (gap) {
-              if (inlineEditRef.current) {
-                suppressBlurCommitRef.current = true;
-                commitInlineEdit();
-              }
-              const anchorEl = gap.placeBefore ? gap.next.el : gap.prev.el;
-              beginInsertBetween(
-                gap.insertAt,
-                anchorEl,
-                !!gap.placeBefore
-              );
+              const mid = (gap.prev.bottom + gap.next.top) / 2;
+              const prefer =
+                gap.placeBefore
+                  ? "next"
+                  : e.clientY < mid
+                    ? "prev"
+                    : "next";
+              activateGapNeighbor(root, {
+                placeBefore: !!gap.placeBefore,
+                prev: gap.prev,
+                next: gap.next,
+                prefer: prefer as "prev" | "next",
+              });
               return;
             }
           }
@@ -1383,8 +1688,8 @@ export function MarkdownReader({ doc }: { doc: Document }) {
     content,
     applyLocateResult,
     body,
+    activateGapNeighbor,
     beginAppendEdit,
-    beginInsertBetween,
     beginBlockEdit,
     commitInlineEdit,
     doc.id,
@@ -1920,9 +2225,13 @@ export function MarkdownReader({ doc }: { doc: Document }) {
               blockType={inlineEdit.blockType}
               clientX={inlineEdit.clientX}
               clientY={inlineEdit.clientY}
+              caretAt={inlineEdit.caretAt}
               suppressBlurRef={suppressBlurCommitRef}
               onCommit={(nextSlice) => commitInlineEdit({ text: nextSlice })}
               onCancel={cancelInlineEdit}
+              onSplit={handleVisualSplit}
+              onMergePrev={handleVisualMergePrev}
+              onNavigate={handleVisualNavigate}
             />
           )}
           {inlineEdit?.kind === "block" && inlineEdit.mode === "source" && (
@@ -1942,7 +2251,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
           {inlineEdit?.kind === "append" && (
             <div
               data-lh-inline-editor="1"
-              className="lh-inline-edit-box mt-4 rounded-md ring-1 ring-[var(--accent)]/40 bg-transparent px-1 py-1"
+              className="lh-inline-edit-box mt-4 bg-transparent px-0 py-0"
             >
               <textarea
                 autoFocus
@@ -1950,7 +2259,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
                 value={inlineEdit.text}
                 aria-label="继续写"
                 placeholder="继续写…"
-                className="w-full resize-none bg-transparent border-0 outline-none p-0 m-0 font-serif text-[length:inherit] leading-relaxed text-[var(--fg)] whitespace-pre-wrap placeholder:text-[var(--muted)]"
+                className="w-full resize-none bg-transparent border-0 outline-none p-0 m-0 font-serif text-[length:inherit] leading-relaxed text-[var(--fg)] whitespace-pre-wrap placeholder:text-[var(--muted)] caret-[var(--accent)]"
                 style={{ minHeight: 32, fontSize: "inherit", lineHeight: "inherit" }}
                 onChange={(e) => {
                   const v = e.target.value;
