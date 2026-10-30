@@ -55,6 +55,7 @@ import { PreviewContextMenu, type ContextMenuItem } from "./locate/PreviewContex
 import { subscribeScrollSync } from "@/lib/locate/scrollBus";
 import { probeRender, probeSection } from "@/lib/dev/perfProbe";
 import { AssetImage } from "./editor/AssetImage";
+import { InlineCodeFenceEditor } from "./editor/InlineCodeFenceEditor";
 import { InlineMdBlockEditor } from "./editor/InlineMdBlockEditor";
 import { InlineVisualBlockEditor } from "./editor/InlineVisualBlockEditor";
 import {
@@ -76,7 +77,10 @@ import {
 } from "@/lib/mdInlineEdit";
 import {
   classifyMdBlock,
+  fenceBodyOffsetFromSliceOffset,
   isVisualEditableType,
+  parseMarkdownFence,
+  previewBlockEditMode,
   serializeVisualBlock,
   type VisualBlockType,
 } from "@/lib/mdVisualSerialize";
@@ -733,7 +737,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
   type InlineEditState =
     | {
         kind: "block";
-        mode: "visual" | "source";
+        mode: "visual" | "code" | "source";
         blockType: VisualBlockType;
         start: number;
         end: number;
@@ -778,7 +782,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
     text: string;
     mono: boolean;
     cursorAt: number;
-    mode?: "visual" | "source";
+    mode?: "visual" | "code" | "source";
     blockType?: VisualBlockType;
     clientX?: number;
     clientY?: number;
@@ -866,7 +870,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
         text: string;
         mono: boolean;
         cursorAt: number;
-        mode?: "visual" | "source";
+        mode?: "visual" | "code" | "source";
         blockType?: VisualBlockType;
         clientX?: number;
         clientY?: number;
@@ -1022,28 +1026,58 @@ export function MarkdownReader({ doc }: { doc: Document }) {
       const slice = cur.slice(start, end);
       const blockType = classifyMdBlock(slice);
       const mono = isMonoSrcSlice(slice) || isSourceMonoFallback(blockType);
-      const visual = isVisualEditableType(blockType) && !mono;
-      const hint =
-        click && click.clientX != null && click.clientY != null
-          ? plainOffsetInElement(el, click.clientX, click.clientY)
-          : null;
-      const cursorAt =
-        typeof click?.caretAt === "number"
-          ? click.caretAt
-          : click?.caretAt === "start"
-            ? 0
-            : click?.caretAt === "end"
-              ? slice.length
-              : guessCursorInSlice(slice, {
-                  clickText: hint?.clickText,
-                  approxOffset: hint?.approxOffset,
-                });
-      if (mono) {
+      const mode = previewBlockEditMode(blockType, mono);
+      // For code fences, place caret in body using pre/code text (not chrome/gutter).
+      let cursorAt = 0;
+      if (mode === "code") {
+        const parsed = parseMarkdownFence(slice);
+        const body = parsed?.body ?? "";
+        if (typeof click?.caretAt === "number") {
+          cursorAt = parsed
+            ? fenceBodyOffsetFromSliceOffset(parsed, click.caretAt)
+            : Math.max(0, Math.min(click.caretAt, body.length));
+        } else if (click?.caretAt === "start") {
+          cursorAt = 0;
+        } else if (click?.caretAt === "end") {
+          cursorAt = body.length;
+        } else {
+          const codeEl =
+            el.querySelector<HTMLElement>("pre code") ||
+            el.querySelector<HTMLElement>("pre") ||
+            el;
+          const hint =
+            click && click.clientX != null && click.clientY != null
+              ? plainOffsetInElement(codeEl, click.clientX, click.clientY)
+              : null;
+          cursorAt = guessCursorInSlice(body, {
+            clickText: hint?.clickText,
+            approxOffset: hint?.approxOffset,
+          });
+        }
+      } else {
+        const hint =
+          click && click.clientX != null && click.clientY != null
+            ? plainOffsetInElement(el, click.clientX, click.clientY)
+            : null;
+        cursorAt =
+          typeof click?.caretAt === "number"
+            ? click.caretAt
+            : click?.caretAt === "start"
+              ? 0
+              : click?.caretAt === "end"
+                ? slice.length
+                : guessCursorInSlice(slice, {
+                    clickText: hint?.clickText,
+                    approxOffset: hint?.approxOffset,
+                  });
+      }
+      // Heavy mono (mermaid/math/table/callout) keep status; plain code does not.
+      if (mode === "source") {
         setStatus("此块需编辑源码");
       }
       setInlineEdit({
         kind: "block",
-        mode: visual ? "visual" : "source",
+        mode,
         blockType,
         start,
         end,
@@ -1110,14 +1144,31 @@ export function MarkdownReader({ doc }: { doc: Document }) {
       const slice = source.slice(start, end);
       const blockType = classifyMdBlock(slice);
       const mono = isMonoSrcSlice(slice) || isSourceMonoFallback(blockType);
-      const visual = isVisualEditableType(blockType) && !mono;
+      const mode = previewBlockEditMode(blockType, mono);
+      let cursorAt =
+        typeof caretAt === "number"
+          ? caretAt
+          : caretAt === "end"
+            ? slice.length
+            : 0;
+      if (mode === "code") {
+        const parsed = parseMarkdownFence(slice);
+        const bodyLen = parsed?.body.length ?? 0;
+        if (typeof caretAt === "number") {
+          cursorAt = parsed
+            ? fenceBodyOffsetFromSliceOffset(parsed, caretAt)
+            : Math.max(0, Math.min(caretAt, bodyLen));
+        } else {
+          cursorAt = caretAt === "end" ? bodyLen : 0;
+        }
+      }
       return {
         start,
         end,
         text: slice,
         mono,
-        cursorAt: typeof caretAt === "number" ? caretAt : caretAt === "end" ? slice.length : 0,
-        mode: (visual ? "visual" : "source") as "visual" | "source",
+        cursorAt,
+        mode,
         blockType,
         caretAt,
       };
@@ -1212,7 +1263,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
           text: nextSlice,
           mono: nextMono,
           cursorAt: 0,
-          mode: isVisualEditableType(nextType) && !nextMono ? "visual" : "source",
+          mode: previewBlockEditMode(nextType, nextMono),
           blockType: nextType,
           caretAt: "start",
           inReplacement: true,
@@ -1360,14 +1411,12 @@ export function MarkdownReader({ doc }: { doc: Document }) {
     }
     const end = Number(el.getAttribute("data-src-end") || pending.end);
     const blockType = pending.blockType ?? classifyMdBlock(pending.text);
-    const visual =
-      (pending.mode === "visual" ||
-        (pending.mode == null && isVisualEditableType(blockType) && !pending.mono)) &&
-      isVisualEditableType(blockType) &&
-      !pending.mono;
+    const mode =
+      pending.mode ??
+      previewBlockEditMode(blockType, pending.mono);
     setInlineEdit({
       kind: "block",
-      mode: visual ? "visual" : "source",
+      mode,
       blockType,
       start: pending.start,
       end,
@@ -1625,18 +1674,33 @@ export function MarkdownReader({ doc }: { doc: Document }) {
             nextType === "table" ||
             nextType === "callout" ||
             nextType === "unknown";
-          const nextVisual = isVisualEditableType(nextType) && !nextMono;
+          const nextMode = previewBlockEditMode(nextType, nextMono);
+          let nextCursor = 0;
+          if (nextMode === "code") {
+            const parsed = parseMarkdownFence(slice);
+            const body = parsed?.body ?? "";
+            const codeEl =
+              el.querySelector<HTMLElement>("pre code") ||
+              el.querySelector<HTMLElement>("pre") ||
+              el;
+            nextCursor = guessCursorInSlice(
+              body,
+              plainOffsetInElement(codeEl, e.clientX, e.clientY) ?? undefined
+            );
+          } else {
+            nextCursor = guessCursorInSlice(
+              slice,
+              plainOffsetInElement(el, e.clientX, e.clientY) ?? undefined
+            );
+          }
           commitInlineEdit({
             openNext: {
               start,
               end,
               text: slice,
               mono: nextMono,
-              cursorAt: guessCursorInSlice(
-                slice,
-                plainOffsetInElement(el, e.clientX, e.clientY) ?? undefined
-              ),
-              mode: nextVisual ? "visual" : "source",
+              cursorAt: nextCursor,
+              mode: nextMode,
               blockType: nextType,
               clientX: e.clientX,
               clientY: e.clientY,
@@ -2226,6 +2290,18 @@ export function MarkdownReader({ doc }: { doc: Document }) {
               onSplit={handleVisualSplit}
               onMergePrev={handleVisualMergePrev}
               onNavigate={handleVisualNavigate}
+            />
+          )}
+          {inlineEdit?.kind === "block" && inlineEdit.mode === "code" && (
+            <InlineCodeFenceEditor
+              anchorEl={inlineEdit.el}
+              originalSlice={inlineEdit.text}
+              cursorAt={inlineEdit.cursorAt}
+              clientX={inlineEdit.clientX}
+              clientY={inlineEdit.clientY}
+              suppressBlurRef={suppressBlurCommitRef}
+              onCommit={(nextSlice) => commitInlineEdit({ text: nextSlice })}
+              onCancel={cancelInlineEdit}
             />
           )}
           {inlineEdit?.kind === "block" && inlineEdit.mode === "source" && (

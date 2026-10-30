@@ -69,6 +69,118 @@ export function isSourceEditType(t: VisualBlockType): boolean {
   );
 }
 
+/** Plain fenced code (```/~~~) — seamless in-preview edit; not mermaid/math. */
+export function isCodeFenceEditType(t: VisualBlockType): boolean {
+  return t === "code";
+}
+
+/** Choose preview inline-edit mode for a classified block. */
+export function previewBlockEditMode(
+  blockType: VisualBlockType,
+  mono: boolean
+): "visual" | "code" | "source" {
+  if (isVisualEditableType(blockType) && !mono) return "visual";
+  if (isCodeFenceEditType(blockType)) return "code";
+  return "source";
+}
+
+export type ParsedMarkdownFence = {
+  /** Opening fence line without trailing newline, e.g. "```html". */
+  openLine: string;
+  ch: "`" | "~";
+  fenceLen: number;
+  /** Info string after fence markers (lang + optional meta). */
+  info: string;
+  /** First info token (language), may be "". */
+  lang: string;
+  /** Inner code body (no wrapping fences). */
+  body: string;
+  /** Closing fence line without trailing newline. */
+  closeLine: string;
+  /** Trailing newlines after the closing fence in the original slice. */
+  trailingNl: string;
+};
+
+/**
+ * Parse a fenced code slice (``` or ~~~). Null if shape is invalid.
+ * Callers should classify mermaid separately — this only checks fence shape.
+ */
+export function parseMarkdownFence(slice: string): ParsedMarkdownFence | null {
+  const trailingMatch = slice.match(/(\r?\n)*$/);
+  const trailingNl = trailingMatch ? trailingMatch[0] : "";
+  const core = trailingNl ? slice.slice(0, -trailingNl.length) : slice;
+  const lines = core.split("\n");
+  if (lines.length < 2) return null;
+  const open = lines[0] ?? "";
+  const om = open.match(/^(`{3,}|~{3,})(.*)$/);
+  if (!om) return null;
+  const fence = om[1]!;
+  const ch = fence[0] as "`" | "~";
+  const fenceLen = fence.length;
+  const info = (om[2] ?? "").trim();
+  let closeIdx = -1;
+  for (let i = lines.length - 1; i >= 1; i--) {
+    const line = lines[i] ?? "";
+    if (ch === "`") {
+      if (/^`{3,}\s*$/.test(line) && (line.match(/^`+/)?.[0].length ?? 0) >= fenceLen) {
+        closeIdx = i;
+        break;
+      }
+    } else if (/^~{3,}\s*$/.test(line) && (line.match(/^~+/)?.[0].length ?? 0) >= fenceLen) {
+      closeIdx = i;
+      break;
+    }
+  }
+  if (closeIdx < 1) return null;
+  const body = lines.slice(1, closeIdx).join("\n");
+  const lang = (info.split(/\s+/)[0] ?? "") || "";
+  return {
+    openLine: open,
+    ch,
+    fenceLen,
+    info,
+    lang,
+    body,
+    closeLine: lines[closeIdx]!,
+    trailingNl,
+  };
+}
+
+/** Rebuild a fenced slice from parse + edited body (preserves open info / fence style). */
+export function rebuildMarkdownFence(
+  parsed: ParsedMarkdownFence,
+  body: string
+): string {
+  const normalized = body.replace(/\r\n/g, "\n");
+  // Ensure a newline before the closing fence when body is non-empty and lacks one.
+  const needsNl =
+    normalized.length > 0 && !normalized.endsWith("\n");
+  return (
+    parsed.openLine +
+    "\n" +
+    normalized +
+    (needsNl ? "\n" : "") +
+    parsed.closeLine +
+    parsed.trailingNl
+  );
+}
+
+/**
+ * Map a caret offset in the full fence slice → offset inside the body.
+ * Offsets on the open/close fence clamp to body start/end.
+ */
+export function fenceBodyOffsetFromSliceOffset(
+  parsed: ParsedMarkdownFence,
+  sliceOffset: number
+): number {
+  const openLen = parsed.openLine.length + 1; // + newline
+  const bodyLen = parsed.body.length;
+  if (sliceOffset <= openLen) return 0;
+  const into = sliceOffset - openLen;
+  if (into >= bodyLen) return bodyLen;
+  return into;
+}
+
 /**
  * Pure serialize: originalSlice markers + element visible text → new slice.
  * Empty heading keeps ATX prefix + empty title (does not delete the line).

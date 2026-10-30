@@ -724,3 +724,14 @@ html[data-lh-resizing="row"] * {
   color: var(--fg);
   font-family: inherit;
 }
+
+/* Seamless code-fence inline edit (no ringed source box) */
+.lh-code-editing .lh-code-fence-ta {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+.lh-code-editing .lh-codeblock-body {
+  align-items: stretch;
+}
