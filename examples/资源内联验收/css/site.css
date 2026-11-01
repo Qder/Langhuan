@@ -1,0 +1,61 @@
+/* 验收示例的样式：这里的 url() 全部相对 css/ 目录，不是 index.html 的目录。 */
+
+@font-face {
+  font-family: "Langhuan Demo";
+  src: url("../fonts/DejaVuSansDisplay.ttf") format("truetype");
+  font-display: swap;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  color: #2a2620;
+  background: #faf8f3;
+  line-height: 1.6;
+}
+
+.wrap { max-width: 760px; margin: 0 auto; padding: 28px 20px 48px; }
+
+h1 {
+  font-family: "Langhuan Demo", Georgia, serif;
+  font-size: 30px;
+  letter-spacing: 0.5px;
+  color: #3a5080;
+  margin: 0 0 6px;
+}
+
+h2 { font-size: 15px; margin: 28px 0 8px; color: #3a5080; }
+p { margin: 6px 0; }
+.lead { color: #7a7468; font-size: 13px; }
+.note { color: #7a7468; font-size: 12px; }
+.row { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+code { font-family: ui-monospace, monospace; font-size: 0.92em; background: #efeae0; padding: 1px 4px; border-radius: 3px; }
+
+.logo { width: 240px; height: 120px; border-radius: 8px; display: block; }
+.photo { width: 240px; height: 120px; border-radius: 8px; display: block; }
+.poster { width: 200px; height: 112px; border-radius: 8px; display: block; margin-top: 8px; background: #1b3d2f; }
+.star { width: 28px; height: 28px; }
+.tiny { width: 16px; height: 16px; }
+
+.hero {
+  height: 180px;
+  border-radius: 10px;
+  background: #e8dcc4 url("../img/hero%20背景.png") center / cover no-repeat;
+}
+
+.icon-bg {
+  width: 28px;
+  height: 28px;
+  display: inline-block;
+  background: url("../img/icon.svg") center / contain no-repeat;
+}
+
+/* 下面两个 url 故意放在注释和字符串里：内联器不能把它们当资源改掉。 */
+/* .legacy { background: url("../img/legacy.png"); } */
+.quote::before { content: "url(../img/not-asset.png)"; font-family: ui-monospace, monospace; font-size: 12px; color: #8b3a4a; }
+
+.font-demo { font-family: "Langhuan Demo", Georgia, serif; font-size: 26px; color: #3a5080; }
+
+footer { margin-top: 32px; padding-top: 12px; border-top: 1px solid rgba(42, 38, 32, 0.12); color: #7a7468; font-size: 12px; }

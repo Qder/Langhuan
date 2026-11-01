@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>资源内联验收</title>
+  <link rel="stylesheet" href="css/site.css">
+</head>
+<body>
+  <div class="wrap">
+    <h1>LANGHUAN 资源内联</h1>
+    <p class="lead">这一页的图片、图标、字体全部来自项目内的相对路径。预览时它们会被换成 data URL 塞进 srcDoc，因为 iframe 是 <code>allow-scripts allow-popups allow-forms</code> 的沙箱，拿不到同源的相对路径。</p>
+
+    <section>
+      <h2>1. &lt;img src&gt; + &lt;img srcset&gt;</h2>
+      <img class="logo" src="img/logo.png" srcset="img/logo.png 1x, img/logo@2x.png 2x" alt="项目里的 PNG">
+      <p class="note">srcset 两档（1x / 2x），描述符必须原样保留。</p>
+    </section>
+
+    <section>
+      <h2>2. 背景图（中文名 + 空格）</h2>
+      <div class="hero"></div>
+      <p class="note">CSS 里写的是 <code>url("../img/hero%20背景.png")</code>：按 CSS 自己的目录解析、百分号编码解码、目录里真有空格和中文。</p>
+    </section>
+
+    <section>
+      <h2>3. 图标：&lt;img&gt; 与 CSS 背景两种用法</h2>
+      <p class="row"><img class="star" src="img/icon.svg" alt="SVG 图标"> <span>左图来自 <code>&lt;img src="img/icon.svg"&gt;</code></span></p>
+      <p class="row"><span class="icon-bg" aria-hidden="true"></span> <span>左图来自 <code>background: url("../img/icon.svg")</code></span></p>
+    </section>
+
+    <section>
+      <h2>4. &lt;picture&gt; 与 &lt;video poster&gt;</h2>
+      <picture>
+        <source srcset="img/photo.webp" type="image/webp">
+        <img class="photo" src="img/logo.png" alt="picture 回退">
+      </picture>
+      <video class="poster" poster="img/poster.jpg" muted></video>
+      <p class="note">source 的 srcset、video 的 poster 都在范围内。</p>
+    </section>
+
+    <section>
+      <h2>5. 自定义字体（@font-face）</h2>
+      <p class="font-demo">LANGHUAN Demo Font 0123456789</p>
+      <p class="note">这段用 <code>@font-face</code> 里的 <code>url("../fonts/DejaVuSansDisplay.ttf")</code>，字形和下面这句正文字体明显不同。</p>
+      <p>同一句话，用系统正文黑体：LANGHUAN Demo Font 0123456789</p>
+    </section>
+
+    <section>
+      <h2>6. 不该被动的</h2>
+      <p class="row"><img class="tiny" src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxNiAxNiI+PGNpcmNsZSBjeD0iOCIgY3k9IjgiIHI9IjciIGZpbGw9IiMzYTUwODAiLz48L3N2Zz4=" alt="data URL 图标"> <span>这条 <code>data:</code> 引用原样保留。</span></p>
+      <p class="row"><span class="quote"></span> <span>这段文字是 <code>content: "url(../img/not-asset.png)"</code> 的输出：字符串里的 url() 不该被改写。</span></p>
+      <p class="row"><img class="tiny" src="img/missing.png" alt="故意缺失"> <span>这个文件项目里没有：保留原引用（会显示成破图），并在预览左下角列出原因，不静默丢图。</span></p>
+    </section>
+
+    <footer><span id="stamp">脚本占位</span> · <code>js/main.js</code> 也是内联进来的</footer>
+  </div>
+  <script src="js/main.js"></script>
+</body>
+</html>
