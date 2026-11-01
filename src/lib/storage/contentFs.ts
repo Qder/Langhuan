@@ -230,6 +230,10 @@ function mimeForPath(rel: string): string {
   if (lower.endsWith(".avif")) return "image/avif";
   if (lower.endsWith(".ico")) return "image/x-icon";
   if (lower.endsWith(".svg")) return "image/svg+xml";
+  if (lower.endsWith(".woff")) return "font/woff";
+  if (lower.endsWith(".woff2")) return "font/woff2";
+  if (lower.endsWith(".ttf")) return "font/ttf";
+  if (lower.endsWith(".otf")) return "font/otf";
   if (lower.endsWith(".html") || lower.endsWith(".htm")) return "text/html; charset=utf-8";
   if (lower.endsWith(".md") || lower.endsWith(".txt")) return "text/markdown; charset=utf-8";
   if (lower.endsWith(".css")) return "text/css; charset=utf-8";

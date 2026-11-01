@@ -2,6 +2,7 @@
 
 import type { AssetMeta, Document, TrashItem } from "../types";
 import type { ProjectMeta } from "../project";
+import { mimeForAssetPath } from "../projectAssets";
 import type { CssFileIndex } from "../locate/cssLocate";
 import type { JsFileIndex } from "../locate/jsIndex";
 import {
@@ -42,6 +43,44 @@ async function tauriInvoke<T>(cmd: string, args?: Record<string, unknown>): Prom
 /** Sync URL for browser <img src>. Prefer resolveLibraryFileUrl in Tauri. */
 export function libraryFileUrl(path: string): string {
   return `/api/library/file?path=${encodeURIComponent(path)}`;
+}
+
+/** 读到的二进制资源（base64 不含 data: 前缀）。 */
+export type FetchedAsset = { mime: string; base64: string; bytes: number };
+
+/**
+ * 读库内一个二进制文件（项目里的图片 / 字体）。
+ *
+ * 超过 `maxBytes` 时不读 body，直接回 "too-large" —— 预览不内联它，但要能说清为什么。
+ * 文件不存在回 null。
+ */
+export async function fetchProjectAsset(
+  path: string,
+  opts?: { maxBytes?: number }
+): Promise<FetchedAsset | "too-large" | null> {
+  if (isTauriRuntime()) {
+    try {
+      const file = await tauriInvoke<{ base64: string; mime: string }>("library_read_file", {
+        path,
+      });
+      const bytes = Math.floor((file.base64.length * 3) / 4);
+      if (opts?.maxBytes && bytes > opts.maxBytes) return "too-large";
+      return { mime: mimeForAssetPath(path) || file.mime, base64: file.base64, bytes };
+    } catch {
+      return null;
+    }
+  }
+  const res = await fetch(libraryFileUrl(path), { cache: "no-store" });
+  if (!res.ok) return null;
+  const declared = Number(res.headers.get("content-length") || "");
+  if (opts?.maxBytes && Number.isFinite(declared) && declared > opts.maxBytes) {
+    return "too-large";
+  }
+  const blob = await res.blob();
+  if (opts?.maxBytes && blob.size > opts.maxBytes) return "too-large";
+  const base64 = await blobToBase64(blob);
+  // 扩展名说了算：服务端对字体可能只给 application/octet-stream
+  return { mime: mimeForAssetPath(path) || blob.type || "application/octet-stream", base64, bytes: blob.size };
 }
 
 /** Browser: API URL. Tauri: data: URL from Rust base64. */

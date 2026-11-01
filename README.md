@@ -62,6 +62,10 @@ npm run tauri:dev
   行为静态分析的边界见 [docs/行为定位.md](docs/行为定位.md)
 - 源码 / 分栏编辑，草稿机制，`⌘S` 保存，`⌘K` 命令面板
 - 导入文件夹 / 文件；支持 File System Access 的浏览器可打开本地文件夹
+- 项目预览把项目内的图片 / 图标 / 字体换成 data URL 再塞进 srcDoc（沙箱拿不到相对路径）：
+  `<img src>` / `srcset`、`<source>`、`<video poster>`、CSS 的 `background` 与 `@font-face`
+  都按「引用它的那个文件所在目录」解析；缺文件 / 超限**保留原引用**并在预览左下角列出原因，
+  不静默丢图 —— 边界与下一期打算见 [docs/status/STATUS-asset-inline.md](docs/status/STATUS-asset-inline.md)
 
 ## 功能验收示例
 
@@ -79,6 +83,12 @@ npm run tauri:dev
 `examples/行为定位验收/` 是「行为」段的验收现场：`#btn` 直接绑定（`js/app.js:12`）、
 父元素上的事件委托、变量间接绑定、HTML 内联 `<script>`、页面级监听、以及「确实找不到」的灰区，
 逐条清单同样在该文件夹的 `README.md` 里。
+
+`examples/资源内联验收/` 是资源内联的验收现场：真 PNG / SVG / WebP / JPEG 加一个真 TTF，
+覆盖 `img src` + `srcset` 两档、`<picture>`、`video poster`、CSS 背景图（文件名带中文和空格、
+CSS 里用百分号编码引用）、`@font-face`，外加「注释和字符串里的 `url()` 不能动」与
+「故意缺一个文件」两个反例。导入后打开 `index.html`，六段内容都应该完整显示；
+左下角应出现一条「有 1 处资源没能内联」的说明。
 
 ## 技术栈
 

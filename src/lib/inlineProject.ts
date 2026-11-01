@@ -13,19 +13,51 @@
 
 import { findHtmlTagEnd } from "./locate/htmlPlainMap";
 import { normalizeProjectRel } from "./project";
+import {
+  MAX_INLINE_ASSET_BYTES,
+  MAX_INLINE_TOTAL_BYTES,
+  decodeCssUrl,
+  formatBytes,
+  mimeForAssetPath,
+  parseSrcset,
+  scanCssUrls,
+  toDataUrl,
+} from "./projectAssets";
 
 /** 相对路径读文件：入参是项目内相对路径，返回 null 表示项目里没有这个文件。 */
 export type ProjectFileReader = (relPath: string) => string | null;
+
+/** 读到的一个二进制资源（base64 不含 data: 前缀）。 */
+export type ProjectAsset = { mime: string; base64: string; bytes?: number };
+
+/**
+ * 读资源的结果：
+ * - `ProjectAsset` 拿到了
+ * - `missing` 项目里没有这个文件（要报 warning，保留原引用）
+ * - `too-large` 超过单文件上限（同上）
+ * - `pending` 还在取（第一次渲染时的正常状态，不算错误、不出 warning）
+ */
+export type AssetReadResult = ProjectAsset | "missing" | "too-large" | "pending";
+
+/** 读二进制资源（相对项目根）。 */
+export type AssetReader = (relPath: string) => AssetReadResult;
 
 export type InlineOptions = {
   /** 当前 HTML 在项目内的目录（相对项目根），如 "pages"；根目录传 ""。 */
   baseDir?: string;
   readFile: ProjectFileReader;
   /**
+   * 读图片 / 图标 / 字体，返回 base64 用于拼 data URL。
+   * 不传 = 只解析不改写（`assets` 会列出这一页需要哪些资源，供调用方先取好）。
+   */
+  readAsset?: AssetReader;
+  /**
    * 内联时写进 `data-lh-inline` 的标识（默认就是项目内相对路径）。
    * 传 `<root>/<rel>` 这种库内路径，样式面板才能据此回索引查行号、并打开对应文件。
    */
   mapPath?: (relPath: string) => string;
+  /** 警告里指代「谁引用了这个资源」用的名字，默认 "index.html"。 */
+  sourceLabel?: string;
 };
 
 export type InlineResult = {
@@ -36,6 +68,10 @@ export type InlineResult = {
   external: string[];
   /** 引用了但项目里不存在的路径，保持原标签。 */
   missing: string[];
+  /** 这一页引用到的图片 / 字体资源（去重；含没能内联的，便于调用方预取）。 */
+  assets: string[];
+  /** 给人看的降级说明：缺文件、超限、不认识的类型、@import 未展平。 */
+  warnings: string[];
 };
 
 /** data:/javascript:/mailto: 等：既不内联也不当外链提示。 */
@@ -236,6 +272,7 @@ function findCloseTag(html: string, name: string, from: number): number {
   return -1;
 }
 
+/** 字符区间替换，`[start, end)` —— 半开区间，end 是第一个不被替换的字符。 */
 type Edit = { start: number; end: number; text: string };
 
 /** 收集样式 / 脚本引用（不修改 HTML）。 */
@@ -303,7 +340,168 @@ export function collectExternalRefs(html: string, opts?: { baseDir?: string }): 
   return out;
 }
 
-/** 把 `<link rel=stylesheet>` / `<script src>` 换成内联标签。 */
+/* ---------------- 资源（图片 / 图标 / 字体）内联 ---------------- */
+
+type ScannedAttr = {
+  name: string;
+  value: string;
+  /** 属性名在 `attrs` 串里的起点（相对） */
+  attrStart: number;
+  /** 属性值在 `attrs` 串里的区间（相对，不含引号） */
+  valueStart: number;
+  valueEnd: number;
+  quoted: boolean;
+};
+
+/** 带位置的属性扫描（改写属性值要精确到字符，不能靠重新序列化标签）。 */
+function scanAttrsWithPos(attrs: string): ScannedAttr[] {
+  const out: ScannedAttr[] = [];
+  const re = /([^\s"'<>/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(attrs))) {
+    const quoted = m[2] !== undefined || m[3] !== undefined;
+    const value = m[2] ?? m[3] ?? m[4] ?? "";
+    const end = m.index + m[0].length;
+    out.push({
+      name: m[1].toLowerCase(),
+      value,
+      attrStart: m.index,
+      valueStart: quoted ? end - value.length - 1 : end - value.length,
+      // 无引号时值一直写到属性末尾；有引号时末位是收尾引号，不能被算进值里
+      valueEnd: quoted ? end - 1 : end,
+      quoted,
+    });
+  }
+  return out;
+}
+
+/** HTML 里按「属性值是一个资源 URL」处理的组合（本期范围）。 */
+const HTML_ASSET_ATTRS: Record<string, { attr: string; srcset?: boolean }[]> = {
+  img: [{ attr: "src" }, { attr: "srcset", srcset: true }],
+  source: [{ attr: "src" }, { attr: "srcset", srcset: true }],
+  video: [{ attr: "poster" }],
+};
+
+function dirOfProjectPath(path: string): string {
+  const at = path.lastIndexOf("/");
+  return at > 0 ? path.slice(0, at) : "";
+}
+
+type InlineCtx = {
+  opts: InlineOptions;
+  baseExternal: string | null;
+  assets: string[];
+  warnings: string[];
+  seenAssets: Set<string>;
+  seenWarn: Set<string>;
+  /** 已算出 data URL 的资源（同一张图被引多次只算一次体积） */
+  done: Map<string, string>;
+  totalBytes: number;
+};
+
+/**
+ * 一条资源引用 → data URL 文本（null = 不改写：外链 / data: / 没读到 / 超限 / 类型不认识）。
+ * 拿不到就说清楚为什么，绝不静默丢图。
+ */
+function assetText(
+  ctx: InlineCtx,
+  rawRef: string,
+  ownerDir: string,
+  ownerLabel: string,
+  applyBaseExternal: boolean
+): string | null {
+  const raw = rawRef.trim();
+  if (!raw) return null;
+  const resolved = resolveProjectRef(raw, ownerDir, applyBaseExternal ? ctx.baseExternal : null);
+  if (resolved.kind !== "internal") return null;
+  const path = resolved.path;
+  if (!path) return null;
+  const warn = (msg: string) => {
+    if (ctx.seenWarn.has(msg)) return;
+    ctx.seenWarn.add(msg);
+    ctx.warnings.push(msg);
+  };
+  if (!ctx.seenAssets.has(path)) {
+    ctx.seenAssets.add(path);
+    ctx.assets.push(path);
+  }
+  const already = ctx.done.get(path);
+  if (already) return already;
+  const mime = mimeForAssetPath(path);
+  if (!mime) {
+    warn(`不认识的资源类型：${path}（引用自 ${ownerLabel}），保留原引用`);
+    return null;
+  }
+  if (!ctx.opts.readAsset) return null;
+  const asset = ctx.opts.readAsset(path);
+  if (asset === "pending") return null;
+  if (asset === "missing") {
+    warn(`缺少资源：${path}（引用自 ${ownerLabel}），保留原引用`);
+    return null;
+  }
+  if (asset === "too-large") {
+    warn(
+      `资源过大：${path}（单个上限 ${formatBytes(MAX_INLINE_ASSET_BYTES)}，引用自 ${ownerLabel}），保留原引用`
+    );
+    return null;
+  }
+  const bytes = asset.bytes ?? Math.floor((asset.base64.length * 3) / 4);
+  if (bytes > MAX_INLINE_ASSET_BYTES) {
+    warn(
+      `资源过大：${path}（${formatBytes(bytes)} > ${formatBytes(MAX_INLINE_ASSET_BYTES)}，引用自 ${ownerLabel}），保留原引用`
+    );
+    return null;
+  }
+  if (ctx.totalBytes + bytes > MAX_INLINE_TOTAL_BYTES) {
+    warn(
+      `本页资源总量超过 ${formatBytes(MAX_INLINE_TOTAL_BYTES)}：${path} 起不再内联（引用自 ${ownerLabel}），保留原引用`
+    );
+    return null;
+  }
+  ctx.totalBytes += bytes;
+  const url = toDataUrl(asset.mime || mime, asset.base64);
+  ctx.done.set(path, url);
+  return url;
+}
+
+/** 改写一段 CSS 文本里的 url()（返回替换点，按原文字符区间给出）。 */
+function cssUrlEdits(
+  ctx: InlineCtx,
+  css: string,
+  ownerDir: string,
+  ownerLabel: string
+): { start: number; end: number; text: string }[] {
+  const { urls, imports } = scanCssUrls(css);
+  if (imports.length) {
+    const uniq = [...new Set(imports)];
+    const msg = `@import 未展平：${ownerLabel} → ${uniq.join("、")}（其中的 url() 仍按被导入文件所在目录解析，下一期处理）`;
+    if (!ctx.seenWarn.has(msg)) {
+      ctx.seenWarn.add(msg);
+      ctx.warnings.push(msg);
+    }
+  }
+  const out: { start: number; end: number; text: string }[] = [];
+  for (const ref of urls) {
+    const text = assetText(ctx, decodeCssUrl(ref.raw), ownerDir, ownerLabel, false);
+    if (!text) continue;
+    // data URL 一律加引号：base64 里没有引号，安全
+    out.push({ start: ref.start, end: ref.end, text: ref.quote ? text : `"${text}"` });
+  }
+  return out;
+}
+
+/** 把 CSS 文本里的 url() 就地换成 data URL（整份文件场景，直接返回新文本）。 */
+function rewriteCss(ctx: InlineCtx, css: string, ownerDir: string, ownerLabel: string): string {
+  const edits = cssUrlEdits(ctx, css, ownerDir, ownerLabel);
+  if (!edits.length) return css;
+  let out = css;
+  for (const e of edits.sort((a, b) => b.start - a.start)) {
+    out = out.slice(0, e.start) + e.text + out.slice(e.end);
+  }
+  return out;
+}
+
+/** 把 `<link rel=stylesheet>` / `<script src>` 换成内联标签，并内联 HTML / CSS 里的资源引用。 */
 export function inlineProjectHtml(html: string, opts: InlineOptions): InlineResult {
   const base = resolveBase(html, opts.baseDir || "");
   const edits: Edit[] = [];
@@ -313,6 +511,16 @@ export function inlineProjectHtml(html: string, opts: InlineOptions): InlineResu
   const seenInline = new Set<string>();
   const seenExternal = new Set<string>();
   const seenMissing = new Set<string>();
+  const ctx: InlineCtx = {
+    opts,
+    baseExternal: base.baseExternal,
+    assets: [],
+    warnings: [],
+    seenAssets: new Set(),
+    seenWarn: new Set(),
+    done: new Map(),
+    totalBytes: 0,
+  };
 
   for (const item of collectRefs(html, base.baseDir, base.baseExternal)) {
     const { hit, kind, resolved } = item;
@@ -352,10 +560,12 @@ export function inlineProjectHtml(html: string, opts: InlineOptions): InlineResu
         "hreflang",
         "sizes",
       ], { "data-lh-inline": inlineId });
+      // 样式表里的 url() 按它自己的目录解析（不是 index.html 的目录）
+      const css = rewriteCss(ctx, content, dirOfProjectPath(path), path);
       edits.push({
         start: hit.start,
-        end: hit.end,
-        text: `<style${attrText}>${escapeRawText(content, "style")}</style>`,
+        end: hit.end + 1,
+        text: `<style${attrText}>${escapeRawText(css, "style")}</style>`,
       });
       continue;
     }
@@ -381,14 +591,80 @@ export function inlineProjectHtml(html: string, opts: InlineOptions): InlineResu
     ], { "data-lh-inline": inlineId });
     edits.push({
       start: hit.start,
-      end,
+      end: end + 1,
       text: `<script${attrText}>${escapeRawText(content, "script")}</script>`,
     });
   }
 
+  const docLabel = opts.sourceLabel || "index.html";
+  for (const hit of scanTags(html)) {
+    const specs = HTML_ASSET_ATTRS[hit.name];
+    if (specs) {
+      const attrsText = hit.attrs;
+      const attrsOffset = hit.start + 1 + (hit.name ? hit.name.length : 0);
+      for (const spec of specs) {
+        const found = scanAttrsWithPos(attrsText).find((a) => a.name === spec.attr);
+        if (!found || !found.value.trim()) continue;
+        const valueAt = attrsOffset + found.valueStart;
+        if (spec.srcset) {
+          const cands = parseSrcset(found.value);
+          if (found.quoted) {
+            // 引号内只换每个候选的 URL 字符区间：分隔符、空白、描述符全部原样
+            for (const cand of cands) {
+              const text = assetText(ctx, cand.url, base.baseDir, docLabel, true);
+              if (!text) continue;
+              edits.push({ start: valueAt + cand.start, end: valueAt + cand.end, text });
+            }
+          } else {
+            // 无引号属性值放不下 data URL 里的 `=`，整条属性重写成带引号的形式
+            let changed = false;
+            const pieces = cands.map((cand) => {
+              const text = assetText(ctx, cand.url, base.baseDir, docLabel, true);
+              if (text) changed = true;
+              const url = text ?? cand.url;
+              return cand.descriptor ? `${url} ${cand.descriptor}` : url;
+            });
+            if (changed) {
+              edits.push({
+                start: attrsOffset + found.attrStart,
+                end: attrsOffset + found.valueEnd,
+                text: `${spec.attr}="${pieces.join(", ")}"`,
+              });
+            }
+          }
+          continue;
+        }
+        const text = assetText(ctx, found.value, base.baseDir, docLabel, true);
+        if (!text) continue;
+        if (found.quoted) {
+          edits.push({ start: valueAt, end: attrsOffset + found.valueEnd, text });
+        } else {
+          // 无引号属性值里不能出现 `=`（base64 填充），整条属性重写
+          edits.push({
+            start: attrsOffset + found.attrStart,
+            end: attrsOffset + found.valueEnd,
+            text: `${spec.attr}="${text}"`,
+          });
+        }
+      }
+    }
+    // 页面内 <style> 块：base 是文档目录（与浏览器一致）
+    if (hit.name === "style" && !hit.selfClosing) {
+      const close = findCloseTag(html, "style", hit.end + 1);
+      if (close < 0) continue;
+      const from = hit.end + 1;
+      const css = html.slice(from, close);
+      if (!/url\s*\(/i.test(css)) continue;
+      for (const e of cssUrlEdits(ctx, css, base.baseDir, docLabel)) {
+        edits.push({ start: from + e.start, end: from + e.end, text: e.text });
+      }
+    }
+  }
+
   let out = html;
   for (const edit of edits.sort((a, b) => b.start - a.start)) {
-    out = out.slice(0, edit.start) + edit.text + out.slice(edit.end + 1);
+    out = out.slice(0, edit.start) + edit.text + out.slice(edit.end);
   }
-  return { html: out, inlined, external, missing };
+  return { html: out, inlined, external, missing, assets: ctx.assets, warnings: ctx.warnings };
 }
+

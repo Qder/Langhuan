@@ -43,6 +43,14 @@ import {
 import { cn, dirname } from "@/lib/utils";
 import { findProjectForPath, projectRelPath } from "@/lib/project";
 import { collectExternalRefs, inlineProjectHtml } from "@/lib/inlineProject";
+import {
+  assetReaderFrom,
+  loadProjectAssets,
+  type AssetMap,
+} from "@/lib/projectAssetCache";
+
+/** 空资源表（换项目时用，保持引用稳定避免多余重算）。 */
+const EMPTY_ASSET_MAP: AssetMap = {};
 
 
 function editReadyMessage(source: string, start: number, end: number): string {
@@ -166,18 +174,58 @@ export function HtmlReader({ doc }: { doc: Document }) {
     [project, content, projectDir]
   );
 
-  const srcDoc = React.useMemo(() => {
-    if (!project || !projectFiles) return buildInstrumentedSrcDoc(content);
-    return buildInstrumentedSrcDoc(content, undefined, {
-      inline: (html) =>
-        inlineProjectHtml(html, {
+  /**
+   * 这一页引用到的图片 / 图标 / 字体。先只解析不改写（readAsset 不传），拿到清单后按需取字节；
+   * 取齐了再生成 srcDoc，那时查表命中就换成 data URL。
+   */
+  const projectAssetPaths = React.useMemo(() => {
+    if (!project || !projectFiles) return [];
+    return inlineProjectHtml(content, {
+      baseDir: projectDir,
+      readFile: (rel) => projectFiles[rel] ?? null,
+      sourceLabel: doc.path,
+    }).assets;
+  }, [content, project, projectDir, projectFiles, doc.path]);
+
+  const projectRoot = project?.root ?? "";
+  const [assetState, setAssetState] = React.useState<{ root: string; map: AssetMap }>({
+    root: "",
+    map: {},
+  });
+  React.useEffect(() => {
+    if (!projectRoot || !projectAssetPaths.length) return;
+    let alive = true;
+    void loadProjectAssets(projectRoot, projectAssetPaths).then((map) => {
+      if (alive) setAssetState({ root: projectRoot, map });
+    });
+    return () => {
+      alive = false;
+    };
+  }, [projectRoot, projectAssetPaths]);
+  /** 资源表只在同一项目内复用，换项目时先当空表（否则会串用另一个项目的同名文件）。 */
+  const assetMap = assetState.root === projectRoot ? assetState.map : EMPTY_ASSET_MAP;
+
+  const { srcDoc, inlineWarnings } = React.useMemo(() => {
+    if (!project || !projectFiles) {
+      return { srcDoc: buildInstrumentedSrcDoc(content), inlineWarnings: [] as string[] };
+    }
+    const warnings: string[] = [];
+    const html = buildInstrumentedSrcDoc(content, undefined, {
+      inline: (raw) => {
+        const result = inlineProjectHtml(raw, {
           baseDir: projectDir,
           readFile: (rel) => projectFiles[rel] ?? null,
+          readAsset: assetReaderFrom(assetMap),
           // 样式面板靠这个属性把「某条规则来自哪个文件」认出来，必须是库内路径
           mapPath: (rel) => `${project.root}/${rel}`,
-        }).html,
+          sourceLabel: doc.path,
+        });
+        warnings.push(...result.warnings);
+        return result.html;
+      },
     });
-  }, [content, project, projectDir, projectFiles]);
+    return { srcDoc: html, inlineWarnings: warnings };
+  }, [content, project, projectDir, projectFiles, assetMap, doc.path]);
   /** When static anchors do not cover the viewport, disable percent / weak sync. */
   const anchorsWeakRef = React.useRef(false);
   const ignoreScrollUntil = React.useRef(0);
@@ -811,6 +859,20 @@ export function HtmlReader({ doc }: { doc: Document }) {
               )}
               style={{ background: pageBg === "transparent" ? undefined : pageBg }}
             />
+            {inlineWarnings.length > 0 && (
+              <details className="absolute bottom-2 left-2 z-20 max-w-[min(70%,420px)] rounded-md border border-[var(--border)] bg-[var(--bg-elevated)] px-2 py-1 text-[10px] leading-4 text-[var(--muted)] shadow-sm">
+                <summary className="cursor-pointer select-none">
+                  有 {inlineWarnings.length} 处资源没能内联（已保留原引用）
+                </summary>
+                <ul className="mt-1 max-h-32 space-y-0.5 overflow-auto">
+                  {inlineWarnings.map((w) => (
+                    <li key={w} className="break-all font-mono">
+                      {w}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
           </div>
         </div>
         </div>
