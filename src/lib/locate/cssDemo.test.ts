@@ -289,4 +289,57 @@ describe("验收示例：examples/样式定位验收", () => {
     const resolved = resolveCssHits(reply.hits as RawCssHit[], indexes);
     expect(resolved).toHaveLength(4);
   });
+
+  it("⑪ 同一个选择器写了两遍：两条命中分别落到两行", async () => {
+    const { win, doc, messages } = loadDemo();
+    const extraCss = read("css/extra.css");
+    const indexes = [await buildCssIndex(EXTRA, extraCss)];
+    const lines = extraCss.split(/\r?\n/);
+    const ruleLines = lines
+      .map((l, i) => (l.trim() === ".dup {" ? i + 1 : 0))
+      .filter((n) => n > 0);
+    expect(ruleLines).toHaveLength(2);
+
+    click(win, doc.querySelector(".dup")!);
+    messages.length = 0;
+    askCss(win, 11);
+    const resolved = resolveCssHits(
+      messages.find((m) => m.type === "lh-css-hits")!.hits as RawCssHit[],
+      indexes
+    );
+    const dups = resolved.filter((h) => h.selector === ".dup");
+    expect(dups).toHaveLength(2);
+    expect(dups.map((h) => h.startLine).sort((a, b) => a - b)).toEqual(ruleLines);
+    expect(dups.every((h) => h.precision === "exact")).toBe(true);
+    // 两条的声明不一样，说明真的是两条规则，不是同一条被数了两遍
+    const decls = dups.map((h) => h.decls.join("; "));
+    expect(decls.some((d) => d.includes("border-left"))).toBe(true);
+    expect(decls.some((d) => d.includes("border-left-color"))).toBe(true);
+  });
+
+  it("⑫ 逗号列表只命中一支：按那一支算特异性，并标出命中的分支", async () => {
+    const { win, doc, messages } = loadDemo();
+    const indexes = [await buildCssIndex(EXTRA, read("css/extra.css"))];
+
+    const resolveFor = (sel: string) => {
+      click(win, doc.querySelector(sel)!);
+      messages.length = 0;
+      askCss(win, 12);
+      return resolveCssHits(
+        messages.find((m) => m.type === "lh-css-hits")!.hits as RawCssHit[],
+        indexes
+      ).find((h) => h.selector === "#pick-me, .pick")!;
+    };
+
+    // 只有 .pick 的元素：#id 那一支没命中 → (0,1,0)，并标出命中的是 .pick
+    const onlyClass = resolveFor("#pick-a");
+    expect(onlyClass.specificity).toEqual([0, 1, 0]);
+    expect(onlyClass.matchedBranches).toEqual([".pick"]);
+    expect(onlyClass.precision).toBe("exact");
+
+    // 两支都命中的元素：(1,0,0)，没什么可标的
+    const both = resolveFor("#pick-me");
+    expect(both.specificity).toEqual([1, 0, 0]);
+    expect(both.matchedBranches).toBeUndefined();
+  });
 });

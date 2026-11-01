@@ -1,4 +1,4 @@
-﻿import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import {
@@ -9,7 +9,9 @@ import {
   cssIndexPath,
   formatSpecificity,
   normalizeSelector,
+  parseCssIndex,
   resolveCssHits,
+  ruleSignature,
   specificityOf,
   specificityScore,
   splitSelectorList,
@@ -100,6 +102,14 @@ describe("normalizeSelector / atRulesSignature", () => {
     );
     expect(atRulesSignature([])).toBe("");
     expect(atRulesSignature(null)).toBe("");
+  });
+
+  it("ruleSignature：选择器规整 + 条件签名（bridge 与索引共用的身份）", () => {
+    expect(ruleSignature(".a  >  .b", ["@media (max-width: 520px)"])).toBe(
+      ".a>.b|@media(max-width:520px)"
+    );
+    expect(ruleSignature(".a", [])).toBe(".a|");
+    expect(ruleSignature(" .a ", null)).toBe(".a|");
   });
 });
 
@@ -243,6 +253,224 @@ describe("条件当前是否生效（active）", () => {
     const media = hits.find((h) => h.atRules.length > 0)!;
     expect(media.active).toBe(false);
     expect(hits.find((h) => h.selector === "body div")!.active).toBe(true);
+  });
+});
+
+/* ---------------- 同一选择器重复出现 ---------------- */
+
+/** 同条件重复 + @media 内外重复 + @media 内自己重复。 */
+const DUP = `.card { color: red; }
+.card { color: blue; }
+@media (max-width: 520px) {
+  .card { color: green; }
+  .card { color: teal; }
+}
+`;
+
+describe("同一选择器重复出现：occurrence 对齐", () => {
+  async function dupIndex(): Promise<CssFileIndex> {
+    return buildCssIndex("dup.css", DUP);
+  }
+
+  it("索引给「选择器 + @条件」相同的规则标 0/1/2…，@media 内自己从 0 起", async () => {
+    const index = await dupIndex();
+    expect(index.rules.map((r) => [r.selector, r.startLine, r.atRules.length, r.occurrence])).toEqual([
+      [".card", 1, 0, 0],
+      [".card", 2, 0, 1],
+      [".card", 4, 1, 0],
+      [".card", 5, 1, 1],
+    ]);
+  });
+
+  it("按 occurrence 取候选：同条件下第二条落到第 2 行，不再永远是第一条", async () => {
+    const index = await dupIndex();
+    const hits = resolveCssHits(
+      [
+        { selector: ".card", file: "dup.css", conditions: [], occurrence: 0, order: 0 },
+        { selector: ".card", file: "dup.css", conditions: [], occurrence: 1, order: 1 },
+      ],
+      [index]
+    );
+    expect(hits.map((h) => [h.startLine, h.precision])).toEqual([
+      [2, "exact"],
+      [1, "exact"],
+    ]);
+    expect(hits.every((h) => h.message.includes("已定位到第"))).toBe(true);
+  });
+
+  it("occurrence 是「同签名」内计数：@media 内外的同名规则各数各的", async () => {
+    const index = await dupIndex();
+    const hits = resolveCssHits(
+      [
+        { selector: ".card", file: "dup.css", conditions: [], occurrence: 1, order: 0 },
+        {
+          selector: ".card",
+          file: "dup.css",
+          conditions: ["@media (max-width: 520px)"],
+          occurrence: 1,
+          order: 1,
+        },
+      ],
+      [index]
+    );
+    const top = hits.find((h) => h.atRules.length === 0)!;
+    const media = hits.find((h) => h.atRules.length > 0)!;
+    expect([top.startLine, top.endLine]).toEqual([2, 2]);
+    expect([media.startLine, media.endLine]).toEqual([5, 5]);
+    expect(media.atRules).toEqual(["@media (max-width: 520px)"]);
+    expect(hits.every((h) => h.precision === "exact")).toBe(true);
+  });
+
+  it("序号超出索引（运行时又插了一份）→ fuzzy，且不给行号", async () => {
+    const index = await dupIndex();
+    const hits = resolveCssHits(
+      [{ selector: ".card", file: "dup.css", conditions: [], occurrence: 2, order: 0 }],
+      [index]
+    );
+    expect(hits[0]).toMatchObject({ startLine: 0, endLine: 0, precision: "fuzzy" });
+    expect(hits[0].message).toContain("无法唯一对应");
+  });
+
+  it("有重复但没有序号（老 bridge）→ fuzzy + 说明，不跳到第一条", async () => {
+    const index = await dupIndex();
+    const hits = resolveCssHits(
+      [{ selector: ".card", file: "dup.css", conditions: [], order: 0 }],
+      [index]
+    );
+    expect(hits[0].precision).toBe("fuzzy");
+    expect(hits[0].startLine).toBe(0);
+    expect(hits[0].message).toContain("存在多条同名规则");
+    expect(hits[0].message).toContain("无法唯一对应");
+  });
+
+  it("只有一条候选又没有序号（老 bridge）→ 仍然 exact", async () => {
+    const index = await dupIndex();
+    const hits = resolveCssHits(
+      [{ selector: ".card", file: "dup.css", conditions: ["@media print"], order: 0 }],
+      [index]
+    );
+    // 条件对不上 → 按条件层数退到 @media 内第一条，标 fuzzy（不是 exact）
+    expect(hits[0].precision).toBe("fuzzy");
+    expect(hits[0].startLine).toBe(4);
+
+    const single = await buildCssIndex("one.css", ".only { color: red; }\n");
+    const ok = resolveCssHits([{ selector: ".only", file: "one.css" }], [single]);
+    expect(ok[0]).toMatchObject({ precision: "exact", startLine: 1 });
+  });
+
+  it("旧索引（JSON 里没有 occurrence）读入时按位置重算，跳转仍然正确", async () => {
+    const index = await dupIndex();
+    // 模拟老索引：丢掉 occurrence 字段
+    const legacyJson = {
+      file: index.file,
+      hash: index.hash,
+      rules: index.rules.map(({ occurrence, ...rest }) => {
+        void occurrence;
+        return rest;
+      }),
+    };
+    const legacy = parseCssIndex(JSON.parse(JSON.stringify(legacyJson)))!;
+    expect(legacy.rules.map((r) => r.occurrence)).toEqual([0, 1, 0, 1]);
+    const hits = resolveCssHits(
+      [{ selector: ".card", file: "dup.css", conditions: [], occurrence: 1 }],
+      [legacy]
+    );
+    expect(hits[0]).toMatchObject({ startLine: 2, precision: "exact" });
+  });
+});
+
+/* ---------------- 逗号列表：按命中分支算特异性 ---------------- */
+
+const LIST = `#id, .card { border: 1px solid; }
+.card { padding: 8px; }
+.card.wide { width: 100%; }
+`;
+
+describe("逗号选择器列表：用命中分支算 specificity", () => {
+  it("只命中 .card 分支时，(0,1,0) 而不是整列的 (1,0,0)", async () => {
+    const index = await buildCssIndex("list.css", LIST);
+    const rule = index.rules[0];
+    // 索引里记的是静态的整列最大值（列表整体），只作兜底
+    expect(rule.specificity).toEqual([1, 0, 0]);
+
+    const hits = resolveCssHits(
+      [
+        {
+          selector: "#id, .card",
+          file: "list.css",
+          conditions: [],
+          specificity: [0, 1, 0],
+          matchedBranches: [".card"],
+          order: 1,
+        },
+      ],
+      [index]
+    );
+    expect(hits[0].specificity).toEqual([0, 1, 0]);
+    expect(hits[0].matchedBranches).toEqual([".card"]);
+    // 展示用完整选择器
+    expect(hits[0].selector).toBe("#id, .card");
+    expect(hits[0].precision).toBe("exact");
+  });
+
+  it("多分支同时命中：取命中分支里最高的（等价于多条独立规则）", async () => {
+    const index = await buildCssIndex("list.css", LIST);
+    const hits = resolveCssHits(
+      [
+        {
+          selector: "#id, .card",
+          file: "list.css",
+          specificity: [1, 0, 0],
+          order: 0,
+        },
+      ],
+      [index]
+    );
+    expect(hits[0].specificity).toEqual([1, 0, 0]);
+    // 整列都命中 → 没有「只命中一部分」可标
+    expect(hits[0].matchedBranches).toBeUndefined();
+  });
+
+  it("排序用命中分支的特异性：.card.wide (0,2,0) 应该压过 #id, .card 的 .card 分支", async () => {
+    const index = await buildCssIndex("list.css", LIST);
+    const hits = resolveCssHits(
+      [
+        {
+          selector: "#id, .card",
+          file: "list.css",
+          specificity: [0, 1, 0],
+          matchedBranches: [".card"],
+          order: 1,
+        },
+        { selector: ".card.wide", file: "list.css", specificity: [0, 2, 0], order: 0 },
+        { selector: ".card", file: "list.css", specificity: [0, 1, 0], order: 0 },
+      ],
+      [index]
+    );
+    expect(hits.map((h) => h.selector)).toEqual([".card.wide", "#id, .card", ".card"]);
+  });
+
+  it("旧 bridge 只给选择器（没有命中分支）→ 退回整列最大值", async () => {
+    const index = await buildCssIndex("list.css", LIST);
+    const hits = resolveCssHits([{ selector: "#id, .card", file: "list.css" }], [index]);
+    expect(hits[0].specificity).toEqual([1, 0, 0]);
+    expect(hits[0].matchedBranches).toBeUndefined();
+  });
+
+  it("bridge 报的分支必须真的在这条选择器里，否则丢弃", async () => {
+    const index = await buildCssIndex("list.css", LIST);
+    const hits = resolveCssHits(
+      [
+        {
+          selector: "#id, .card",
+          file: "list.css",
+          specificity: [0, 1, 0],
+          matchedBranches: [".not-in-list"],
+        },
+      ],
+      [index]
+    );
+    expect(hits[0].matchedBranches).toBeUndefined();
   });
 });
 

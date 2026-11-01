@@ -153,9 +153,20 @@ export type HtmlCssHitsPayload = {
     conditions: string[];
     /** 条件当前是否成立（宽屏上的 @media max-width 规则为 false） */
     active: boolean;
+    /**
+     * 本次命中的特异性：逗号列表按**命中的那几支**算（不是整列最大值）。
+     * 顶层列表里元素只命中较低的一支时，这里就是那一支的值。
+     */
     specificity: [number, number, number];
     /** 文档顺序（跨样式表递增） */
     order: number;
+    /**
+     * 「选择器 + @ 条件」都相同的第几条（0 起，本样式表内）。
+     * 父窗口靠它区分同一文件里重复出现的同名规则；旧版本 bridge 不给。
+     */
+    occurrence?: number;
+    /** 逗号列表里真正命中的分支（只在「只命中一部分」时给） */
+    matchedBranches?: string[];
   }>;
 };
 

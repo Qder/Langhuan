@@ -1050,6 +1050,24 @@
     return out;
   }
 
+  /** 与 cssLocate.normalizeSelector 同一算法：折叠空白、去掉组合符两侧空白。 */
+  function cssNormalizeSelector(selector) {
+    return String(selector || "")
+      .replace(/\s+/g, " ")
+      .replace(/\s*([>+~,])\s*/g, "$1")
+      .trim();
+  }
+
+  /** 与 cssLocate.atRulesSignature 同一算法：去空白 + 小写 + >> 连接。 */
+  function cssAtRulesSignature(list) {
+    if (!list || !list.length) return "";
+    var out = [];
+    for (var i = 0; i < list.length; i++) {
+      out.push(String(list[i]).replace(/\s+/g, "").toLowerCase());
+    }
+    return out.join(">>");
+  }
+
   /** 样式表来源：内联时由 data-lh-inline 标明原文件；外部/未知为空。 */
   function cssSheetSource(sheet) {
     try {
@@ -1077,6 +1095,13 @@
   /**
    * 遍历 styleSheets，用 el.matches(selectorText) 判断命中。
    * 跨源样式表读 cssRules 会抛 SecurityError —— 直接跳过（内联后不存在这个问题）。
+   *
+   * 每条命中除了选择器/文件/条件，还回传两样「来源信息」，让父窗口能唯一对上索引里那条规则：
+   * - occurrence：同一「选择器 + @ 条件」在本样式表里的第几条（0 起）——
+   *   同文件重复写同一个选择器时，只按选择器查会永远跳第一条；
+   * - matchedBranches + specificity：逗号列表里真正命中的是哪几支，
+   *   特异性按命中的那几支算（顶层列表等价于多条独立规则，取命中最高的那支；
+   *   :is()/:not()/:has() 的参数仍按规范取全部参数的最大值，见 cssSpecificity）。
    */
   function collectCssHits(el) {
     var hits = [];
@@ -1089,30 +1114,60 @@
     }
     var order = 0;
 
-    function walkRules(list, conds, file, active) {
+    function walkRules(list, conds, file, active, occMap) {
       if (!list) return;
       for (var j = 0; j < list.length; j++) {
         var rule = list[j];
         if (!rule) continue;
         if (typeof rule.selectorText === "string") {
+          var sel = rule.selectorText;
+          var key = cssNormalizeSelector(sel) + "|" + cssAtRulesSignature(conds);
+          var occurrence = occMap[key] || 0;
+          occMap[key] = occurrence + 1;
+
+          var parts = cssSplitList(sel);
+          var matchedParts = [];
           var matched = false;
-          try {
-            matched = el.matches(rule.selectorText);
-          } catch (eMatch) {
-            matched = false;
+          if (parts.length > 1) {
+            // 逐支试：既判断命中，也记录命中的是哪几支
+            for (var p = 0; p < parts.length; p++) {
+              var ok = false;
+              try {
+                ok = el.matches(parts[p]);
+              } catch (ePart) {
+                ok = false;
+              }
+              if (ok) matchedParts.push(parts[p]);
+            }
+            matched = matchedParts.length > 0;
+          } else {
+            try {
+              matched = el.matches(sel);
+            } catch (eMatch) {
+              matched = false;
+            }
           }
+
           if (matched) {
-            hits.push({
-              selector: rule.selectorText,
+            var entry = {
+              selector: sel,
               // cssText 只为面板兜底展示，截断以免大页面把 postMessage 撑爆
               cssText: String(rule.cssText || "").slice(0, 500),
               file: file,
               conditions: conds.slice(),
               // 条件当前是否成立（@media (max-width: 520px) 在宽屏上不生效）
               active: active,
-              specificity: cssSpecificity(rule.selectorText),
+              specificity: matchedParts.length
+                ? cssMaxSpecificity(matchedParts)
+                : cssSpecificity(sel),
+              occurrence: occurrence,
               order: order,
-            });
+            };
+            // 只命中一部分时才值得标（全部命中就没什么可说明的）
+            if (matchedParts.length && matchedParts.length < parts.length) {
+              entry.matchedBranches = matchedParts;
+            }
+            hits.push(entry);
           }
           order++;
           continue;
@@ -1129,7 +1184,7 @@
               } catch (eMedia) {}
             }
           }
-          walkRules(rule.cssRules, next, file, nextActive);
+          walkRules(rule.cssRules, next, file, nextActive, occMap);
         }
       }
     }
@@ -1142,7 +1197,8 @@
         continue; // 跨源：读不到规则
       }
       if (!rules) continue;
-      walkRules(rules, [], cssSheetSource(sheets[i]), true);
+      // 每个样式表各数一套：同一个文件被内联两次时，两份都指向索引里同一条规则
+      walkRules(rules, [], cssSheetSource(sheets[i]), true, {});
     }
 
     // specificity 从高到低；相同则源码靠后的优先（后者覆盖前者）

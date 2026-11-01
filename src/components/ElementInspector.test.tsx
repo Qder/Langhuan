@@ -127,6 +127,49 @@ describe("ElementInspector 结构", () => {
     expect(html).toContain("padding: 16px");
   });
 
+  it("逗号列表只命中一支：选择器整条展示，另标「命中 .card」", () => {
+    const html = render(
+      panel({
+        css: [
+          cssHit({
+            selector: "#hero, .card",
+            specificity: [0, 1, 0],
+            matchedBranches: [".card"],
+          }),
+        ],
+      })
+    );
+    expect(html).toContain("#hero, .card");
+    expect(html).toContain("命中 .card");
+    expect(html).toContain("(0,1,0)");
+  });
+
+  it("两支都命中时不标分支（没什么可说明的）", () => {
+    const html = render(panel({ css: [cssHit({ selector: "#hero, .card" })] }));
+    expect(html).toContain("#hero, .card");
+    expect(html).not.toContain("命中 ");
+  });
+
+  it("无法唯一对应：只给文件不给行号，并标「推断」", () => {
+    const html = render(
+      panel({
+        css: [
+          cssHit({
+            selector: ".card",
+            startLine: 0,
+            endLine: 0,
+            decls: [],
+            precision: "fuzzy",
+            message: "存在多条同名规则（同一文件、同样条件共 2 条），无法唯一对应",
+          }),
+        ],
+      })
+    );
+    expect(html).toContain("存在多条同名规则");
+    expect(html).toContain("推断");
+    expect(html).not.toContain("示例/style.css:0");
+  });
+
   it("行为段给出事件 → 处理函数 + 文件行号", () => {
     const html = render(panel());
     expect(html).toContain("click");

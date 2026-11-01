@@ -280,6 +280,15 @@ function CssRowBody({ hit }: { hit: ResolvedCssHit }) {
       </div>
       <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[10px] leading-4 text-[var(--muted)]">
         <span className="min-w-0 truncate font-mono">{locationText(hit.file || "", hit.startLine, hit.endLine)}</span>
+        {hit.matchedBranches && hit.matchedBranches.length > 0 && (
+          // 逗号列表只命中一部分时，标出真正起作用的那一支（选择器本身仍然整条展示）
+          <span
+            className="max-w-full shrink-0 truncate rounded bg-[var(--card)] px-1 py-px font-mono text-[10px] text-[var(--accent)]"
+            title={`这条规则是列表，本次生效的是：${hit.matchedBranches.join(", ")}`}
+          >
+            命中 {hit.matchedBranches.join(", ")}
+          </span>
+        )}
         {hit.atRules.length > 0 && (
           <span className="shrink-0 rounded bg-[var(--card)] px-1 py-px font-mono text-[10px] text-[var(--accent)]">
             {hit.atRules.join(" › ")}

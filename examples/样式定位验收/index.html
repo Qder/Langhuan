@@ -90,6 +90,21 @@
     <div class="only-extra">
       <code>.only-extra</code> + <code>body div</code>，点开都跳 <code>extra.css</code>。
     </div>
+
+    <h2>⑪ 同一个选择器写了两次（预期 3 条）</h2>
+    <div class="dup">
+      两条 <code>.dup</code> 在 <code>extra.css</code> 里、条件也一样：面板里两条应分别跳到
+      各自的源码行，而不是都跳到第一条。
+    </div>
+
+    <h2>⑫ 逗号列表按「命中的那一支」算特异性（各预期 2 条）</h2>
+    <div class="pick" id="pick-a">
+      只有 <code>.pick</code>：<code>#pick-me, .pick</code> 应按 <code>(0,1,0)</code> 参与排序，
+      并标出「命中 .pick」。
+    </div>
+    <div class="pick" id="pick-me">
+      两支都命中：同一条规则按 <code>(1,0,0)</code> 算，不需要标分支。
+    </div>
   </main>
 
   <script src="js/app.js"></script>

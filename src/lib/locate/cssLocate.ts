@@ -21,12 +21,25 @@ export type CssRuleEntry = {
   startLine: number;
   /** 1-based，规则结束行（`}` 所在行） */
   endLine: number;
-  /** 逗号列表取最大 */
+  /**
+   * 静态特异性：逗号列表取「整列最大」。
+   * 注意这不一定是「某次命中」的特异性 —— 元素可能只命中较低的那一支，
+   * 运行时以 bridge 按命中分支算出的值为准（见 resolveCssHits）。
+   */
   specificity: CssSpecificity;
   /** 外层 @ 条件，外→内，如 ["@media (max-width: 520px)"] */
   atRules: string[];
   /** 声明摘要（前几条 `prop: value`） */
   decls: string[];
+  /**
+   * 同一文件里「选择器 + @ 条件签名」都相同的第几条（0 起，按源码顺序）。
+   *
+   * 这是给 bridge 对齐用的：样式表里同一个选择器可以在同条件下出现多次
+   * （`.card { }` 复制两遍、构建产物合并后又各留一份…），只按选择器查索引
+   * 会永远跳到第一条。bridge 数的是同一把尺子，父窗口拿序号取候选里的第 k 条。
+   * 读旧索引（没有这个字段）时按位置重算，见 parseCssIndex。
+   */
+  occurrence: number;
 };
 
 export type CssFileIndex = {
@@ -77,6 +90,25 @@ export function atRulesSignature(list?: string[] | null): string {
   return list
     .map((s) => String(s).replace(/\s+/g, "").toLowerCase())
     .join(">>");
+}
+
+/**
+ * 一条规则的身份：规整后的选择器 + @ 条件签名。
+ * bridge 与索引两端都用它做 key，才能把「同条件同名规则的第 k 条」对上号。
+ */
+export function ruleSignature(selector: string, atRules?: string[] | null): string {
+  return `${normalizeSelector(selector)}|${atRulesSignature(atRules)}`;
+}
+
+/** 按源码顺序给规则标 occurrence（0 起）。 */
+function assignOccurrences(rules: CssRuleEntry[]): void {
+  const seen = new Map<string, number>();
+  for (const rule of rules) {
+    const key = ruleSignature(rule.selector, rule.atRules);
+    const n = seen.get(key) ?? 0;
+    rule.occurrence = n;
+    seen.set(key, n + 1);
+  }
 }
 
 /** 逗号切分（忽略括号/方括号/字符串里的逗号）。 */
@@ -220,6 +252,15 @@ const SELECTOR_ARG_PSEUDOS = new Set([
  * 选择器 specificity（Selectors 4）：
  * `#a`(1,0,0) `.a`/`[a]`/`:hover`(0,1,0) `div`/`::before`(0,0,1)；
  * `:is()/:not()/:has()` 取参数里最大的，`:where()` 恒为 0。
+ *
+ * 逗号列表的规矩（容易混淆，单独写清楚）：
+ * - 顶层列表 `A, B { … }` 在层叠里等价于两条规则 `A { … }` / `B { … }`，每条各自参与特异性比较
+ *   （Cascading 4 §6.1）。所以「这次命中的特异性」= **命中的那几支里最高的那个**，
+ *   而不是整列最大值 —— 元素只命中 `#id, .card` 的 `.card` 时是 (0,1,0)，不是 (1,0,0)。
+ *   命中多支时按最高的算：多支都匹配，等于几条同样生效的规则里最强的那个赢。
+ * - `:is()`/`:not()`/`:has()` 的**参数**是另一回事：按规范取全部参数的最大值，不看是否命中
+ *   （所以 `:is(#x, .y)` 即使命中的是 `.y` 也算 (1,0,0)）。本函数对参数正是这么做的。
+ * - 只有拿不到「命中了哪几支」时（老 bridge / 只有选择器文本），才退回整列最大值兜底。
  */
 export function specificityOf(selector: string): CssSpecificity {
   const total: CssSpecificity = [0, 0, 0];
@@ -356,10 +397,14 @@ export async function buildCssIndex(file: string, css: string): Promise<CssFileI
       specificity: maxSpecificity(splitSelectorList(rule.selector).map(specificityOf)),
       atRules,
       decls,
+      // 下面按源码顺序统一标；先占位，免得类型上留下必填空洞
+      occurrence: 0,
     });
   });
 
   rules.sort((a, b) => a.startLine - b.startLine);
+  // occurrence 必须在排序之后算：它的语义是「源码顺序里的第几条」
+  assignOccurrences(rules);
   return { file, hash: hashCss(css), rules };
 }
 
@@ -389,9 +434,13 @@ export function parseCssIndex(input: unknown): CssFileIndex | null {
       specificity,
       atRules: Array.isArray(r.atRules) ? r.atRules.filter((a): a is string => typeof a === "string") : [],
       decls: Array.isArray(r.decls) ? r.decls.filter((d): d is string => typeof d === "string") : [],
+      occurrence: 0,
     });
   }
   if (!rules.length) return null;
+  // 旧索引没有 occurrence 字段也没关系：它完全由「规则列表 + 顺序」决定，这里按位置重算。
+  // （索引文件里存的那份只作调试参考，读入时不信任它 —— 手改 JSON 也不会造成错跳。）
+  assignOccurrences(rules);
   return {
     file: obj.file,
     hash: typeof obj.hash === "string" ? obj.hash : "",
@@ -411,6 +460,18 @@ export type RawCssHit = {
   /** 文档内出现顺序（bridge 给），用于同特异性时「后者优先」 */
   order?: number;
   cssText?: string;
+  /**
+   * 「选择器 + @ 条件」都相同的第几条（0 起，按该样式表的规则顺序）。
+   * 老 bridge 不给这个字段 —— 那时只在候选唯一时敢标 exact。
+   */
+  occurrence?: number;
+  /**
+   * 运行时按命中分支算出的特异性（逗号列表只算命中的那几支）。
+   * bridge 一直会带；老版本没有时退回索引里的整列最大值。
+   */
+  specificity?: CssSpecificity;
+  /** 逗号列表里真正命中的分支（只在「只命中一部分」时给） */
+  matchedBranches?: string[];
 };
 
 export type ResolvedCssHit = {
@@ -428,67 +489,162 @@ export type ResolvedCssHit = {
   active: boolean;
   /** 原始顺序（bridge 按文档顺序回传），用于同 specificity 时的「后者优先」 */
   order: number;
+  /**
+   * 逗号列表里真正命中的分支；只在「只命中一部分」时有值。
+   * 展示仍用完整 selector，这个字段只用来标「这次是这一支在起作用」。
+   */
+  matchedBranches?: string[];
 };
 
-function findRule(
-  indexes: CssFileIndex[],
-  hit: RawCssHit
-): { index: CssFileIndex; rule: CssRuleEntry; exact: boolean } | null {
-  if (!hit.file) return null;
-  const index = indexes.find((i) => i.file === hit.file);
-  if (!index) return null;
+/** 索引匹配的结果：能确定就 exact，不能确定时宁可不给行号。 */
+type RuleLookup =
+  | { status: "exact"; index: CssFileIndex; rule: CssRuleEntry }
+  | { status: "fuzzy"; index: CssFileIndex; rule: CssRuleEntry; message: string }
+  | { status: "ambiguous"; index: CssFileIndex; message: string }
+  | { status: "none" };
+
+function duplicateMessage(count: number): string {
+  return `存在多条同名规则（同一文件、同样条件共 ${count} 条），无法唯一对应 —— 只定位到文件，请按选择器在源码里自行确认`;
+}
+
+/**
+ * 按「文件 + 选择器 + @ 条件 + 出现序号」在索引里找规则。
+ *
+ * 关键点：同一个选择器在同一条件下可以出现多次（复制粘贴、构建产物合并…），
+ * 光凭选择器文本永远只能拿到第一条。bridge 会连「同签名第几条」一起报，
+ * 这里用它取候选里的第 k 条；序号对不上（样式表与索引不一致、运行时有注入）
+ * 时宁可标 ambiguous 也不猜 —— 猜错比不跳更伤人。
+ */
+function findRule(indexes: CssFileIndex[], hit: RawCssHit): RuleLookup {
+  const file = hit.file || "";
+  if (!file) return { status: "none" };
+  const index = indexes.find((i) => i.file === file);
+  if (!index) return { status: "none" };
   const want = normalizeSelector(hit.selector);
   const candidates = index.rules.filter((r) => normalizeSelector(r.selector) === want);
-  if (!candidates.length) return null;
+  if (!candidates.length) return { status: "none" };
+
   const sig = atRulesSignature(hit.conditions);
-  const exact = candidates.find((r) => atRulesSignature(r.atRules) === sig);
-  if (exact) return { index, rule: exact, exact: true };
-  // 同一选择器出现多次（@media 内外）：条件对不上时按「条件层数相同」优先，其余退化为 fuzzy
-  const sameDepth = candidates.find((r) => r.atRules.length === (hit.conditions?.length ?? 0));
-  if (sameDepth) return { index, rule: sameDepth, exact: false };
-  return { index, rule: candidates[0], exact: false };
+  // 同签名候选：顺序就是源码顺序（索引按 startLine 排过），第 k 条即 occurrence=k
+  const sameCond = candidates.filter((r) => atRulesSignature(r.atRules) === sig);
+  const occ =
+    typeof hit.occurrence === "number" && hit.occurrence >= 0 ? Math.floor(hit.occurrence) : null;
+
+  if (sameCond.length) {
+    if (occ === null) {
+      // 老 bridge 不报序号：只有唯一一条时才敢说 exact
+      if (sameCond.length === 1) return { status: "exact", index, rule: sameCond[0] };
+      return { status: "ambiguous", index, message: duplicateMessage(sameCond.length) };
+    }
+    const rule = sameCond[occ] ?? null;
+    // occurrence 字段缺失（极老的索引对象）时按位置认；两者都不符就不跳
+    const agrees = rule && (rule.occurrence === undefined || rule.occurrence === occ);
+    if (rule && agrees) return { status: "exact", index, rule };
+    return {
+      status: "ambiguous",
+      index,
+      message:
+        sameCond.length > 1
+          ? duplicateMessage(sameCond.length)
+          : "样式表里的规则比索引多（可能被运行时改动过），无法唯一对应 —— 只定位到文件",
+    };
+  }
+
+  // 条件签名对不上（运行时条件与源码写法不同）：退到「@ 条件层数相同」的那条，只能算推断
+  const depth = hit.conditions?.length ?? 0;
+  const sameDepth = candidates.find((r) => r.atRules.length === depth) ?? candidates[0];
+  return {
+    status: "fuzzy",
+    index,
+    rule: sameDepth,
+    message: "按选择器匹配，条件可能不完全一致",
+  };
+}
+
+/** 规整 bridge 回传的 specificity（不是三个有限数就当没有）。 */
+function toSpecificity(input: unknown): CssSpecificity | null {
+  if (!Array.isArray(input) || input.length !== 3) return null;
+  const [a, b, c] = input;
+  if (![a, b, c].every((n) => typeof n === "number" && Number.isFinite(n))) return null;
+  return [a, b, c];
+}
+
+/** 命中分支：只保留确实出现在这条选择器里的分支，且只在「只命中一部分」时有意义。 */
+function matchedBranchesOf(hit: RawCssHit, branches: string[]): string[] | undefined {
+  if (branches.length < 2 || !Array.isArray(hit.matchedBranches)) return undefined;
+  const norm = new Set(branches.map((b) => normalizeSelector(b)));
+  const matched = hit.matchedBranches
+    .map((b) => String(b))
+    .filter((b) => norm.has(normalizeSelector(b)));
+  if (!matched.length || matched.length >= branches.length) return undefined;
+  return matched;
 }
 
 /**
  * bridge 命中 → 可点击的定位结果（已按「specificity 高 → 源码靠后」排序）。
- * 匹配不到（运行时注入 / HTML 内联 <style> / 索引缺失）时 precision = "fuzzy"。
+ *
+ * - 特异性优先用 bridge 按**命中分支**算出的值（逗号列表不再无条件取整列最大）；
+ *   没有才退回索引里的静态值，再没有才现算整列最大。
+ * - 匹配不到（运行时注入 / HTML 内联 <style> / 索引缺失）时 precision = "fuzzy"；
+ *   同名规则无法唯一对应时也是 "fuzzy"，且**不给行号**（startLine = 0）。
  */
 export function resolveCssHits(hits: RawCssHit[], indexes: CssFileIndex[]): ResolvedCssHit[] {
-  const out: ResolvedCssHit[] = hits.map((hit, i) => {
+  const out = hits.map((hit, i): ResolvedCssHit => {
     // bridge 已经按文档顺序给了 order；没有就退回数组下标（调用方按源码顺序传）
     const order = typeof hit.order === "number" ? hit.order : i;
-    const found = findRule(indexes, hit);
-    if (found) {
+    const branches = splitSelectorList(hit.selector);
+    const matchedBranches = matchedBranchesOf(hit, branches);
+    const look = findRule(indexes, hit);
+    const specificity =
+      toSpecificity(hit.specificity) ??
+      (look.status === "exact" || look.status === "fuzzy" ? look.rule.specificity : null) ??
+      maxSpecificity(branches.map(specificityOf));
+    const base = {
+      selector: hit.selector,
+      specificity,
+      active: hit.active !== false,
+      order,
+      ...(matchedBranches ? { matchedBranches } : {}),
+    };
+
+    if (look.status === "exact" || look.status === "fuzzy") {
       return {
-        selector: hit.selector,
-        file: found.index.file,
-        startLine: found.rule.startLine,
-        endLine: found.rule.endLine,
-        specificity: found.rule.specificity,
-        atRules: found.rule.atRules,
-        decls: found.rule.decls,
-        precision: found.exact ? "exact" : "fuzzy",
-        message: found.exact
-          ? `已定位到第 ${found.rule.startLine}–${found.rule.endLine} 行`
-          : "按选择器匹配，条件可能不完全一致",
-        active: hit.active !== false,
-        order,
+        ...base,
+        file: look.index.file,
+        startLine: look.rule.startLine,
+        endLine: look.rule.endLine,
+        atRules: look.rule.atRules,
+        decls: look.rule.decls,
+        precision: look.status,
+        message:
+          look.status === "exact"
+            ? `已定位到第 ${look.rule.startLine}–${look.rule.endLine} 行`
+            : look.message,
+      };
+    }
+    if (look.status === "ambiguous") {
+      return {
+        ...base,
+        file: look.index.file,
+        startLine: 0,
+        endLine: 0,
+        atRules: hit.conditions || [],
+        decls: [],
+        precision: "fuzzy",
+        message: look.message,
       };
     }
     return {
-      selector: hit.selector,
+      ...base,
       file: hit.file || null,
       startLine: 0,
       endLine: 0,
-      specificity: maxSpecificity(splitSelectorList(hit.selector).map(specificityOf)),
       atRules: hit.conditions || [],
       decls: [],
       precision: "fuzzy",
       message: hit.file
         ? "规则不在 CSS 索引里（可能来自动态注入）"
         : "规则来自动态注入或 HTML 内联样式",
-      active: hit.active !== false,
-      order,
     };
   });
 

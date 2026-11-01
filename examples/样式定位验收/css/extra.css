@@ -19,3 +19,23 @@
   font-size: 13px;
   color: #6b6152;
 }
+
+/* ⑪ 同条件重复写同一个选择器。
+ * 只按「文件 + 选择器 + 条件」查索引会永远跳到第一条 —— 面板里两条命中要能分别对上
+ * 这里的两行（bridge 报「同签名第几条」，索引按同一把尺子数）。 */
+.dup {
+  border-left: 3px solid #9a3b2e;
+}
+
+.dup {
+  border-left-color: #4a7c59;
+}
+
+/* ⑫ 逗号列表：元素只命中 .pick 那一支时，按 (0,1,0) 参与层叠，
+ * 不能因为整列里有个 #pick-me 就当成 (1,0,0)（那是「只看整列最大」的老行为）。
+ * 面板仍展示完整选择器，并标出这次命中的是 .pick。 */
+#pick-me, .pick {
+  background: #f7f3e8;
+  border-radius: 6px;
+  padding: 4px 8px;
+}
