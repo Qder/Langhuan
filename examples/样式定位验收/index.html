@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>样式定位验收</title>
+  <link rel="stylesheet" href="css/base.css" />
+  <link rel="stylesheet" href="css/extra.css" />
+  <style>
+    /* HTML 内联样式表：索引里没有它，所以面板要标「推断」 */
+    .inline-styled {
+      border: 1px dotted var(--accent);
+      border-radius: 6px;
+      padding: 6px 10px;
+    }
+  </style>
+</head>
+<body>
+  <header id="hero" class="hero">
+    <h1>样式定位验收</h1>
+    <p>点每个方块，右侧面板的条数应与标题里的「预期」一致。</p>
+  </header>
+
+  <main>
+    <h2>① 主线：卡片（预期 4 条）</h2>
+    <div class="card" id="card">
+      <p><strong>点卡片空白处，或点这行粗体字</strong></p>
+      <p>
+        应命中 <code>body div</code>、<code>.card</code>、<code>.card:hover</code>
+        和 <code>@media</code> 里的 <code>.card</code>；最后一条带条件徽标。
+        点粗体字时面板的标签仍是 <code>div#card.card</code>——没规则的子元素会往上找到卡片。
+      </p>
+    </div>
+
+    <h2>② 特异性：#id 压 .class，.class 压类型（预期 3 条）</h2>
+    <div id="alpha" class="alpha">
+      顺序应为 <code>#alpha</code> (1,0,0) → <code>.alpha</code> (0,1,0) →
+      <code>body div</code> (0,0,2)。
+    </div>
+
+    <h2>③ 属性选择器（预期 2 条）</h2>
+    <div data-kind="tip">
+      点这条左边的红线：<code>[data-kind="tip"]</code> + <code>body div</code>。
+    </div>
+
+    <h2>④ :is() 与 :where() 的特异性差别（各预期 2 条）</h2>
+    <div class="is-ok">:is(.is-ok, .nope) → 特异性 (0,1,0)</div>
+    <div class="where-ok">:where(.where-ok) → 特异性 (0,0,0)</div>
+
+    <h2>⑤ :not() 真的在算（.chip 预期 2 条，.chip.off 预期 1 条）</h2>
+    <div class="chip">这条吃到 .chip:not(.off)</div>
+    <div class="chip off">
+      这条不该吃到（选择器没命中，只剩下 <code>body div</code>）
+    </div>
+
+    <h2>⑥ @supports 套 @media（预期 3 条）</h2>
+    <div class="grid-chip">
+      <span>@supports 那条 + @media 那条（两段条件）+ body div</span>
+      <span>窄屏下面板里那条应标「当前不生效」</span>
+    </div>
+
+    <h2>⑦ 两个文件里的同名规则（预期 3 条）</h2>
+    <div class="shared">
+      两条 <code>.shared</code> 分别来自 <code>base.css</code> 与
+      <code>extra.css</code>：点开看跳的是不是不同文件。
+    </div>
+
+    <h2>⑧ 索引里没有的规则（各预期 2 条，其中一条标「推断」）</h2>
+    <div class="inline-styled">HTML 里 <code>&lt;style&gt;</code> 写的规则</div>
+    <div class="injected" id="injected">
+      <code>js/app.js</code> 运行时注入的规则
+    </div>
+    <p>
+      再注入一条：<button id="inject-more" type="button">注入</button>
+      已注入 <span id="live-count" data-n="0">0</span> 条。注入后点上面那条虚线框，
+      会多出一条「推断」。
+    </p>
+
+    <h2>⑨ 不该弹面板的情况</h2>
+    <section class="plain">
+      这个区块没有任何规则命中（<code>section</code> 既不吃 <code>body div</code>
+      也没别的规则）→ 面板不该出现。
+    </section>
+    <p>
+      点链接也不弹（交互元素不触发样式查询）：
+      <a href="#">随便一个链接</a>
+    </p>
+
+    <h2>⑩ 只在 extra.css 里的规则（预期 2 条）</h2>
+    <div class="only-extra">
+      <code>.only-extra</code> + <code>body div</code>，点开都跳 <code>extra.css</code>。
+    </div>
+  </main>
+
+  <script src="js/app.js"></script>
+</body>
+</html>

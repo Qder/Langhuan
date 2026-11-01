@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>行为定位验收</title>
+<style>
+  body { font: 15px/1.7 system-ui, -apple-system, "Segoe UI", sans-serif; margin: 32px; color: #222; max-width: 640px; }
+  h1 { font-size: 20px; margin: 0 0 12px; }
+  ul { padding-left: 20px; }
+  li { cursor: pointer; padding: 2px 0; }
+  li.done { text-decoration: line-through; color: #999; }
+  button { padding: 4px 10px; font: inherit; }
+  code { background: #f2f2f2; padding: 0 3px; border-radius: 3px; font-size: 13px; }
+  #inline-note { border-bottom: 1px dashed #b33; cursor: pointer; }
+</style>
+</head>
+<body>
+  <h1>行为定位验收</h1>
+
+  <p>
+    <button id="btn" class="primary">保存</button>
+    — 直接绑定，面板应显示 <code>click → onSaveClick，js/app.js:12</code>
+  </p>
+
+  <ul id="todo-list">
+    <li>写静态分析</li>
+    <li>点这一行（绑定在父元素上）</li>
+  </ul>
+
+  <p>
+    <button id="reset">清空</button>
+    — 变量间接绑定，仍应回到 <code>#reset</code>
+  </p>
+
+  <p>
+    <span id="inline-note">内联脚本绑定</span>
+    — 应标「内联」，行号指向本 HTML 文件
+  </p>
+
+  <p>
+    点这段没有绑定也没有查询的空白：<span id="plain">灰区</span>
+    — 面板应显示「未在源码中找到直接绑定，可能通过事件委托注册」
+  </p>
+
+  <script>
+    document.getElementById("inline-note").addEventListener("click", function onNoteClick() {
+      this.textContent = "点过了";
+    });
+  </script>
+  <script src="js/app.js"></script>
+</body>
+</html>

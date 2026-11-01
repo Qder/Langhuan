@@ -1,0 +1,126 @@
+/* 样式定位验收 · 主样式表
+ *
+ * 每条规则都是为「面板应该列什么」准备的，别随手删。
+ * README 里的预期条数按选择器算、不按行号算，所以随便插行不影响验收。
+ */
+
+:root {
+  --ink: #23201c;
+  --paper: #fbf8f2;
+  --line: #e4dbc9;
+  --accent: #9a3b2e;
+  --soft: #f2ebdd;
+}
+
+body {
+  margin: 0;
+  padding: 28px 26px 72px;
+  background: var(--paper);
+  color: var(--ink);
+  font: 15px/1.75 "Songti SC", "Noto Serif SC", Georgia, serif;
+}
+
+h1 {
+  margin: 0 0 4px;
+  font-size: 22px;
+  letter-spacing: 1px;
+  color: var(--accent);
+}
+
+h2 {
+  margin: 26px 0 8px;
+  font-size: 15px;
+  color: #6b6152;
+  font-weight: 600;
+}
+
+/* 只给「main 的直接子段落」上外边距：卡片里的 <p> 故意不吃，方便演示
+   「点没有规则的子元素会往上找到卡片」 */
+main > p {
+  margin: 0 0 8px;
+}
+
+code {
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 0.88em;
+  color: #7a3125;
+}
+
+/* —— ① 验收主线：这张卡片应命中 4 条 —— */
+body div {
+  box-sizing: border-box;
+}
+
+.card {
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.card:hover {
+  box-shadow: 0 6px 18px rgba(154, 59, 46, 0.14);
+  transition: box-shadow 0.15s ease;
+}
+
+@media (max-width: 520px) {
+  .card {
+    padding: 12px 14px;
+  }
+}
+
+/* —— ② 特异性：#id 压 .class，.class 压类型 —— */
+.alpha {
+  border-bottom: 1px dashed var(--line);
+  padding-bottom: 4px;
+}
+
+#alpha {
+  font-weight: 700;
+}
+
+/* —— ③ 属性选择器 —— */
+[data-kind="tip"] {
+  border-left: 3px solid var(--accent);
+  padding-left: 10px;
+}
+
+/* —— ④ :is() 取参数里最高的特异性，:where() 恒为 0 —— */
+:is(.is-ok, .nope) {
+  background: #eef7ee;
+}
+
+:where(.where-ok) {
+  outline: 1px dashed #7a9b7a;
+}
+
+/* —— ⑤ :not() 真的参与匹配（.chip.off 不该吃到这条） —— */
+.chip:not(.off) {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--soft);
+}
+
+/* —— ⑥ @supports 里再套 @media：面板要显示两段条件 —— */
+@supports (display: grid) {
+  .grid-chip {
+    display: grid;
+    gap: 8px;
+    padding: 10px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+  }
+
+  @media (max-width: 520px) {
+    .grid-chip {
+      gap: 4px;
+    }
+  }
+}
+
+/* —— ⑦ 与 extra.css 同名：应出现两条 .shared，分属两个文件 —— */
+.shared {
+  border-top: 2px solid var(--soft);
+  padding-top: 6px;
+}

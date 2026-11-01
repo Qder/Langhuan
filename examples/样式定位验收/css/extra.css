@@ -1,0 +1,21 @@
+/* 样式定位验收 · 第二张样式表
+ *
+ * 作用只有一个：验证「这条规则来自哪个文件」。
+ * 故意放几条跟 base.css 同名的选择器，面板里应该出现两条、文件名不同。
+ */
+
+/* 与 base.css 同名：两条 .shared，点开分别跳到两个文件 */
+.shared {
+  color: #46613f;
+}
+
+/* 与 base.css 里的 #hero 同名：两条 (1,0,0)，后加载的本文件优先 */
+#hero {
+  color: var(--ink);
+}
+
+/* 只在这个文件里：验证从 base.css 切到 extra.css 时高亮跟着走 */
+.only-extra {
+  font-size: 13px;
+  color: #6b6152;
+}

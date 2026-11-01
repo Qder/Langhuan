@@ -1,0 +1,132 @@
+:root {
+  --ink: #2f2a24;
+  --paper: #faf6ee;
+  --accent: #9a3b2e;
+  --line: #e2d8c6;
+}
+
+body {
+  margin: 0;
+  padding: 40px 24px;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: "Songti SC", "Noto Serif SC", Georgia, serif;
+  line-height: 1.8;
+}
+
+.site-head {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  padding-bottom: 12px;
+  border-bottom: 2px solid var(--line);
+  max-width: 640px;
+  margin: 0 auto 24px;
+}
+
+.site-head h1 {
+  margin: 0;
+  font-size: 26px;
+  letter-spacing: 2px;
+  color: var(--accent);
+}
+
+.site-head nav {
+  margin-left: auto;
+  display: flex;
+  gap: 14px;
+  font-size: 14px;
+}
+
+.site-head a {
+  color: var(--ink);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+}
+
+.site-head a.active,
+.site-head a:hover {
+  border-bottom-color: var(--accent);
+  color: var(--accent);
+}
+
+main {
+  max-width: 640px;
+  margin: 0 auto;
+}
+
+code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: #efe6d3;
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 0.9em;
+}
+
+button {
+  margin-top: 8px;
+  padding: 8px 18px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+button:hover {
+  background: var(--accent);
+  color: var(--paper);
+}
+
+button.pressed {
+  box-shadow: 0 0 0 3px rgba(154, 59, 46, 0.2);
+}
+
+p.hint {
+  font-size: 13px;
+  color: #7d7263;
+  border-left: 3px solid var(--line);
+  padding-left: 10px;
+}
+
+/* ——— 样式定位 demo：点这张卡片会命中下面 4 条规则 ——— */
+
+body div {
+  box-sizing: border-box;
+}
+
+.card {
+  margin-top: 28px;
+  padding: 18px 20px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(154, 59, 46, 0.14);
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+@media (max-width: 520px) {
+  .card {
+    padding: 12px 14px;
+  }
+}
+
+.card h2 {
+  margin: 0 0 8px;
+  font-size: 18px;
+  color: var(--accent);
+}
+
+.card p {
+  margin: 0;
+  font-size: 14px;
+  color: #5f574c;
+}

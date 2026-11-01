@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>示例项目 · 主页</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <header class="site-head">
+    <h1>示例项目</h1>
+    <nav>
+      <a class="active" href="index.html">主页</a>
+      <a href="about.html">关于</a>
+    </nav>
+  </header>
+
+  <main>
+    <p>
+      这是一个最小的多文件站点：样式在 <code>css/style.css</code>，交互在
+      <code>js/app.js</code>。导入后如果样式和脚本都生效，说明项目内联是对的。
+    </p>
+    <p class="hint">
+      预览里的站内链接不会跳转（srcDoc 里导航会清空页面）；换页面请用侧栏的项目节点。
+    </p>
+    <p id="msg">点下面的按钮，看看脚本有没有生效。</p>
+    <button id="go" type="button">点我改文字</button>
+
+    <section class="cards">
+      <div class="card" id="demo-card">
+        <h2>这张卡片有 4 条规则</h2>
+        <p>
+          点它（或点这行字），右侧「样式来源」会列出
+          <code>body div</code>、<code>.card</code>、<code>.card:hover</code>
+          和 <code>@media</code> 里的 <code>.card</code>；点任意一条会跳到
+          <code>css/style.css</code> 的对应行并高亮整条规则。
+        </p>
+      </div>
+    </section>
+  </main>
+
+  <script src="js/app.js"></script>
+</body>
+</html>
