@@ -23,6 +23,10 @@ export type AssetEntry =
 export type AssetMap = Record<string, AssetEntry>;
 
 const cache = new Map<string, AssetEntry>();
+/** 同一个资源同时被抓两次（打字中重算 + 上一个请求还没回）时只发一次。 */
+const inflight = new Map<string, Promise<AssetEntry>>();
+/** 缓存被清空的代数：清空时把还在飞的请求结果丢掉，别把旧字节写回去。 */
+let generation = 0;
 
 function cacheKey(root: string, rel: string): string {
   return `${root}/${rel}`;
@@ -35,14 +39,43 @@ export function peekAsset(root: string, rel: string): AssetEntry | undefined {
 
 /** 清掉缓存（测试用；也用于「重新导入项目」后避免拿到旧字节）。 */
 export function clearProjectAssetCache(root?: string): void {
+  generation += 1;
   if (!root) {
     cache.clear();
+    inflight.clear();
     return;
   }
   const prefix = `${root}/`;
   for (const key of [...cache.keys()]) {
     if (key.startsWith(prefix)) cache.delete(key);
   }
+  for (const key of [...inflight.keys()]) {
+    if (key.startsWith(prefix)) inflight.delete(key);
+  }
+}
+
+/** 取一个资源：命中缓存直接给；正在取就复用同一个请求；否则发一次请求。 */
+function loadOne(root: string, rel: string): Promise<AssetEntry> {
+  const key = cacheKey(root, rel);
+  const hit = cache.get(key);
+  if (hit) return Promise.resolve(hit);
+  const running = inflight.get(key);
+  if (running) return running;
+  const gen = generation;
+  const task = (async (): Promise<AssetEntry> => {
+    const got = await fetchProjectAsset(key, { maxBytes: MAX_INLINE_ASSET_BYTES });
+    const entry: AssetEntry = !got
+      ? { kind: "missing" }
+      : got === "too-large"
+        ? { kind: "too-large" }
+        : { kind: "ok", mime: got.mime, base64: got.base64 };
+    if (gen === generation) cache.set(key, entry);
+    return entry;
+  })().finally(() => {
+    if (inflight.get(key) === task) inflight.delete(key);
+  });
+  inflight.set(key, task);
+  return task;
 }
 
 /**
@@ -54,30 +87,15 @@ export async function loadProjectAssets(
   rels: string[],
   opts?: { fresh?: boolean }
 ): Promise<AssetMap> {
+  if (opts?.fresh) clearProjectAssetCache(root);
   const out: AssetMap = {};
-  const pending: string[] = [];
-  for (const rel of rels) {
-    const hit = opts?.fresh ? undefined : cache.get(cacheKey(root, rel));
-    if (hit) out[rel] = hit;
-    else pending.push(rel);
-  }
   const CONCURRENCY = 6;
-  for (let i = 0; i < pending.length; i += CONCURRENCY) {
-    const slice = pending.slice(i, i + CONCURRENCY);
+  for (let i = 0; i < rels.length; i += CONCURRENCY) {
+    const slice = rels.slice(i, i + CONCURRENCY);
     const results = await Promise.all(
-      slice.map(async (rel): Promise<[string, AssetEntry]> => {
-        const got = await fetchProjectAsset(cacheKey(root, rel), {
-          maxBytes: MAX_INLINE_ASSET_BYTES,
-        });
-        if (!got) return [rel, { kind: "missing" }];
-        if (got === "too-large") return [rel, { kind: "too-large" }];
-        return [rel, { kind: "ok", mime: got.mime, base64: got.base64 }];
-      })
+      slice.map(async (rel): Promise<[string, AssetEntry]> => [rel, await loadOne(root, rel)])
     );
-    for (const [rel, entry] of results) {
-      cache.set(cacheKey(root, rel), entry);
-      out[rel] = entry;
-    }
+    for (const [rel, entry] of results) out[rel] = entry;
   }
   return out;
 }

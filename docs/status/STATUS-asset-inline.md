@@ -126,7 +126,7 @@ HtmlReader
 ## 验收
 
 - 单测：`src/lib/projectAssets.test.ts`（19）、`src/lib/inlineProject.assets.test.ts`（27）、
-  `src/lib/inlineProject.example.test.ts`（6）、`src/lib/projectAssetCache.test.ts`（9），合计 61，
+  `src/lib/inlineProject.example.test.ts`（6）、`src/lib/projectAssetCache.test.ts`（10），合计 62，
   覆盖要求里的每一条：普通图 / 中文 / 空格 / `../` / 查询串 / 锚点、srcset 多候选、CSS 相对图与字体、
   `data:` 与外链不动、缺文件与超限降级、内联后 `data-lh` 锚点仍有效、CSS 行号与原文件来源仍正确；
   取字节那一层（404 / content-length 超限 / 实际体积超限 / 按项目隔离的缓存）也单测了，

@@ -102,6 +102,26 @@ describe("projectAssetCache", () => {
     expect(peekAsset("b", "img/x.png")?.kind).toBe("ok");
   });
 
+  it("同时抓同一个资源只发一次请求", async () => {
+    const gate: { open: () => void } = { open: () => {} };
+    const opened = new Promise<void>((r) => {
+      gate.open = r;
+    });
+    const fetchMock = vi.fn(async () => {
+      await opened;
+      return fakeResponse(FONT_BYTES);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const a = loadProjectAssets("demo", ["img/x.png"]);
+    const b = loadProjectAssets("demo", ["img/x.png"]);
+    gate.open();
+    const [mapA, mapB] = await Promise.all([a, b]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(mapA["img/x.png"]?.kind).toBe("ok");
+    expect(mapB["img/x.png"]?.kind).toBe("ok");
+  });
+
   it("失败也进缓存（missing / too-large），不会每次重试", async () => {
     const fetchMock = vi.fn(async (url: RequestInfo | URL) => {
       if (String(url).includes("missing")) return fakeResponse(new Uint8Array(), { status: 404 });
