@@ -28,6 +28,7 @@ import {
 } from "../../folders";
 import { BUILTIN_TEMPLATES, applyTemplate, dailyNoteSpec } from "../../templates";
 import { ensureUniquePath } from "../helpers/paths";
+import { invalidateInspect } from "../inspectGate";
 import { softNavigate } from "../helpers/navigation";
 import { scheduleContentPersist } from "../helpers/persistSchedule";
 import type { LanghuanState } from "../types";
@@ -251,7 +252,9 @@ export const createDocsSlice: StateCreator<
   emptyFolders: [],
   activeId: null,
   pendingNav: null,
-  openHome: () =>
+  openHome: () => {
+        // 回到首页 = 离开当前文档，在途的元素检视请求同样作废
+        invalidateInspect();
         set({
           activeId: null,
           htmlImmersive: false,
@@ -259,8 +262,11 @@ export const createDocsSlice: StateCreator<
           htmlScrollPercent: 0,
           editorCaret: null,
           focusedPane: "primary",
-        }),
+        });
+      },
   openDoc: (id) => {
+        // 换文档 = 「元素检视」的在途请求全部作废：旧文档的检视结果不能落到新文档上
+        invalidateInspect();
         set((s) => {
           const tabs = s.openTabs.includes(id) ? s.openTabs : [...s.openTabs, id];
           return {

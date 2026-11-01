@@ -16,7 +16,7 @@
 | 段 | 数据来源 | 精度说法 |
 |----|----------|----------|
 | HTML | bridge 回传的 `tag` / `attrs` + 源码位置。有 `data-lh` 标注区间 → 精确；否则用 `htmlLocate`（`locatePreviewClick` / `locateInHtml`）的结果；再不然按元素自身文本找一次，**降级成推断** | `精确` / `推断` / `未定位` |
-| 样式 | `lh-css-query` → bridge 用 `getMatchedCSSRules` 近似匹配 → `resolveCssHits` 回 CSS 索引查行号，按 specificity 排序，最多 10 条 | 命中规则原样标 `推断`（选择器被截断时） |
+| 样式 | `lh-css-query` → bridge 用 `el.matches()` 逐条判命中（逗号列表逐支试）→ `resolveCssHits` 回 CSS 索引查行号，按 specificity 排序，最多 10 条 | 索引对得上就 `精确`；动态注入 / 同名规则无法唯一对应时 `推断` |
 | 行为 | `resolveBehaviorHits({...element, ancestors}, jsIndexes)`：acorn 静态符号表反查 | `精确` / `父元素` / `页面级` |
 
 `data-lh` 是预览插桩时打上的源码区间标注（`instrumentHtmlSrcDoc`），**只存在于 iframe 的 srcDoc 里**，
@@ -41,6 +41,23 @@
 
 顺序保证：`lh-element` 一定先于 `lh-css-hits`（前者捕获阶段、后者是对 `lh-css-query` 的回复），
 所以收到 `lh-css-hits` 时同一次点击的 `lh-locate` 结果已经在 ref 里了。`nonce` 校验挡掉连点时串号。
+
+## 连点竞态：旧请求不许覆盖新结果
+
+`inspectElement` 里要 await 索引补建（可能几次往返），而人是连着点的：第二次点击开始后，
+第一次的 Promise 仍可能更晚完成，然后写回上一个元素的数据 —— 更糟的是第一次**没命中、
+返回空结果**，把第二次已经开好的面板关掉。
+
+规矩（`src/lib/store/inspectGate.ts`）：
+
+- 每次请求领一张票（`id` 单调递增 + `epoch` 代数），**每个 await 之后、最终 set 之前验票**；
+- 票过期就整份丢弃：不写索引缓存、不改面板、也不会 `set({ elementPanel: null })` 关掉别人的面板；
+- 切文档（`openDoc` / `openHome`）与关抽屉（`closeInspector`）都把 `epoch` +1，在途请求一起作废；
+  另有一层兜底：请求醒来时若「当前打开的文档」已经不是它点的那篇，同样丢弃；
+- 不靠禁用点击或固定延时 —— 该点的照点，只是旧的回来不算数。
+
+补建索引本身也收敛（`src/lib/locate/indexFreshness.ts`）：同一文件并发只发一次请求（单飞），
+且按源码指纹决定要不要发 —— 见下节。
 
 HTML 段的取位顺序（`HtmlReader`）：**`lh-locate` 的 `payload.range` → `lh-element.range` → 按文本推断**。
 第一项给「精确」，第二项给「精确」，第三项明确降级成「推断」——绝不把文本匹配冒充成标注命中。
@@ -78,9 +95,13 @@ HTML 段的取位顺序（`HtmlReader`）：**`lh-locate` 的 `payload.range` �
 ## 已知限制
 
 - HTML 段对「脚本动态生成的元素」只能给 `未定位`，并说明原因，不乱指行。
-- 样式段是近似匹配（`getMatchedCSSRules` 那条老路），伪类 / `@media` 命中不完全可信，会标「推断」。
+- 样式段靠 `el.matches()` 判命中（浏览器语义），但行号来自构建期索引：索引缺失 / 对不上时只能标
+  「推断」、不给行号；伪元素（`::before`）不参与匹配。
 - 行为段只做静态分析：绑在变量 / 参数上的监听、框架运行时挂载的监听都找不到。
-- 索引不做过期校验（与 CSS / JS 索引同一取舍），改了 `.css` / `.js` 后点条目可能跳到旧行号。
+- 索引按源码指纹取（`src/lib/locate/indexFreshness.ts`）：改了 `.css` / `.js` 后第一次点击会重建、
+  按新行号跳；指纹一致则直接复用。拿不到当前源码（文件超内联上限 / 桌面版 / 老快照）时判「判不了」，
+  先按现有索引用 —— 这种文件改过之后仍可能跳到旧行号。在应用外用别的编辑器改文件、又还没重新载入
+  `content/` 时同理：客户端比的还是旧文本，刷新一次就自愈（预览本身也要刷新才变）。
 - 桌面版（Tauri）不建索引：样式 / 行为段会一直说「没找到」。
 
 ## 验收
@@ -98,7 +119,15 @@ HTML 段的取位顺序（`HtmlReader`）：**`lh-locate` 的 `payload.range` �
   `lh-element.range` 得到精确行号，且 `data-lh` 不出现在展示的属性里。
 - `src/lib/locate/bridge.jsdom.test.ts`（33 例）：`lh-element` 带上 `range` / `text` / `attrs`，
   交互元素仍不发 `lh-locate`。
+- `src/lib/locate/indexFreshness.test.ts`（16 例）：`sourceHash` 与 `buildCssIndex` / `hashJs` 写进
+  索引的指纹一致、`projectTextFor`（嵌套项目取最深的根 / 项目外拿不到）、`checkIndex` 的
+  fresh / stale / unknown、`pruneStaleIndexes`、单飞（并发只跑一次、落地后能再来、失败不粘住）。
+- `src/lib/store/inspectElement.test.ts`（14 例，真 slice + 真 postcss 索引、只 mock「要索引」那一步）：
+  指纹一致不发请求、指纹变了只重建一次并按新行号跳、同文件并发只发一次、重建失败丢索引降级 fuzzy、
+  拿不到源码不盲目重建、`.js` 同规则；连点（先慢后快 → 面板是后一次）、旧请求空结果不关新面板、
+  切文档后旧结果不落地、作废的请求不写索引缓存、闸门的单调性与作废语义。
 - 手工验收：导入 `examples/行为定位验收` 打开 `index.html` → 点卡片 / `#btn` → 三段都有内容 →
   逐条点：HTML 跳 `index.html` 那一行、样式跳 `style.css` 那条规则、行为跳 `app.js`（高亮整个函数）→
   返回后选中态还在 → 点图钉，抽屉变一列、预览变窄 → 缩放窗口到手机宽度，抽屉从底部升起 →
-  纯键盘走一遍（Tab 进抽屉、↑↓ 选、Enter 跳、Esc 关）→ 中英文界面都不出现横向滚动条。
+  纯键盘走一遍（Tab 进抽屉、↑↓ 选、Enter 跳、Esc 关）→ 中英文界面都不出现横向滚动条 →
+  改一行 `css/style.css` 重新导入，再点卡片：样式段的行号应跟着规则走（不是旧行号）。

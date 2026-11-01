@@ -51,7 +51,9 @@ content/.langhuan/index/css/<hash>.json
 - `occurrence` 是同一文件里「选择器 + @ 条件签名」都相同的第几条（0 起，源码顺序）。
   同条件下重复写同一个选择器时，它就是唯一能把运行时命中对回源码那一行的东西。
   旧索引没有这个字段也能读：读入时按位置重算（`parseCssIndex` 不信任文件里那份）。
-- `hash` 是源码指纹，留给将来做失效判定（现在每次导入直接覆盖）。
+- `hash` 是源码指纹（`fnv1a:<长度>:<shortHash>`）。它**真的被读了**：点元素时拿 `projectTexts`
+  里的当前源码再算一遍，一致就复用、不一致就重建（见 [STATUS-js-behavior.md](./STATUS-js-behavior.md)
+  与 `src/lib/locate/indexFreshness.ts`），所以改过 `.css` 后第一次点击就会按新行号跳。
 - 文件名是**路径的哈希**（`shortHash(file)`），所以同一路径重导入只会覆盖、不会堆积。
 
 `@keyframes` 里的 `from/to` 不是选择器，不入索引。

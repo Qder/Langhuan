@@ -273,11 +273,16 @@ export type LanghuanState = {
   setJsIndexes: (list: JsFileIndex[]) => void;
   /**
    * 预览里点了元素之后：把 iframe 回传的「样式命中 + 元素身份」+ 父窗口算好的源码位置，
-   * 解析成 HTML / 样式 / 行为三段的数据并开抽屉。索引缺失的 CSS / JS 会先补建（异步）。
+   * 解析成 HTML / 样式 / 行为三段的数据并开抽屉。
+   *
+   * 索引按新鲜度取：缺失、或源码指纹与 `index.hash` 对不上才补建（异步，同一文件并发只建一次）；
+   * 连点由请求闸门收敛 —— 过期的请求不会改面板、也不会写坏索引。
    */
   inspectElement: (raw: {
-    label: string;
-    text: string;
+    /** 元素描述，如 `button#btn`；不给就按元素现算 */
+    label?: string;
+    /** 元素文本片段（标题下一行） */
+    text?: string;
     hits: RawCssHit[];
     /** 每次点击递增（bridge 的 css 查询 nonce），抽屉拿它当重挂 key */
     nonce?: number;

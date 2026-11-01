@@ -19,6 +19,7 @@ import {
   putQuizStore,
 } from "../../storage/contentApi";
 import { takeIdbLibrary } from "../../storage/contentMigration";
+import { pruneStaleIndexes } from "../../locate/indexFreshness";
 import { ensureUniquePath } from "../helpers/paths";
 import type { LanghuanState } from "../types";
 
@@ -184,14 +185,20 @@ export const createSyncBackupSlice: StateCreator<
           const snap = await fetchLibrary();
           const pending = takeIdbLibrary();
           if (snap.documents.length || snap.assets.length || snap.trash.length) {
+            // 快照里的索引可能是上次会话留下的：源码指纹对不上的先剔掉，
+            // 免得「改过 .css/.js 之后点元素跳到旧行号」。留着的那部分按需复用。
+            const sourceSnapshot = {
+              projects: snap.projects ?? [],
+              projectTexts: snap.projectTexts ?? {},
+            };
             set({
               documents: snap.documents,
               assets: snap.assets,
               trash: snap.trash,
-              projects: snap.projects ?? [],
-              projectTexts: snap.projectTexts ?? {},
-              cssIndexes: snap.cssIndexes ?? [],
-              jsIndexes: snap.jsIndexes ?? [],
+              projects: sourceSnapshot.projects,
+              projectTexts: sourceSnapshot.projectTexts,
+              cssIndexes: pruneStaleIndexes("css", snap.cssIndexes ?? [], sourceSnapshot),
+              jsIndexes: pruneStaleIndexes("js", snap.jsIndexes ?? [], sourceSnapshot),
             });
             void saveAssetMetaList(snap.assets);
             void fetchQuizStore()
