@@ -1,0 +1,75 @@
+@import "theme/extra.css";
+
+:root {
+  --ink: #1f2328;
+  --muted: #57606a;
+  --line: #d0d7de;
+}
+
+body {
+  margin: 0;
+  padding: 32px 20px 64px;
+  font-family: "Noto Sans SC", system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: var(--ink);
+  background: #f6f8fa;
+}
+
+.card {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 24px 28px 32px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  line-height: 1.75;
+}
+
+h1 {
+  margin: 0 0 8px;
+  font-size: 24px;
+}
+
+h2 {
+  margin: 28px 0 8px;
+  font-size: 15px;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+.lead {
+  margin: 0 0 8px;
+  color: var(--muted);
+}
+
+.probe {
+  margin: 0;
+  padding: 8px 12px;
+  border-left: 3px solid #d4a72c;
+  border-radius: 4px;
+  background: #fff8e5;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 13px;
+}
+
+code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: #eef1f4;
+  font-size: 12px;
+}
+
+img {
+  max-width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.foot {
+  margin-top: 28px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--line);
+  color: var(--muted);
+  font-size: 13px;
+}

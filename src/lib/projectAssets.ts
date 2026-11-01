@@ -126,6 +126,8 @@ export type CssScanResult = {
   urls: CssUrlRef[];
   /** @import 的引用（本期不展平，单独列出来） */
   imports: string[];
+  /** 同上，但带载荷在 CSS 里的起点（兼容性报告要算行号） */
+  importRefs: { raw: string; start: number }[];
 };
 
 /**
@@ -139,6 +141,7 @@ export type CssScanResult = {
 export function scanCssUrls(css: string): CssScanResult {
   const urls: CssUrlRef[] = [];
   const imports: string[] = [];
+  const importRefs: { raw: string; start: number }[] = [];
   const n = css.length;
   let i = 0;
 
@@ -214,21 +217,25 @@ export function scanCssUrls(css: string): CssScanResult {
         const rest = css.slice(i);
         const m = /^@import\s+url\s*\(/i.exec(rest);
         let payload: string | null = null;
+        let payloadStart = i;
         if (m) {
           const parsed = readUrlPayload(i + m[0].length);
           if (parsed) {
             payload = css.slice(parsed.start, parsed.end);
+            payloadStart = parsed.start;
             i = parsed.next;
           }
         } else {
           const q = /^@import\s+(["'])([\s\S]*?)\1/i.exec(rest);
           if (q) {
             payload = q[2];
+            payloadStart = i + q[0].length - q[2].length - 1;
             i += q[0].length;
           }
         }
-        if (payload) {
+        if (payload !== null) {
           imports.push(payload);
+          importRefs.push({ raw: payload, start: payloadStart });
           continue;
         }
       }
@@ -253,7 +260,7 @@ export function scanCssUrls(css: string): CssScanResult {
     }
     i++;
   }
-  return { urls, imports };
+  return { urls, imports, importRefs };
 }
 
 /** CSS 转义解码：`\31 0.png` → `10.png`，`a\ b.png` → `a b.png`。 */

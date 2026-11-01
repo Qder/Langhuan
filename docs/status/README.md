@@ -5,6 +5,7 @@
 | 文件 | 主题 | 摘要 |
 |------|------|------|
 | [STATUS-asset-inline.md](./STATUS-asset-inline.md) | 项目 | 预览前把项目内图片 / 图标 / 字体换成 data URL；srcset 逐候选、CSS `url()` 保行号、缺文件不静默丢 |
+| [STATUS-project-compat.md](./STATUS-project-compat.md) | 项目 | 明确预览的支持边界：模块 / defer-async / CDN / 缺文件 / 动态加载，预览顶部一条可展开的分类提示 |
 | [STATUS-content-store.md](./STATUS-content-store.md) | 存储 | `content/` 为库根、API 读写与弱化 IndexedDB 的结论说明 |
 | [STATUS-css-inspect.md](./STATUS-css-inspect.md) | 定位 | 点元素列出命中它的 CSS 规则，按选择器匹配回索引查行号并高亮整条 |
 | [STATUS-element-inspector.md](./STATUS-element-inspector.md) | 定位 | 三期合一：右侧抽屉一次给出 HTML 行号 / 样式规则 / 事件绑定，可 pin、可全键盘 |

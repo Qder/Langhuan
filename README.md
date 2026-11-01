@@ -64,8 +64,12 @@ npm run tauri:dev
 - 导入文件夹 / 文件；支持 File System Access 的浏览器可打开本地文件夹
 - 项目预览把项目内的图片 / 图标 / 字体换成 data URL 再塞进 srcDoc（沙箱拿不到相对路径）：
   `<img src>` / `srcset`、`<source>`、`<video poster>`、CSS 的 `background` 与 `@font-face`
-  都按「引用它的那个文件所在目录」解析；缺文件 / 超限**保留原引用**并在预览左下角列出原因，
+  都按「引用它的那个文件所在目录」解析；缺文件 / 超限**保留原引用**并进兼容性报告，
   不静默丢图 —— 边界与下一期打算见 [docs/status/STATUS-asset-inline.md](docs/status/STATUS-asset-inline.md)
+- 项目预览**说清支持边界**：模块脚本的相对 / 裸 `import`、运行时才定的动态加载、脚本的
+  `defer` / `async`、外站 CDN、缺本地文件、`@import` 未展平等，预览顶部一条可展开的提示
+  按类汇总（`文件:行` + 一句人话 + 当前影响），简单项目不显示；只影响预览，源码定位照旧
+  —— 边界与措辞规矩见 [docs/status/STATUS-project-compat.md](docs/status/STATUS-project-compat.md)
 
 ## 功能验收示例
 
@@ -88,7 +92,13 @@ npm run tauri:dev
 覆盖 `img src` + `srcset` 两档、`<picture>`、`video poster`、CSS 背景图（文件名带中文和空格、
 CSS 里用百分号编码引用）、`@font-face`，外加「注释和字符串里的 `url()` 不能动」与
 「故意缺一个文件」两个反例。导入后打开 `index.html`，六段内容都应该完整显示；
-左下角应出现一条「有 1 处资源没能内联」的说明。
+顶部提示条应报出那一个缺文件（`找不到的本地文件`）。
+
+`examples/兼容性验收/` 是「预览支持边界」的验收现场：一页里故意塞进 5 类跑不完整的情况
+（模块脚本的相对 `import`、`defer` 脚本、CDN 样式表、缺一张图、CSS `@import` 未展平），
+导入后打开 `index.html`，顶部应出现一条「预览可能不完整 · 5 类 5 处」的提示，
+展开能逐条看到类型 / `文件:行` / 解释 / 影响；同时点元素、右键定位源码都应照常工作。
+逐条清单在该文件夹的 `README.md` 里。
 
 ## 技术栈
 

@@ -42,15 +42,20 @@ import {
 } from "@/lib/quiz";
 import { cn, dirname } from "@/lib/utils";
 import { findProjectForPath, projectRelPath } from "@/lib/project";
-import { collectExternalRefs, inlineProjectHtml } from "@/lib/inlineProject";
+import { inlineProjectHtml } from "@/lib/inlineProject";
+import { analyzeProjectCompat, type CompatReport } from "@/lib/projectCompat";
 import {
   assetReaderFrom,
   loadProjectAssets,
   type AssetMap,
 } from "@/lib/projectAssetCache";
+import { ProjectCompatNotice } from "./ProjectCompatNotice";
 
 /** 空资源表（换项目时用，保持引用稳定避免多余重算）。 */
 const EMPTY_ASSET_MAP: AssetMap = {};
+
+/** 没有问题时用的空报告（引用稳定，避免每次渲染都给提示条一个新对象）。 */
+const EMPTY_COMPAT_REPORT: CompatReport = { issues: [], groups: [], total: 0 };
 
 
 function editReadyMessage(source: string, start: number, end: number): string {
@@ -169,10 +174,6 @@ export function HtmlReader({ doc }: { doc: Document }) {
     [project, doc.path]
   );
   const projectFiles = project ? projectTexts[project.root] : undefined;
-  const externalRefs = React.useMemo(
-    () => (project ? collectExternalRefs(content, { baseDir: projectDir }) : []),
-    [project, content, projectDir]
-  );
 
   /**
    * 这一页引用到的图片 / 图标 / 字体。先只解析不改写（readAsset 不传），拿到清单后按需取字节；
@@ -205,11 +206,33 @@ export function HtmlReader({ doc }: { doc: Document }) {
   /** 资源表只在同一项目内复用，换项目时先当空表（否则会串用另一个项目的同名文件）。 */
   const assetMap = assetState.root === projectRoot ? assetState.map : EMPTY_ASSET_MAP;
 
-  const { srcDoc, inlineWarnings } = React.useMemo(() => {
-    if (!project || !projectFiles) {
-      return { srcDoc: buildInstrumentedSrcDoc(content), inlineWarnings: [] as string[] };
+  /** 兼容性报告里「这个文件存在吗」的口径：文本快照 + 资源表 + 导入清单。 */
+  const compatFiles = React.useMemo(() => {
+    if (!project) return [];
+    const set = new Set<string>(project.files);
+    for (const rel of Object.keys(projectFiles ?? {})) set.add(rel);
+    for (const [rel, entry] of Object.entries(assetMap)) {
+      if (entry.kind === "missing") set.delete(rel);
+      else set.add(rel);
     }
-    const warnings: string[] = [];
+    return [...set];
+  }, [project, projectFiles, assetMap]);
+  const oversizedAssets = React.useMemo(
+    () =>
+      Object.entries(assetMap)
+        .filter(([, entry]) => entry.kind === "too-large")
+        .map(([rel]) => rel),
+    [assetMap]
+  );
+  /**
+   * 预览兼容性报告：模块 / defer / CDN / 缺文件 / 动态加载。
+   * 它是「提前说清楚」的那一份，和 srcDoc 的生成互不依赖（只是读同一份源码）。
+   */
+  const { srcDoc, dropped } = React.useMemo(() => {
+    if (!project || !projectFiles) {
+      return { srcDoc: buildInstrumentedSrcDoc(content), dropped: [] as string[] };
+    }
+    let overflow: string[] = [];
     const html = buildInstrumentedSrcDoc(content, undefined, {
       inline: (raw) => {
         const result = inlineProjectHtml(raw, {
@@ -220,12 +243,36 @@ export function HtmlReader({ doc }: { doc: Document }) {
           mapPath: (rel) => `${project.root}/${rel}`,
           sourceLabel: doc.path,
         });
-        warnings.push(...result.warnings);
+        // 逐条 warning 文案由兼容性报告（projectCompat）结构化重述，这里只留总量超限那几项
+        overflow = result.dropped;
         return result.html;
       },
     });
-    return { srcDoc: html, inlineWarnings: warnings };
+    return { srcDoc: html, dropped: overflow };
   }, [content, project, projectDir, projectFiles, assetMap, doc.path]);
+
+  const compatReport = React.useMemo(() => {
+    if (!project) return EMPTY_COMPAT_REPORT;
+    return analyzeProjectCompat({
+      html: content,
+      htmlPath: doc.path,
+      baseDir: projectDir,
+      files: compatFiles,
+      readText: (rel) => projectFiles?.[rel] ?? null,
+      mapPath: (rel) => `${project.root}/${rel}`,
+      oversized: oversizedAssets,
+      budgetDropped: dropped,
+    });
+  }, [
+    project,
+    content,
+    doc.path,
+    projectDir,
+    compatFiles,
+    projectFiles,
+    oversizedAssets,
+    dropped,
+  ]);
   /** When static anchors do not cover the viewport, disable percent / weak sync. */
   const anchorsWeakRef = React.useRef(false);
   const ignoreScrollUntil = React.useRef(0);
@@ -770,18 +817,11 @@ export function HtmlReader({ doc }: { doc: Document }) {
 
   return (
     <div className="relative h-full min-h-0 flex flex-col bg-[var(--bg)]">
-      {/* 项目外链提示：本期不内联 http(s) 资源，明确告诉用户需要联网 */}
-      {project && externalRefs.length > 0 && (
-        <div
-          className="flex shrink-0 items-center gap-2 border-b border-[var(--border)] bg-[var(--card)] px-3 py-1 text-[11px] text-[var(--muted)]"
-          title={externalRefs.join("\n")}
-        >
-          <span className="shrink-0">
-            项目引用了 {externalRefs.length} 个外链资源，未内联（预览需联网）：
-          </span>
-          <span className="truncate font-mono opacity-80">{externalRefs[0]}</span>
-        </div>
-      )}
+      {/*
+        项目预览的兼容性提示：一条横条，分类汇总（模块导入 / defer-async / 外站资源 / 缺文件 /
+        没能内联的资源）。简单项目不会有任何问题，这里就什么都不渲染。
+      */}
+      <ProjectCompatNotice report={compatReport} />
       {showQuizToolbar && (
         <QuizToolbar
           counts={quizCounts}
@@ -859,20 +899,6 @@ export function HtmlReader({ doc }: { doc: Document }) {
               )}
               style={{ background: pageBg === "transparent" ? undefined : pageBg }}
             />
-            {inlineWarnings.length > 0 && (
-              <details className="absolute bottom-2 left-2 z-20 max-w-[min(70%,420px)] rounded-md border border-[var(--border)] bg-[var(--bg-elevated)] px-2 py-1 text-[10px] leading-4 text-[var(--muted)] shadow-sm">
-                <summary className="cursor-pointer select-none">
-                  有 {inlineWarnings.length} 处资源没能内联（已保留原引用）
-                </summary>
-                <ul className="mt-1 max-h-32 space-y-0.5 overflow-auto">
-                  {inlineWarnings.map((w) => (
-                    <li key={w} className="break-all font-mono">
-                      {w}
-                    </li>
-                  ))}
-                </ul>
-              </details>
-            )}
           </div>
         </div>
         </div>

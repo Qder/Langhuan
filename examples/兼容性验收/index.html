@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>兼容性验收 · 琅嬛项目预览</title>
+  <link rel="stylesheet" href="css/site.css">
+  <!-- ① 外站样式：预览保留原标签，需要联网 -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/github-markdown-css@5.5.1/github-markdown.css">
+  <!-- ② defer：内联进预览时属性会被去掉，执行时机变了 -->
+  <script src="js/app.js" defer></script>
+  <!-- ③ type=module + 相对 import：预览里这一整支模块加载不了 -->
+  <script type="module" src="js/module-app.js"></script>
+</head>
+<body>
+  <main class="card">
+    <h1>兼容性验收</h1>
+    <p class="lead">
+      这一页是故意做成「跑不完整」的：预览顶部应该出现一条
+      <strong>「预览可能不完整」</strong> 的提示，展开后能按类别看到下面五件事。
+    </p>
+
+    <h2>1. defer 脚本（执行时机）</h2>
+    <p id="defer-out" class="probe">（这段文字没被改 → defer 脚本在 DOM 就绪前就跑了）</p>
+
+    <h2>2. 模块脚本（可能不运行）</h2>
+    <p id="module-out" class="probe">（这段文字没被改 → 模块脚本根本没跑起来）</p>
+
+    <h2>3. 缺了一张图</h2>
+    <p>下面这张图在项目里不存在，预览会留一个破图位置：</p>
+    <img src="img/missing.png" alt="这张图不存在" width="160" height="60">
+    <p>这张是存在的，能正常显示（已内联成 data URL）：</p>
+    <img src="img/logo.png" alt="存在的图" width="120">
+
+    <h2>4. CSS 里的 @import（没能进预览）</h2>
+    <p>样式表里 <code>@import "theme/extra.css"</code> 指的是存在的文件，但本期还没做展平，
+      所以它里面的 <code>.from-import</code> 规则在预览里不生效；源码和样式面板里都还在。</p>
+    <p class="from-import">这一行的虚线边框来自 theme/extra.css —— 预览里看不到。</p>
+
+    <h2>5. 外站样式（需要联网）</h2>
+    <p>上面的 github-markdown.css 是外链，不联网时这些排版细节不会有。</p>
+
+    <h2>还能用的部分</h2>
+    <ul>
+      <li>点预览里的任意元素 → 元素检视抽屉照常打开（HTML / 样式 / 行为三段）。</li>
+      <li>右键「定位源码」照常跳到 <code>index.html</code> 的对应位置。</li>
+      <li>样式面板里 <code>theme/extra.css</code> 的规则照常能搜到、能定位。</li>
+    </ul>
+    <p class="foot">这些提示只说明「预览环境撑不住」，不是项目写错了；源文件一个字节都没改。</p>
+  </main>
+</body>
+</html>

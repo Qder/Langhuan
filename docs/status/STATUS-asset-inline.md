@@ -9,7 +9,7 @@
 > `src/lib/inlineProject.ts`（改写 HTML 属性与 CSS `url()`）、
 > `src/lib/projectAssetCache.ts`（取字节 + 会话内缓存）、
 > `src/lib/storage/contentApi.ts` 的 `fetchProjectAsset`（读库内二进制）、
-> `src/components/HtmlReader.tsx`（先要清单、再取字节、最后生成 srcDoc + 左下角降级说明）。
+> `src/components/HtmlReader.tsx`（先要清单、再取字节、最后生成 srcDoc；降级说明后来并入兼容性横条）。
 > 试玩：`examples/资源内联验收/`。
 
 ## 本期范围
@@ -77,8 +77,9 @@
 | `warnings` | 给人看的一句话：`缺少资源：img/a.png（引用自 index.html），保留原引用` |
 
 `warnings` 的四种来源：缺文件、单文件超限、本页总量超限、不认识的类型；外加 `@import` 未展平的提示。
-这些**不会**被静默吞掉：预览左下角出现一条可展开的「有 N 处资源没能内联（已保留原引用）」，
-点开是逐条原因（`HtmlReader` 里的 `<details>`）。
+这些**不会**被静默吞掉：它们后来被 [STATUS-project-compat.md](./STATUS-project-compat.md) 的兼容性
+报告结构化重述，在预览顶部的一条横条里按类汇总（点开是逐条 `文件:行` + 原因）。
+`warnings` 字符串本身保留（测试仍覆盖），另有 `InlineResult.dropped` 专门给出「整页超上限后放弃内联」的资源。
 
 限额口径（明确写出，不复用导入的 8MB）：
 

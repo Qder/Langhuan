@@ -1,0 +1,9 @@
+/* 这一份被 @import 引用：文件在项目里，但预览不会去展开它。 */
+.from-import {
+  padding: 8px 12px;
+  border: 1px dashed #8250df;
+  border-radius: 6px;
+  background: #f6f0ff;
+  color: #6639ba;
+  font-size: 13px;
+}

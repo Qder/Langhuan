@@ -12,6 +12,7 @@
  */
 
 import { findHtmlTagEnd } from "./locate/htmlPlainMap";
+import { lineAtOffset } from "./locate/frontmatter";
 import { normalizeProjectRel } from "./project";
 import {
   MAX_INLINE_ASSET_BYTES,
@@ -70,6 +71,8 @@ export type InlineResult = {
   missing: string[];
   /** 这一页引用到的图片 / 字体资源（去重；含没能内联的，便于调用方预取）。 */
   assets: string[];
+  /** 因为「这一页总量超上限」而放弃内联的资源（兼容性报告要用它说明为什么少图）。 */
+  dropped: string[];
   /** 给人看的降级说明：缺文件、超限、不认识的类型、@import 未展平。 */
   warnings: string[];
 };
@@ -340,6 +343,118 @@ export function collectExternalRefs(html: string, opts?: { baseDir?: string }): 
   return out;
 }
 
+/* ---------------- 引用清单（兼容性报告用） ---------------- */
+
+/** 标签上有没有这个布尔属性（`defer` / `async`），不会被 `data-defer` 误命中。 */
+function hasAttr(attrs: string, name: string): boolean {
+  const re = new RegExp(`(^|\\s)${name}(?=[\\s/>=]|$)`, "i");
+  return re.test(attrs);
+}
+
+/**
+ * 这一页引用了什么（带源码行）。只做解析、不改写，给兼容性报告（projectCompat.ts）用：
+ * 它需要「哪个文件、第几行、引用的是什么、是外链还是缺文件」，而这些信息在内联流程里
+ * 只以最终文本的形式存在，拿不出来，所以单列一份清单。
+ */
+export type ProjectRefItem =
+  | { kind: "stylesheet"; ref: string; resolved: ResolvedRef; line: number }
+  | {
+      kind: "script";
+      ref: string;
+      resolved: ResolvedRef;
+      line: number;
+      isModule: boolean;
+      defer: boolean;
+      async: boolean;
+      /** 内联脚本（无 src）的正文 */
+      text?: string;
+      /** 正文在 HTML 里的起点偏移 */
+      textStart?: number;
+    }
+  | { kind: "style"; line: number; text: string; textStart: number }
+  | { kind: "asset"; ref: string; resolved: ResolvedRef; line: number; tag: string };
+
+export function inventoryProjectRefs(
+  html: string,
+  opts?: { baseDir?: string }
+): ProjectRefItem[] {
+  const base = resolveBase(html, opts?.baseDir || "");
+  const out: ProjectRefItem[] = [];
+  for (const hit of scanTags(html)) {
+    const line = lineAtOffset(html, hit.start);
+    if (hit.name === "link") {
+      const rel = (attrValue(hit.attrs, "rel") || "").toLowerCase();
+      const rels = rel.split(/\s+/);
+      if (!rels.includes("stylesheet") || rels.includes("alternate")) continue;
+      const href = attrValue(hit.attrs, "href");
+      if (!href || !href.trim()) continue;
+      out.push({
+        kind: "stylesheet",
+        ref: href,
+        resolved: resolveProjectRef(href, base.baseDir, base.baseExternal),
+        line,
+      });
+      continue;
+    }
+    if (hit.name === "script") {
+      const type = (attrValue(hit.attrs, "type") || "").trim().toLowerCase();
+      const flags = {
+        isModule: type === "module",
+        defer: hasAttr(hit.attrs, "defer"),
+        async: hasAttr(hit.attrs, "async"),
+      };
+      const src = attrValue(hit.attrs, "src");
+      if (src && src.trim()) {
+        out.push({
+          kind: "script",
+          ref: src,
+          resolved: resolveProjectRef(src, base.baseDir, base.baseExternal),
+          line,
+          ...flags,
+        });
+        continue;
+      }
+      const textStart = hit.end + 1;
+      const close = findCloseTag(html, "script", textStart);
+      out.push({
+        kind: "script",
+        ref: "",
+        resolved: { kind: "skip" },
+        line,
+        ...flags,
+        text: close < 0 ? html.slice(textStart) : html.slice(textStart, close),
+        textStart,
+      });
+      continue;
+    }
+    if (hit.name === "style" && !hit.selfClosing) {
+      const textStart = hit.end + 1;
+      const close = findCloseTag(html, "style", textStart);
+      if (close < 0) continue;
+      out.push({ kind: "style", line, text: html.slice(textStart, close), textStart });
+      continue;
+    }
+    const specs = HTML_ASSET_ATTRS[hit.name];
+    if (!specs) continue;
+    for (const spec of specs) {
+      const value = attrValue(hit.attrs, spec.attr);
+      if (!value || !value.trim()) continue;
+      const refs = spec.srcset ? parseSrcset(value).map((c) => c.url) : [value];
+      for (const ref of refs) {
+        if (!ref.trim()) continue;
+        out.push({
+          kind: "asset",
+          ref,
+          resolved: resolveProjectRef(ref, base.baseDir, base.baseExternal),
+          line,
+          tag: hit.name,
+        });
+      }
+    }
+  }
+  return out;
+}
+
 /* ---------------- 资源（图片 / 图标 / 字体）内联 ---------------- */
 
 type ScannedAttr = {
@@ -392,6 +507,8 @@ type InlineCtx = {
   baseExternal: string | null;
   assets: string[];
   warnings: string[];
+  /** 因总量上限被放弃的资源 */
+  dropped: string[];
   seenAssets: Set<string>;
   seenWarn: Set<string>;
   /** 已算出 data URL 的资源（同一张图被引多次只算一次体积） */
@@ -453,6 +570,7 @@ function assetText(
     return null;
   }
   if (ctx.totalBytes + bytes > MAX_INLINE_TOTAL_BYTES) {
+    if (!ctx.dropped.includes(path)) ctx.dropped.push(path);
     warn(
       `本页资源总量超过 ${formatBytes(MAX_INLINE_TOTAL_BYTES)}：${path} 起不再内联（引用自 ${ownerLabel}），保留原引用`
     );
@@ -516,6 +634,7 @@ export function inlineProjectHtml(html: string, opts: InlineOptions): InlineResu
     baseExternal: base.baseExternal,
     assets: [],
     warnings: [],
+    dropped: [],
     seenAssets: new Set(),
     seenWarn: new Set(),
     done: new Map(),
@@ -665,6 +784,14 @@ export function inlineProjectHtml(html: string, opts: InlineOptions): InlineResu
   for (const edit of edits.sort((a, b) => b.start - a.start)) {
     out = out.slice(0, edit.start) + edit.text + out.slice(edit.end);
   }
-  return { html: out, inlined, external, missing, assets: ctx.assets, warnings: ctx.warnings };
+  return {
+    html: out,
+    inlined,
+    external,
+    missing,
+    assets: ctx.assets,
+    dropped: ctx.dropped,
+    warnings: ctx.warnings,
+  };
 }
 
