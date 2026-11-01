@@ -84,12 +84,21 @@ export function injectLocateBridge(srcDoc: string): string {
  *
  * Second arg kept optional for call-site compatibility and is ignored — passing
  * a prepared string here previously caused processed offsets.
+ *
+ * `opts.inline` 插在插桩之后、清理之前：项目（多文件站点）的 css/js 在这里内联成
+ * <style>/<script>。位置很关键——插桩必须先看原始源码算 data-lh，内联只替换不改变
+ * 元素结构与可见文本，所以偏移一直有效。
  */
-export function buildInstrumentedSrcDoc(rawSource: string, _prepared?: string): string {
+export function buildInstrumentedSrcDoc(
+  rawSource: string,
+  _prepared?: string,
+  opts?: { inline?: (html: string) => string }
+): string {
   void _prepared;
   const raw = normalizeNewlines(rawSource);
   const { html: instrumented } = instrumentHtmlSrcDoc(raw);
-  const preview = prepareHtmlPreview(instrumented);
+  const withAssets = opts?.inline ? opts.inline(instrumented) : instrumented;
+  const preview = prepareHtmlPreview(withAssets);
   return injectLocateBridge(preview);
 }
 

@@ -2,6 +2,7 @@
   "id": "crlf",
   "kind": "markdown",
   "sourceFile": "md/crlf.md",
+  "rawNewlines": true,
   "cases": [
     {
       "name": "heading despite CRLF",

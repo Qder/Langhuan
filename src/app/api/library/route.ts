@@ -14,6 +14,10 @@ export async function GET() {
       documents: snap.documents,
       assets: snap.assets,
       trash: snap.trash,
+      projects: snap.projects ?? [],
+      projectTexts: snap.projectTexts ?? {},
+      cssIndexes: snap.cssIndexes ?? [],
+      jsIndexes: snap.jsIndexes ?? [],
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);

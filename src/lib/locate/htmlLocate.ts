@@ -1,6 +1,7 @@
 import { lineAtOffset } from "./frontmatter";
 import { normalizeNewlines } from "../utils";
 import { isTrivialSelection } from "./mdLocate";
+import { buildHtmlPlainMap, decodeEntities, findHtmlTagEnd } from "./htmlPlainMap";
 import type { LocateResult } from "./types";
 
 const ENTITY_MAP: Record<string, string> = {
@@ -446,11 +447,234 @@ export function locateStaticInRange(opts: {
   return { start: 0, end: 0, precision: "none", message: "" };
 }
 
+/* ------------------------------------------------------------------ *
+ * Word-level locate (I1) + attribute fallback (I2)
+ * ------------------------------------------------------------------ */
+
+/** Longest unsegmented run returned for CJK / unspaced scripts. */
+export const DEFAULT_MAX_RUN = 24;
+
+const WORD_CHAR = /[A-Za-z0-9_'\u2019-]/;
+const CJK_CHAR =
+  /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\ud7af]/;
+const SPACE_CHAR = /\s/;
+
+/** How far to look for an adjacent word when the caret sits on blank/punctuation. */
+const NEIGHBOR_WINDOW = 24;
+
+function nearestNonSpace(plain: string, at: number): number {
+  const ahead = Math.min(plain.length, at + NEIGHBOR_WINDOW);
+  for (let i = at; i < ahead; i++) if (!SPACE_CHAR.test(plain[i])) return i;
+  const behind = Math.max(0, at - NEIGHBOR_WINDOW);
+  for (let i = at; i >= behind; i--) if (!SPACE_CHAR.test(plain[i])) return i;
+  return -1;
+}
+
+function nearestRunChar(plain: string, at: number): number {
+  const ahead = Math.min(plain.length, at + NEIGHBOR_WINDOW);
+  for (let i = at + 1; i < ahead; i++) {
+    const ch = plain[i];
+    if (WORD_CHAR.test(ch) || CJK_CHAR.test(ch)) return i;
+  }
+  const behind = Math.max(0, at - NEIGHBOR_WINDOW);
+  for (let i = at - 1; i >= behind; i--) {
+    const ch = plain[i];
+    if (WORD_CHAR.test(ch) || CJK_CHAR.test(ch)) return i;
+  }
+  return -1;
+}
+
+function capRun(start: number, end: number, at: number, maxRun: number): {
+  start: number;
+  end: number;
+} {
+  const run = Math.max(1, Math.floor(maxRun));
+  if (end - start <= run) return { start, end };
+  let s = Math.max(start, at - Math.floor(run / 2));
+  let e = s + run;
+  if (e > end) {
+    e = end;
+    s = end - run;
+  }
+  return { start: s, end: e };
+}
+
 /**
- * Preview click routing (Bug 2):
- * 1. If ancestor range exists → static match of visible text inside that slice
- * 2. Else / miss → script/JSON search (locateDynamicHtml)
- * 3. Else → whole ancestor range + 「仅定位到所在容器」
+ * Expand a caret offset inside rendered text to the word-ish run it belongs to.
+ * - Latin/digits: maximal word run
+ * - CJK/kana/hangul: maximal run, capped at `maxRun` chars centred on the caret
+ *   (a CJK "sentence" has no spaces; selecting 200 chars would be no better than
+ *   selecting the whole element)
+ * - blank / punctuation: snap to the adjacent word, else the single character
+ */
+export function pickTextRunBounds(
+  plain: string,
+  offset: number,
+  maxRun = DEFAULT_MAX_RUN
+): { start: number; end: number } | null {
+  if (!plain) return null;
+  let i = Math.max(0, Math.min(Math.floor(offset), plain.length - 1));
+  if (SPACE_CHAR.test(plain[i])) {
+    i = nearestNonSpace(plain, i);
+    if (i < 0) return null;
+  }
+  const ch = plain[i];
+  if (WORD_CHAR.test(ch)) {
+    let s = i;
+    let e = i + 1;
+    while (s > 0 && WORD_CHAR.test(plain[s - 1])) s -= 1;
+    while (e < plain.length && WORD_CHAR.test(plain[e])) e += 1;
+    return capRun(s, e, i, maxRun);
+  }
+  if (CJK_CHAR.test(ch)) {
+    let s = i;
+    let e = i + 1;
+    while (s > 0 && CJK_CHAR.test(plain[s - 1])) s -= 1;
+    while (e < plain.length && CJK_CHAR.test(plain[e])) e += 1;
+    return capRun(s, e, i, maxRun);
+  }
+  const near = nearestRunChar(plain, i);
+  if (near >= 0) return pickTextRunBounds(plain, near, maxRun);
+  return { start: i, end: i + 1 };
+}
+
+/**
+ * Locate the word under the caret inside an annotated element.
+ *
+ * `plainOffset` comes from the bridge (`caretRangeFromPoint` → offset within the
+ * element's rendered text). No text matching: the offset is mapped straight
+ * through `buildHtmlPlainMap`, so duplicate texts and inline markup are non-issues.
+ * Returns `precision: "none"` when the bridge did not supply an offset or the
+ * element renders no text — callers then fall back to the tag-level behaviour.
+ */
+export function locateTextRunInRange(opts: {
+  source: string;
+  container: { start: number; end: number };
+  plainOffset?: number;
+  maxRun?: number;
+}): LocateResult {
+  const source = normalizeNewlines(opts.source);
+  const { start: c0, end: c1 } = opts.container;
+  const offset = opts.plainOffset;
+  if (!(c1 > c0) || offset == null || !Number.isFinite(offset)) {
+    return { start: 0, end: 0, precision: "none", message: "" };
+  }
+
+  const { plain, map, endMap } = buildHtmlPlainMap(source.slice(c0, c1));
+  if (!plain) return { start: 0, end: 0, precision: "none", message: "" };
+
+  const bounds = pickTextRunBounds(plain, offset, opts.maxRun ?? DEFAULT_MAX_RUN);
+  if (!bounds) return { start: 0, end: 0, precision: "none", message: "" };
+
+  const start = c0 + map[bounds.start];
+  const end = c0 + endMap[bounds.end - 1];
+  if (!(end > start)) return { start: 0, end: 0, precision: "none", message: "" };
+
+  const line = lineAtOffset(source, start);
+  return { start, end, precision: "exact", line, message: `已定位到第 ${line} 行` };
+}
+
+const ATTR_NAME_RX = /^[a-zA-Z_:][-a-zA-Z0-9_:.]*$/;
+
+function escapeRx(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Locate an attribute *value* in the source (`<img alt="折线图">`, `title`,
+ * `aria-label`, …). Used when a click lands on an element that renders no text,
+ * so there is nothing to match in the visible map.
+ */
+export function locateAttrValueInRange(opts: {
+  source: string;
+  container: { start: number; end: number } | null;
+  attrName?: string;
+  attrValue?: string;
+  /** Element tag hint from the bridge; preferred when several tags match. */
+  tag?: string;
+}): LocateResult {
+  const source = normalizeNewlines(opts.source);
+  const name = String(opts.attrName || "").trim().toLowerCase();
+  const value = String(opts.attrValue || "").trim();
+  const container = opts.container;
+  const none: LocateResult = { start: 0, end: 0, precision: "none", message: "" };
+  if (!container || !(container.end > container.start)) return none;
+  if (!ATTR_NAME_RX.test(name) || !value) return none;
+
+  const slice = source.slice(container.start, container.end);
+  const tagHint = (opts.tag || "").toLowerCase();
+  const rx = new RegExp(
+    `(?:^|[\\s"'])${escapeRx(name)}\\s*=\\s*("([^"]*)"|'([^']*)'|([^\\s>]+))`,
+    "i"
+  );
+
+  let fallback: { start: number; end: number } | null = null;
+  let i = 0;
+  while (i < slice.length) {
+    const lt = slice.indexOf("<", i);
+    if (lt < 0) break;
+    if (slice.startsWith("<!--", lt)) {
+      const close = slice.indexOf("-->", lt + 4);
+      i = close < 0 ? slice.length : close + 3;
+      continue;
+    }
+    const next = slice[lt + 1];
+    if (next === "/" || next === "!" || next === "?") {
+      const close = findHtmlTagEnd(slice, lt + 1);
+      i = close < 0 ? slice.length : close + 1;
+      continue;
+    }
+    const gt = findHtmlTagEnd(slice, lt + 1);
+    if (gt < 0) break;
+    const tagText = slice.slice(lt, gt + 1);
+    i = gt + 1;
+
+    const m = rx.exec(tagText);
+    if (!m) continue;
+    const raw = m[2] ?? m[3] ?? m[4] ?? "";
+    if (!raw) continue;
+    if (raw !== value && decodeEntities(raw) !== value) continue;
+
+    const eq = m[0].indexOf("=");
+    const rel = eq < 0 ? m[0].indexOf(raw) : m[0].indexOf(raw, eq + 1);
+    if (rel < 0) continue;
+    const start = container.start + lt + m.index + rel;
+    const end = start + raw.length;
+
+    const tagName = /^<([a-zA-Z][\w:-]*)/.exec(tagText)?.[1]?.toLowerCase() ?? "";
+    if (!tagHint || tagName === tagHint) {
+      const line = lineAtOffset(source, start);
+      return {
+        start,
+        end,
+        precision: "exact",
+        line,
+        message: `已定位到第 ${line} 行（属性 ${name}）`,
+      };
+    }
+    if (!fallback) fallback = { start, end };
+  }
+
+  if (fallback) {
+    const line = lineAtOffset(source, fallback.start);
+    return {
+      start: fallback.start,
+      end: fallback.end,
+      precision: "exact",
+      line,
+      message: `已定位到第 ${line} 行（属性 ${name}）`,
+    };
+  }
+  return none;
+}
+
+/**
+ * Preview click routing:
+ * 1. `plainOffset` known → word-level run inside the annotated element
+ * 2. Else static match of visible text inside the slice → whole element range
+ * 3. Else attribute value (img alt / title / aria-label) → exact value range
+ * 4. Else script/JSON search (locateDynamicHtml)
+ * 5. Else whole ancestor range + 「仅定位到所在容器」
  * `annotatedSelf` is for messaging only — not used for branching.
  */
 export function locatePreviewClick(opts: {
@@ -462,12 +686,26 @@ export function locatePreviewClick(opts: {
   tag?: string;
   /** Messaging only; when true and text trivial, may return the whole range. */
   annotatedSelf?: boolean;
+  /** Caret offset inside the annotated element's rendered text (bridge). */
+  plainOffset?: number;
+  /** Attribute fallback when the clicked element renders no text. */
+  attrName?: string;
+  attrValue?: string;
 }): LocateResult {
   const source = normalizeNewlines(opts.source);
   const text = (opts.text || "").replace(/\u00a0/g, " ");
   const container = opts.container;
 
   if (container) {
+    if (typeof opts.plainOffset === "number") {
+      const run = locateTextRunInRange({
+        source,
+        container,
+        plainOffset: opts.plainOffset,
+      });
+      if (run.precision !== "none") return run;
+    }
+
     const staticHit = locateStaticInRange({
       source,
       text,
@@ -488,6 +726,17 @@ export function locatePreviewClick(opts: {
     }
     // annotatedSelf is messaging-only — never skip script search / never pretend exact
     // for empty chrome clicks (blank → container fallback below with 仅定位到所在容器).
+  }
+
+  if (container && (opts.attrName || opts.attrValue)) {
+    const byAttr = locateAttrValueInRange({
+      source,
+      container,
+      attrName: opts.attrName,
+      attrValue: opts.attrValue,
+      tag: opts.tag,
+    });
+    if (byAttr.precision !== "none") return byAttr;
   }
 
   const dyn = locateDynamicHtml({

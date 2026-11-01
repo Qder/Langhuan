@@ -62,6 +62,8 @@ type ExpectFile = {
   id: string;
   kind: "markdown" | "html";
   sourceFile: string;
+  /** Keep file newlines as-is (CRLF fixture); default reads LF-normalized. */
+  rawNewlines?: boolean;
   cases: CaseSpec[];
   reverse?: ReverseSpec[];
   selection?: SelectionSpec[];
@@ -79,8 +81,16 @@ function readExpectFiles(): ExpectFile[] {
   return out;
 }
 
-function readSource(rel: string): string {
-  return fs.readFileSync(path.join(goldenRoot, rel), "utf8");
+/**
+ * Fixtures are read LF-normalized by default: expectations are authored on LF
+ * offsets and the production content pipeline normalizes newlines before
+ * rendering/locating, so a CRLF working copy must not change what these
+ * assertions see. Fixtures that deliberately test raw CRLF input opt out with
+ * `"rawNewlines": true` in their expect file.
+ */
+function readSource(rel: string, rawNewlines = false): string {
+  const text = fs.readFileSync(path.join(goldenRoot, rel), "utf8");
+  return rawNewlines ? text : normalizeNewlines(text);
 }
 
 async function renderMarkdownPreview(fullSource: string): Promise<string> {
@@ -188,7 +198,7 @@ const expects = readExpectFiles();
 describe("golden locate regression", () => {
   for (const exp of expects) {
     describe(`${exp.kind}:${exp.id}`, () => {
-      const source = readSource(exp.sourceFile);
+      const source = readSource(exp.sourceFile, exp.rawNewlines === true);
 
       if (exp.kind === "markdown") {
         it("renders stamped preview", async () => {

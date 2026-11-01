@@ -5,10 +5,21 @@ import {
   hardDeletePath,
   readFileBytes,
   softDeleteDoc,
+  writeCssIndex,
+  writeJsIndex,
   writeQuizStore,
+  writeRawBase64File,
+  writeRawTextFile,
   writeTextDoc,
   QUIZ_INDEX_FILE,
 } from "@/lib/storage/contentFs";
+import { buildCssIndex } from "@/lib/locate/cssLocate";
+import { buildJsIndex } from "@/lib/locate/jsIndex";
+
+/** 超过这个体积的 CSS 不建索引（解析 + 行号本来也没意义）。 */
+const CSS_INDEX_MAX_SOURCE_BYTES = 2 * 1024 * 1024;
+/** 同理，超过这个体积的 JS 不建索引。 */
+const JS_INDEX_MAX_SOURCE_BYTES = 2 * 1024 * 1024;
 import { FS_INDEX_DIR } from "@/lib/storage/constants";
 import { normalizeQuizStore } from "@/lib/quiz";
 import { safeRelPath } from "@/lib/storage/pathSanitize";
@@ -49,10 +60,66 @@ export async function PUT(req: NextRequest) {
       updatedAt?: number;
       previousPath?: string;
       mkdirOnly?: string;
+      /** 项目资源：原样写盘，不进正文索引 */
+      raw?: boolean;
+      /** 二进制内容（配合 raw 使用） */
+      base64?: string;
+      /** 建 CSS 索引：服务端读源文件 → postcss 解析 → 写 .langhuan/index/css/ */
+      cssIndex?: boolean;
+      /** 建 JS 索引：服务端读源文件 → acorn 解析 → 写 .langhuan/index/js/ */
+      jsIndex?: boolean;
+      /** 待建索引的 CSS 文件（库内相对路径） */
+      file?: string;
     };
     if (body.mkdirOnly) {
       await ensureLibraryDir(body.mkdirOnly);
       return NextResponse.json({ ok: true, mkdir: body.mkdirOnly });
+    }
+    if (body.cssIndex) {
+      const file = safeRelPath(body.file || "");
+      if (!file || !/\.css$/i.test(file)) {
+        return NextResponse.json({ ok: false, error: "只支持为 .css 建索引" }, { status: 400 });
+      }
+      const raw = await readFileBytes(file);
+      if (!raw) {
+        return NextResponse.json({ ok: false, error: "CSS 文件不存在" }, { status: 404 });
+      }
+      if (raw.buf.byteLength > CSS_INDEX_MAX_SOURCE_BYTES) {
+        return NextResponse.json({ ok: false, error: "CSS 文件过大，未建索引" }, { status: 400 });
+      }
+      const index = await buildCssIndex(file, new TextDecoder().decode(raw.buf));
+      const written = await writeCssIndex(index);
+      return NextResponse.json({ ok: true, cssIndex: true, path: written, index });
+    }
+    if (body.jsIndex) {
+      const file = safeRelPath(body.file || "");
+      if (!file || !/\.(m?js|cjs)$/i.test(file)) {
+        return NextResponse.json({ ok: false, error: "只支持为 .js 建索引" }, { status: 400 });
+      }
+      const raw = await readFileBytes(file);
+      if (!raw) {
+        return NextResponse.json({ ok: false, error: "JS 文件不存在" }, { status: 404 });
+      }
+      if (raw.buf.byteLength > JS_INDEX_MAX_SOURCE_BYTES) {
+        return NextResponse.json({ ok: false, error: "JS 文件过大，未建索引" }, { status: 400 });
+      }
+      const index = await buildJsIndex(file, new TextDecoder().decode(raw.buf));
+      const written = await writeJsIndex(index);
+      return NextResponse.json({ ok: true, jsIndex: true, path: written, index });
+    }
+    if (body.raw) {
+      if (!body.path) {
+        return NextResponse.json({ ok: false, error: "缺少 path" }, { status: 400 });
+      }
+      if (typeof body.base64 === "string") {
+        const rel = await writeRawBase64File(body.path, body.base64);
+        return NextResponse.json({ ok: true, raw: true, path: rel });
+      }
+      if (typeof body.content !== "string") {
+        return NextResponse.json({ ok: false, error: "缺少 content/base64" }, { status: 400 });
+      }
+      const rel = await writeRawTextFile(body.path, body.content);
+      return NextResponse.json({ ok: true, raw: true, path: rel });
     }
     if (!body.path || typeof body.content !== "string") {
       return NextResponse.json({ ok: false, error: "缺少 path/content" }, { status: 400 });

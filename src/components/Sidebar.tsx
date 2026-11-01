@@ -27,6 +27,8 @@ import { BookOpenCheck,
   Tag,
   Download,
   Columns2,
+  FileCode2,
+  Boxes,
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Dialog } from "./ui/dialog";
@@ -56,6 +58,9 @@ import { formatImportStatus } from "@/lib/importPaths";
 import { ResizeGutter } from "./ui/ResizeGutter";
 import { PreviewContextMenu, type ContextMenuItem } from "./locate/PreviewContextMenu";
 import { useMediaQuery } from "@/lib/useMediaQuery";
+import { ProjectFileDialog } from "./ProjectFileDialog";
+import { isProjectTextPath, type ProjectPickedFile } from "@/lib/importProject";
+import { blobToBase64 } from "@/lib/storage/contentApi";
 
 type TreeNode = FolderTreeNode;
 
@@ -85,6 +90,7 @@ function FileTree({
   rowH,
   onFolderContextMenu,
   onFileContextMenu,
+  onOpenProjectFile,
 }: {
   node: TreeNode;
   depth?: number;
@@ -95,8 +101,11 @@ function FileTree({
   rowH: string;
   onFolderContextMenu: (folderPath: string, e: React.MouseEvent) => void;
   onFileContextMenu: (docId: string, e: React.MouseEvent) => void;
+  onOpenProjectFile: (path: string) => void;
 }) {
   const openDoc = useStore((s) => s.requestOpenDoc);
+  const projects = useStore((s) => s.projects);
+  const openProjectEntry = useStore((s) => s.openProjectEntry);
   const requestTreeReveal = useStore((s) => s.requestTreeReveal);
   const isDirty = useStore((s) => s.isDirty);
   const batchMode = useStore((s) => s.batchMode);
@@ -176,6 +185,7 @@ function FileTree({
       )}
       {folders.map((f) => {
         const open = expanded.has(f.path);
+        const project = projects.find((p) => p.root === f.path) || null;
         return (
           <div key={f.path} className="mb-0.5">
             <button
@@ -187,6 +197,9 @@ function FileTree({
                 e.dataTransfer.effectAllowed = "move";
               }}
               onClick={() => onToggle(f.path)}
+              onDoubleClick={() => {
+                if (project) openProjectEntry(project.root);
+              }}
               onContextMenu={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -211,6 +224,14 @@ function FileTree({
               />
               <FolderOpen className="h-3.5 w-3.5 text-[var(--gold)] shrink-0" />
               <span className="truncate font-ui">{f.name}</span>
+              {project && (
+                <span
+                  className="shrink-0 rounded px-1 py-[1px] text-[9px] uppercase tracking-wide text-[var(--teal)] ring-1 ring-[var(--border)]"
+                  title={`项目入口 ${project.entry}（双击打开）`}
+                >
+                  项目
+                </span>
+              )}
               <span className="ml-auto text-[10px] text-[var(--muted)] tabular-nums">
                 {countDocs(f)}
               </span>
@@ -226,6 +247,7 @@ function FileTree({
                 rowH={rowH}
                 onFolderContextMenu={onFolderContextMenu}
                 onFileContextMenu={onFileContextMenu}
+                onOpenProjectFile={onOpenProjectFile}
               />
             )}
           </div>
@@ -322,6 +344,28 @@ function FileTree({
           </div>
         );
       })}
+      {node.files.map((f) => (
+        <div
+          key={f.path}
+          className={cn(
+            "relative flex w-full items-center gap-1 rounded-xl px-1 text-left text-sm transition-colors group hover:bg-[var(--hover)]",
+            rowH
+          )}
+        >
+          <button
+            type="button"
+            data-project-file={f.path}
+            className="flex min-w-0 flex-1 items-center gap-1.5 px-1 h-full"
+            title={f.path}
+            onClick={() => onOpenProjectFile(f.path)}
+          >
+            <FileCode2 className="h-3.5 w-3.5 shrink-0 text-[var(--muted)] opacity-70" />
+            <span className="truncate font-mono text-[13px] text-[var(--muted)]">
+              {f.name}
+            </span>
+          </button>
+        </div>
+      ))}
     </div>
   );
 }
@@ -384,6 +428,7 @@ export function Sidebar() {
   const htmlSidebarPeek = useStore((s) => s.htmlSidebarPeek);
   const setHtmlSidebarPeek = useStore((s) => s.setHtmlSidebarPeek);
   const folderRef = React.useRef<HTMLInputElement>(null);
+  const projectRef = React.useRef<HTMLInputElement>(null);
   const fileRef = React.useRef<HTMLInputElement>(null);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const [tagQuery, setTagQuery] = React.useState("");
@@ -432,6 +477,17 @@ export function Sidebar() {
   const starred = documents
     .filter((d) => d.starred)
     .sort((a, b) => b.updatedAt - a.updatedAt);
+  const projects = useStore((s) => s.projects);
+  const importProject = useStore((s) => s.importProject);
+  const [projectFileView, setProjectFileView] = React.useState<string | null>(null);
+  /** 项目里不是文档的文件（css/js…）在树里也要出现，才算「一个完整的项目」。 */
+  const projectFiles = React.useMemo(() => {
+    // 用全部文档路径过滤：搜索过滤时文档只是暂时不显示，不能退化成「项目文件」行
+    const docPaths = new Set(documents.map((d) => d.path.replace(/\\/g, "/")));
+    return projects
+      .flatMap((p) => p.files.map((rel) => `${p.root}/${rel}`))
+      .filter((p) => !docPaths.has(p));
+  }, [projects, documents]);
   const tree = buildTree(
     visible.map((d) => ({
       id: d.id,
@@ -439,9 +495,9 @@ export function Sidebar() {
       type: d.type,
       starred: d.starred,
     })),
-    emptyFolders
-  );
-  const bytes = storageUsage?.usedBytes ?? useStore.getState().storageBytes();
+    emptyFolders,
+    projectFiles
+  );  const bytes = storageUsage?.usedBytes ?? useStore.getState().storageBytes();
   const activeDoc = documents.find((d) => d.id === activeId) || null;
   const statusHint =
     statusFilter === "todo"
@@ -716,6 +772,33 @@ export function Sidebar() {
     if (files.length || assets.length) setPendingImport({ docs: files, assets });
   };
 
+  /**
+   * 整目录导入：css/js/图片也一起带走，保留相对路径，入口页在预览时内联加载。
+   * 与「导入文件夹」的区别：这里不做文档拆分，多出来的文件不会被丢掉。
+   */
+  const handleProjectFolder = async (list: FileList | File[]) => {
+    const picked: ProjectPickedFile[] = [];
+    let folderName = "";
+    for (const file of Array.from(list)) {
+      const rel = (
+        (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name
+      ).replace(/\\/g, "/");
+      const parts = rel.split("/").filter(Boolean);
+      if (!folderName && parts.length > 1) folderName = parts[0];
+      const inner = parts.length > 1 ? parts.slice(1).join("/") : parts[0] || file.name;
+      if (isProjectTextPath(inner)) {
+        picked.push({ path: inner, text: await readFileAsText(file) });
+      } else if (file.size <= 8 * 1024 * 1024) {
+        picked.push({ path: inner, base64: await blobToBase64(file) });
+      }
+    }
+    if (!picked.length) {
+      setStatus("这个文件夹里没有可导入的文件");
+      return;
+    }
+    await importProject(folderName || "项目", picked);
+  };
+
   const openLocalFolder = async () => {
     const w = window as Window & {
       showDirectoryPicker?: () => Promise<FileSystemDirectoryHandle>;
@@ -929,6 +1012,9 @@ export function Sidebar() {
             <DropdownItem onClick={() => folderRef.current?.click()}>
               <Upload className="h-3.5 w-3.5" /> 导入文件夹
             </DropdownItem>
+            <DropdownItem onClick={() => projectRef.current?.click()}>
+              <Boxes className="h-3.5 w-3.5" /> 导入项目文件夹（含 css/js）
+            </DropdownItem>
             <DropdownItem onClick={() => fileRef.current?.click()}>
               <FileText className="h-3.5 w-3.5" /> 导入文件
             </DropdownItem>
@@ -946,6 +1032,18 @@ export function Sidebar() {
           webkitdirectory=""
           onChange={(e) => {
             if (e.target.files) void handleImportList(e.target.files, true);
+            e.target.value = "";
+          }}
+        />
+        <input
+          ref={projectRef}
+          type="file"
+          className="hidden"
+          multiple
+          // @ts-expect-error webkitdirectory
+          webkitdirectory=""
+          onChange={(e) => {
+            if (e.target.files) void handleProjectFolder(e.target.files);
             e.target.value = "";
           }}
         />
@@ -1159,6 +1257,7 @@ export function Sidebar() {
                   rowH={rowH}
                   onFolderContextMenu={openFolderContextMenu}
                   onFileContextMenu={openFileContextMenu}
+                  onOpenProjectFile={setProjectFileView}
                 />
               </div>
             </div>
@@ -1516,6 +1615,11 @@ export function Sidebar() {
         files={pendingImport?.docs ?? null}
         assets={pendingImport?.assets ?? null}
         onClose={() => setPendingImport(null)}
+      />
+      <ProjectFileDialog
+        path={projectFileView}
+        onClose={() => setProjectFileView(null)}
+        onCopied={setStatus}
       />
       {folderMenu && (
         <PreviewContextMenu

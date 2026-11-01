@@ -1,4 +1,4 @@
-import { dirname } from "./utils";
+import { basename, dirname } from "./utils";
 
 /** Normalize a library folder path (no leading/trailing slash, no `.`/`..`). */
 export function normalizeFolderPath(path: string): string {
@@ -52,6 +52,8 @@ export type FolderTreeNode = {
   name: string;
   path: string;
   docs: { id: string; name: string; type: string; starred?: boolean }[];
+  /** 项目里不是文档的文件（css/js/图片…），只展示、不进正文索引。 */
+  files: { name: string; path: string }[];
   children: Map<string, FolderTreeNode>;
 };
 
@@ -62,7 +64,7 @@ function ensureFolderNode(root: FolderTreeNode, folderPath: string): void {
     const name = parts[i];
     const p = parts.slice(0, i + 1).join("/");
     if (!node.children.has(name)) {
-      node.children.set(name, { name, path: p, docs: [], children: new Map() });
+      node.children.set(name, { name, path: p, docs: [], files: [], children: new Map() });
     }
     node = node.children.get(name)!;
   }
@@ -71,12 +73,16 @@ function ensureFolderNode(root: FolderTreeNode, folderPath: string): void {
 /**
  * Build sidebar tree from documents, then merge persisted empty folders
  * so empty directories remain visible without ghost markdown placeholders.
+ *
+ * `projectFiles` 是项目里不属于文档的文件路径（库内相对路径），挂在所属文件夹下，
+ * 让「一个项目」在树里是完整的一棵树。
  */
 export function buildTree(
   docs: { id: string; path: string; type: string; starred?: boolean }[],
-  emptyFolders: string[] = []
+  emptyFolders: string[] = [],
+  projectFiles: string[] = []
 ): FolderTreeNode {
-  const root: FolderTreeNode = { name: "", path: "", docs: [], children: new Map() };
+  const root: FolderTreeNode = { name: "", path: "", docs: [], files: [], children: new Map() };
   for (const d of docs) {
     const parts = d.path.replace(/\\/g, "/").split("/");
     let node = root;
@@ -84,7 +90,7 @@ export function buildTree(
       const name = parts[i];
       const p = parts.slice(0, i + 1).join("/");
       if (!node.children.has(name)) {
-        node.children.set(name, { name, path: p, docs: [], children: new Map() });
+        node.children.set(name, { name, path: p, docs: [], files: [], children: new Map() });
       }
       node = node.children.get(name)!;
     }
@@ -98,6 +104,22 @@ export function buildTree(
   for (const folder of emptyFolders) {
     const norm = normalizeFolderPath(folder);
     if (norm) ensureFolderNode(root, norm);
+  }
+  const docPaths = new Set(docs.map((d) => d.path.replace(/\\/g, "/")));
+  for (const raw of projectFiles) {
+    const path = raw.replace(/\\/g, "/").replace(/^\/+/, "");
+    if (!path || docPaths.has(path)) continue;
+    const parent = dirname(path);
+    if (parent) ensureFolderNode(root, parent);
+    let node = root;
+    const parts = parent ? parent.split("/") : [];
+    for (const name of parts) {
+      const next = node.children.get(name);
+      if (!next) break;
+      node = next;
+    }
+    if (node.files.some((f) => f.path === path)) continue;
+    node.files.push({ name: basename(path), path });
   }
   return root;
 }

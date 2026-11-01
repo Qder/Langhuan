@@ -14,6 +14,25 @@ import {
 } from "../quiz";
 import { safeRelPath } from "./pathSanitize";
 import { normalizeNewlines } from "../utils";
+import {
+  PROJECT_META_DIR,
+  PROJECT_META_FILE,
+  parseProjectMeta,
+  projectMetaPath,
+  type ProjectMeta,
+} from "../project";
+import {
+  CSS_INDEX_DIR,
+  cssIndexPath,
+  parseCssIndex,
+  type CssFileIndex,
+} from "../locate/cssLocate";
+import {
+  JS_INDEX_DIR,
+  jsIndexPath,
+  parseJsIndex,
+  type JsFileIndex,
+} from "../locate/jsIndex";
 
 export { safeRelPath };
 
@@ -41,7 +60,24 @@ export type LibrarySnapshot = {
   documents: Document[];
   assets: AssetMeta[];
   trash: TrashItem[];
+  /** 项目元数据（content/<root>/.langhuan/project.json） */
+  projects?: ProjectMeta[];
+  /** 内联用的项目文本缓存：root → 项目内相对路径 → 内容 */
+  projectTexts?: Record<string, Record<string, string>>;
+  /** CSS 索引（content/.langhuan/index/css/*.json） */
+  cssIndexes?: CssFileIndex[];
+  /** JS 符号索引（content/.langhuan/index/js/*.json） */
+  jsIndexes?: JsFileIndex[];
 };
+
+/** 项目里参与「预览内联」的文本类型（只读这几个，避免把大 JSON 全塞进快照）。 */
+const PROJECT_INLINE_RE = /\.(css|js|mjs|cjs)$/i;
+
+/** 单个项目文本文件进快照的上限。 */
+export const PROJECT_TEXT_MAX_BYTES = 512 * 1024;
+
+/** 单个项目文本总量上限。 */
+export const PROJECT_TEXT_TOTAL_MAX_BYTES = 4 * 1024 * 1024;
 
 const TEXT_DOC_RE = /\.(md|html|htm|txt|svg)$/i;
 const IMAGE_ASSET_RE = /\.(png|jpe?g|gif|webp|bmp|avif|ico)$/i;
@@ -196,6 +232,13 @@ function mimeForPath(rel: string): string {
   if (lower.endsWith(".svg")) return "image/svg+xml";
   if (lower.endsWith(".html") || lower.endsWith(".htm")) return "text/html; charset=utf-8";
   if (lower.endsWith(".md") || lower.endsWith(".txt")) return "text/markdown; charset=utf-8";
+  if (lower.endsWith(".css")) return "text/css; charset=utf-8";
+  if (lower.endsWith(".js") || lower.endsWith(".mjs") || lower.endsWith(".cjs")) {
+    return "text/javascript; charset=utf-8";
+  }
+  if (lower.endsWith(".json") || lower.endsWith(".map")) {
+    return "application/json; charset=utf-8";
+  }
   return "application/octet-stream";
 }
 
@@ -284,7 +327,10 @@ export async function scanLibrary(): Promise<LibrarySnapshot> {
   await writeIndex(nextIndex);
   await writeAssetsIndex(present);
 
-  return { documents, assets: present, trash };
+  const { projects, projectTexts } = await readProjectSnapshot();
+  const cssIndexes = await readCssIndexes();
+  const jsIndexes = await readJsIndexes();
+  return { documents, assets: present, trash, projects, projectTexts, cssIndexes, jsIndexes };
 }
 
 export async function readFileBytes(
@@ -491,4 +537,193 @@ export function mergeIndexEntry(
       },
     },
   };
+}
+
+/* ——————————————————— 项目（多文件站点） ——————————————————— */
+
+async function isFile(abs: string): Promise<boolean> {
+  try {
+    const st = await fs.stat(abs);
+    return st.isFile();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 找出所有项目根：同时含 `<root>/.langhuan/project.json` 的目录。
+ * 跳过 node_modules / .git 等下钻，避免深目录拖慢扫描。
+ */
+export async function listProjectRoots(): Promise<string[]> {
+  await ensureContentTree();
+  const out: string[] = [];
+  const walk = async (abs: string, rel: string) => {
+    let ents;
+    try {
+      ents = await fs.readdir(abs, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const ent of ents) {
+      if (!ent.isDirectory()) continue;
+      if (ent.name === PROJECT_META_DIR) continue;
+      if (ent.name === "node_modules" || ent.name === ".git") continue;
+      const childRel = rel ? `${rel}/${ent.name}` : ent.name;
+      const childAbs = path.join(abs, ent.name);
+      if (await isFile(path.join(childAbs, PROJECT_META_DIR, PROJECT_META_FILE))) {
+        out.push(childRel);
+      }
+      await walk(childAbs, childRel);
+    }
+  };
+  await walk(contentRoot(), "");
+  return out;
+}
+
+/**
+ * 读全部项目元数据 + 内联用的文本缓存（css/js，带大小上限）。
+ * 坏掉的 project.json 只跳过该项目，不影响其它项目。
+ */
+export async function readProjectSnapshot(): Promise<{
+  projects: ProjectMeta[];
+  projectTexts: Record<string, Record<string, string>>;
+}> {
+  const projects: ProjectMeta[] = [];
+  const projectTexts: Record<string, Record<string, string>> = {};
+  for (const root of await listProjectRoots()) {
+    try {
+      const raw = await fs.readFile(absFromRel(projectMetaPath(root)), "utf8");
+      const meta = parseProjectMeta(JSON.parse(raw), root);
+      if (!meta) continue;
+      const texts: Record<string, string> = {};
+      let total = 0;
+      for (const rel of meta.files) {
+        if (!PROJECT_INLINE_RE.test(rel)) continue;
+        const abs = absFromRel(`${root}/${rel}`);
+        const st = await fs.stat(abs).catch(() => null);
+        if (!st || !st.isFile() || st.size > PROJECT_TEXT_MAX_BYTES) continue;
+        if (total + st.size > PROJECT_TEXT_TOTAL_MAX_BYTES) break;
+        texts[rel] = normalizeNewlines(await fs.readFile(abs, "utf8"));
+        total += st.size;
+      }
+      projects.push(meta);
+      projectTexts[root] = texts;
+    } catch {
+      /* 单个项目损坏不影响整体 */
+    }
+  }
+  projects.sort((a, b) => a.root.localeCompare(b.root, "zh"));
+  return { projects, projectTexts };
+}
+
+/** 原样写一个文本文件（项目资源：css/js/其他），不进正文索引。 */
+export async function writeRawTextFile(relPath: string, content: string): Promise<string> {
+  await ensureContentTree();
+  const rel = assertNotLibraryMeta(relPath);
+  const abs = absFromRel(rel);
+  await fs.mkdir(path.dirname(abs), { recursive: true });
+  await fs.writeFile(abs, content, "utf8");
+  return rel;
+}
+
+/** 原样写一个二进制文件（项目里的图片等），不进附件索引。 */
+export async function writeRawBase64File(relPath: string, base64: string): Promise<string> {
+  await ensureContentTree();
+  const rel = assertNotLibraryMeta(relPath);
+  const abs = absFromRel(rel);
+  await fs.mkdir(path.dirname(abs), { recursive: true });
+  await fs.writeFile(abs, Buffer.from(base64, "base64"));
+  return rel;
+}
+
+/** 库级 `.langhuan/` 放索引/回收站，不接受项目资源写入（项目元数据在 `<root>/.langhuan/`）。 */
+function assertNotLibraryMeta(relPath: string): string {
+  const rel = safeRelPath(relPath);
+  if (!rel) throw new Error("路径无效");
+  if (rel === FS_INDEX_DIR || rel.startsWith(`${FS_INDEX_DIR}/`)) {
+    throw new Error("不能写入库元数据目录 .langhuan/");
+  }
+  return rel;
+}
+
+/* ——————————————————— CSS 索引（选择器 → 文件行号） ——————————————————— */
+
+const CSS_INDEX_MAX_BYTES = 4 * 1024 * 1024;
+
+/** 写一个 CSS 索引文件：content/.langhuan/index/css/<hash>.json（源文件不动）。 */
+export async function writeCssIndex(index: CssFileIndex): Promise<string> {
+  await ensureContentTree();
+  const rel = cssIndexPath(index.file);
+  const abs = absFromRel(rel);
+  await fs.mkdir(path.dirname(abs), { recursive: true });
+  await fs.writeFile(abs, `${JSON.stringify(index, null, 2)}\n`, "utf8");
+  return rel;
+}
+
+/** 读全部 CSS 索引；坏文件 / 超大文件跳过，不影响其它。 */
+export async function readCssIndexes(): Promise<CssFileIndex[]> {
+  await ensureContentTree();
+  const dir = absFromRel(CSS_INDEX_DIR);
+  let names: string[];
+  try {
+    names = await fs.readdir(dir);
+  } catch {
+    return [];
+  }
+  const out: CssFileIndex[] = [];
+  for (const name of names) {
+    if (!name.endsWith(".json")) continue;
+    try {
+      const abs = path.join(dir, name);
+      const st = await fs.stat(abs);
+      if (!st.isFile() || st.size > CSS_INDEX_MAX_BYTES) continue;
+      const parsed = parseCssIndex(JSON.parse(await fs.readFile(abs, "utf8")));
+      if (parsed) out.push(parsed);
+    } catch {
+      /* 坏索引跳过 */
+    }
+  }
+  out.sort((a, b) => a.file.localeCompare(b.file, "zh"));
+  return out;
+}
+
+/* ——————————————————— JS 索引（选择器 / 事件绑定 → 文件行号） ——————————————————— */
+
+const JS_INDEX_MAX_BYTES = 4 * 1024 * 1024;
+
+/** 写一个 JS 符号索引：content/.langhuan/index/js/<hash>.json（源文件不动）。 */
+export async function writeJsIndex(index: JsFileIndex): Promise<string> {
+  await ensureContentTree();
+  const rel = jsIndexPath(index.file);
+  const abs = absFromRel(rel);
+  await fs.mkdir(path.dirname(abs), { recursive: true });
+  await fs.writeFile(abs, `${JSON.stringify(index, null, 2)}\n`, "utf8");
+  return rel;
+}
+
+/** 读全部 JS 索引；坏文件 / 超大文件跳过，不影响其它。删掉能重建。 */
+export async function readJsIndexes(): Promise<JsFileIndex[]> {
+  await ensureContentTree();
+  const dir = absFromRel(JS_INDEX_DIR);
+  let names: string[];
+  try {
+    names = await fs.readdir(dir);
+  } catch {
+    return [];
+  }
+  const out: JsFileIndex[] = [];
+  for (const name of names) {
+    if (!name.endsWith(".json")) continue;
+    try {
+      const abs = path.join(dir, name);
+      const st = await fs.stat(abs);
+      if (!st.isFile() || st.size > JS_INDEX_MAX_BYTES) continue;
+      const parsed = parseJsIndex(JSON.parse(await fs.readFile(abs, "utf8")));
+      if (parsed) out.push(parsed);
+    } catch {
+      /* 坏索引跳过 */
+    }
+  }
+  out.sort((a, b) => a.file.localeCompare(b.file, "zh"));
+  return out;
 }

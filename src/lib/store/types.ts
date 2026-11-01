@@ -18,9 +18,16 @@ import type { DocMeta, DocStatus } from "../docMeta";
 import type { SavedSearch } from "../searchQuery";
 import type { HtmlDocPreviewPrefs } from "../htmlPreviewPrefs";
 import type { LocateResult } from "../locate/types";
+import type { BridgeElementNode } from "../locate/types";
+import type { JsFileIndex } from "../locate/jsIndex";
 import type { StorageUsage } from "../storage/usage";
 import type { BackupPayload } from "../storage/backup";
 import type { TabCloseMode } from "../tabClose";
+import type { ProjectMeta } from "../project";
+import type { ProjectPickedFile } from "../importProject";
+import type { ImportProjectResult } from "./slices/projectsSlice";
+import type { ElementPanelState } from "./slices/elementInspectSlice";
+import type { CssFileIndex, RawCssHit } from "../locate/cssLocate";
 
 export type PendingReveal = {
   start: number;
@@ -79,6 +86,16 @@ export type LanghuanState = {
   trash: TrashItem[];
   /** Empty folder paths kept visible in the tree (persisted). */
   emptyFolders: string[];
+  /** 项目（多文件站点）元数据，来自 content/<root>/.langhuan/project.json */
+  projects: ProjectMeta[];
+  /** 预览内联用的项目文本缓存：root → 项目内相对路径 → 内容 */
+  projectTexts: Record<string, Record<string, string>>;
+  /** CSS 索引（选择器 → 文件行号），来自 content/.langhuan/index/css/ */
+  cssIndexes: CssFileIndex[];
+  /** JS 符号索引（函数 / DOM 查询 / 事件绑定 → 文件行号），来自 content/.langhuan/index/js/ */
+  jsIndexes: JsFileIndex[];
+  /** 预览里点元素后的「元素检视」抽屉（HTML / 样式 / 行为）；null = 关闭 */
+  elementPanel: ElementPanelState | null;
   activeId: string | null;
   viewMode: ViewMode;
   theme: ThemeMode;
@@ -239,6 +256,48 @@ export type LanghuanState = {
     files: { path: string; content: string }[],
     opts?: { quiet?: boolean }
   ) => number;
+  /**
+   * 把整个文件夹当成一个项目导入：保留目录结构，正文进库，css/js/图片原样落盘，
+   * 并写 content/<root>/.langhuan/project.json。成功后打开入口页。
+   */
+  importProject: (
+    name: string,
+    files: ProjectPickedFile[],
+    opts?: { quiet?: boolean }
+  ) => Promise<ImportProjectResult>;
+  /** 打开项目的入口页（index.html）。 */
+  openProjectEntry: (root: string) => void;
+  /** 覆盖 CSS 索引列表（hydrate 时来自 /api/library）。 */
+  setCssIndexes: (list: CssFileIndex[]) => void;
+  /** 覆盖 JS 符号索引列表（hydrate 时来自 /api/library）。 */
+  setJsIndexes: (list: JsFileIndex[]) => void;
+  /**
+   * 预览里点了元素之后：把 iframe 回传的「样式命中 + 元素身份」+ 父窗口算好的源码位置，
+   * 解析成 HTML / 样式 / 行为三段的数据并开抽屉。索引缺失的 CSS / JS 会先补建（异步）。
+   */
+  inspectElement: (raw: {
+    label: string;
+    text: string;
+    hits: RawCssHit[];
+    /** 每次点击递增（bridge 的 css 查询 nonce），抽屉拿它当重挂 key */
+    nonce?: number;
+    /** 真正点到的元素（样式会往上找祖先，这里始终是点击目标） */
+    element?: BridgeElementNode | null;
+    /** 祖先链（最多 6 层）：事件委托只能定位到父元素上的绑定 */
+    ancestors?: BridgeElementNode[];
+    /** 当前文档路径 / 内容：用来找项目内 .js 与解析内联 <script>，并给出 HTML 段的行号 */
+    docPath?: string;
+    docContent?: string;
+    /** 点到的元素在源码里的区间（bridge 的 data-lh 标注）：有就是精确 */
+    range?: { start: number; end: number } | null;
+    /** 现有 htmlLocate 的结果（没有标注时按文本/属性推断） */
+    located?: LocateResult | null;
+  }) => Promise<void>;
+  /** 关掉元素检视抽屉。 */
+  closeInspector: () => void;
+  /** 抽屉是否固定在右侧（pin 后成为布局里的一列，不遮挡预览）。 */
+  elementPanelPinned: boolean;
+  setElementPanelPinned: (pinned: boolean) => void;
   /** Import binary images as AssetMeta, preserving vault-relative paths (no suggestAssetPath). */
   importAssets: (
     files: { path: string; blob: Blob; mime?: string }[],

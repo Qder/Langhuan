@@ -25,6 +25,8 @@ import { createTabsSlice } from "./slices/tabsSlice";
 import { createAssetsSlice } from "./slices/assetsSlice";
 import { createSyncBackupSlice } from "./slices/syncBackupSlice";
 import { createDocsSlice } from "./slices/docsSlice";
+import { createProjectsSlice } from "./slices/projectsSlice";
+import { createElementInspectSlice } from "./slices/elementInspectSlice";
 
 export type {
   PendingReveal,
@@ -48,6 +50,8 @@ export const useStore = create<LanghuanState>()(
       ...createAssetsSlice(...a),
       ...createSyncBackupSlice(...a),
       ...createDocsSlice(...a),
+      ...createProjectsSlice(...a),
+      ...createElementInspectSlice(...a),
     }),
     {
       name: STORE_KEY,

@@ -117,6 +117,96 @@
     return false;
   }
 
+  /**
+   * Text the DOM does not render as text — mirrors RAW_TEXT_TAGS in htmlPlainMap.ts
+   * and must stay identical on both sides or offsets drift.
+   */
+  var SKIP_TEXT_TAGS = { script: 1, style: 1, noscript: 1, template: 1, textarea: 1 };
+
+  function insideSkippedText(node, root) {
+    var el = node && node.parentElement;
+    while (el && el !== root) {
+      var t = (el.tagName || "").toLowerCase();
+      if (SKIP_TEXT_TAGS[t]) return true;
+      el = el.parentElement;
+    }
+    return false;
+  }
+
+  /** Caret position under a viewport point, or null when the API is unavailable. */
+  function caretAt(x, y) {
+    try {
+      if (document.caretPositionFromPoint) {
+        var p = document.caretPositionFromPoint(x, y);
+        if (p && p.offsetNode) return { node: p.offsetNode, offset: p.offset };
+      }
+    } catch (e1) {}
+    try {
+      if (document.caretRangeFromPoint) {
+        var r = document.caretRangeFromPoint(x, y);
+        if (r && r.startContainer) return { node: r.startContainer, offset: r.startOffset };
+      }
+    } catch (e2) {}
+    return null;
+  }
+
+  /**
+   * Character offset of the caret inside `root`'s rendered text (source of truth:
+   * htmlPlainMap.buildHtmlPlainMap). Returns null when unknown — the parent then
+   * keeps the tag-level behaviour instead of guessing.
+   */
+  function plainOffsetIn(root, node, offset) {
+    if (!root || !node) return null;
+    try {
+      if (node !== root && root.contains && !root.contains(node)) return null;
+      var total = 0;
+      var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+      var n;
+      while ((n = walker.nextNode())) {
+        if (n === node) {
+          var len = (n.nodeValue || "").length;
+          return total + Math.max(0, Math.min(offset, len));
+        }
+        if (insideSkippedText(n, root)) continue;
+        total += (n.nodeValue || "").length;
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  function clickPlainOffset(lhEl, x, y) {
+    var cm = caretAt(x, y);
+    if (!cm || !cm.node) return null;
+    var root = lhEl || (cm.node.nodeType === 3 ? cm.node.parentElement : cm.node);
+    if (!root) return null;
+    return plainOffsetIn(root, cm.node, cm.offset);
+  }
+
+  var ATTR_CANDIDATES = ["alt", "aria-label", "title", "placeholder"];
+  /**
+   * Attribute value to locate when the clicked element renders no text
+   * (img alt, area alt, svg title-less, …). Never walks past the annotated node.
+   */
+  function attrNear(el, lhEl) {
+    var node = el && el.nodeType !== 1 ? el.parentElement : el;
+    var root = lhEl || node;
+    var depth = 0;
+    while (node && depth < 12) {
+      if (node.getAttribute) {
+        for (var i = 0; i < ATTR_CANDIDATES.length; i++) {
+          var name = ATTR_CANDIDATES[i];
+          var v = "";
+          try { v = String(node.getAttribute(name) || "").trim(); } catch (e0) { v = ""; }
+          if (v) return { name: name, value: v };
+        }
+      }
+      if (node === root) break;
+      node = node.parentElement;
+      depth++;
+    }
+    return null;
+  }
+
   function reportBg() {
     var color = "";
     try {
@@ -448,6 +538,8 @@
     e.preventDefault();
     var snippet = textSnippetOf(e.target && e.target.nodeType === 1 ? e.target : (e.target && e.target.parentElement) || lhEl);
     var selfAnnotated = !!(lhEl && lhEl.getAttribute && lhEl.getAttribute("data-lh"));
+    var ctxAttr = attrNear(e.target, lhEl);
+    var ctxPlain = clickPlainOffset(lhEl, e.clientX, e.clientY);
     parent.postMessage({
       type: "lh-contextmenu",
       text: "",
@@ -459,7 +551,10 @@
       y: e.clientY,
       range: lh,
       tag: lhEl && lhEl.tagName ? lhEl.tagName.toLowerCase() : "",
-      annotatedSelf: selfAnnotated
+      annotatedSelf: selfAnnotated,
+      plainOffset: ctxPlain == null ? undefined : ctxPlain,
+      attrName: ctxAttr ? ctxAttr.name : undefined,
+      attrValue: ctxAttr ? ctxAttr.value : undefined
     }, "*");
   }, true);
 
@@ -534,6 +629,19 @@
     }
   }
 
+  /**
+   * Blocks whose own text is a good click-locate needle. Wider than the original
+   * paragraph / heading / list-item set: table cells, code blocks and quotes were
+   * silently un-locatable.
+   */
+  var TEXT_BLOCK_TAGS = {
+    td: 1, th: 1, pre: 1, code: 1, blockquote: 1,
+    dt: 1, dd: 1, figcaption: 1, caption: 1
+  };
+  var PREFER_SELECTOR =
+    ".stem, .desc, .title, .question-stem, [data-stem], [data-desc], " +
+    "p, h1, h2, h3, h4, h5, h6, li, td, th, pre, code, blockquote, dt, dd, figcaption, caption";
+
   function textSnippetOf(el) {
     if (!el) return "";
     try {
@@ -544,12 +652,12 @@
     try {
       var prefer = null;
       var tag = (el.tagName || "").toLowerCase();
-      if (/^h[1-6]$/.test(tag) || tag === "p" || tag === "li") prefer = el;
+      if (/^h[1-6]$/.test(tag) || tag === "p" || tag === "li" || TEXT_BLOCK_TAGS[tag]) prefer = el;
       if (!prefer && el.closest) {
-        prefer = el.closest(".stem, .desc, .title, .question-stem, [data-stem], [data-desc], p, h1, h2, h3, h4, h5, h6, li");
+        prefer = el.closest(PREFER_SELECTOR);
       }
       if (!prefer && el.querySelector) {
-        prefer = el.querySelector(".stem, .desc, .title, [data-stem], [data-desc], p, h1, h2, h3, h4, h5, h6");
+        prefer = el.querySelector(PREFER_SELECTOR);
       }
       if (prefer) el = prefer;
     } catch (e1) {}
@@ -711,6 +819,450 @@
     return true;
   }
 
+  /* ---------- CSS 命中采集（父窗口点元素 → 这里遍历 styleSheets） ---------- */
+
+  // 最近一次点击的元素：即便这次点击被 locate 的种种门禁挡掉（无文本、交互元素…），
+  // 「元素」面板仍然要能回答「刚点的这个元素被哪些规则命中 / 谁给它绑了事件」。
+  // 所以每次点击都先给父窗口报一次身份（lh-element），由父窗口决定要不要追问（lh-css-query）；
+  // lh-locate 只负责「定位源码」，交互元素（button/a/input）照旧不发。
+  // range 是 data-lh 标注的源码区间：抽屉的 HTML 段靠它给精确行号（点了按钮也能定位）。
+  var lastClickEl = null;
+  document.addEventListener(
+    "click",
+    function (e) {
+      var t = e.target;
+      lastClickEl = t && t.nodeType === 1 ? t : (t && t.parentElement) || null;
+      if (!lastClickEl) return;
+      var lhEl = closestLh(lastClickEl);
+      var ownText = "";
+      try {
+        ownText = String(lastClickEl.textContent || "").replace(/\s+/g, " ").trim().slice(0, 60);
+      } catch (eTxt) {}
+      parent.postMessage(
+        {
+          type: "lh-element",
+          element: elementIdentity(lastClickEl),
+          ancestors: elementAncestors(lastClickEl, 6),
+          range: (lhEl && parseLh(lhEl)) || null,
+          text: ownText,
+        },
+        "*"
+      );
+    },
+    true
+  );
+
+  /**
+   * specificity（与 src/lib/locate/cssLocate.ts 同一算法，测试里逐条比对防漂移）。
+   * [id, class/attr/伪类, 类型/伪元素]
+   */
+  function cssSpecificity(selector) {
+    var total = [0, 0, 0];
+    var s = String(selector || "");
+    var i = 0;
+    while (i < s.length) {
+      var ch = s.charAt(i);
+      if (/[\s,>+~|]/.test(ch)) {
+        i++;
+        continue;
+      }
+      if (ch === "*") {
+        i++;
+        continue;
+      }
+      if (ch === "#") {
+        total[0] += 1;
+        i = cssSkipIdent(s, i + 1);
+        continue;
+      }
+      if (ch === ".") {
+        total[1] += 1;
+        i = cssSkipIdent(s, i + 1);
+        continue;
+      }
+      if (ch === "[") {
+        total[1] += 1;
+        i = cssSkipBracket(s, i);
+        continue;
+      }
+      if (ch === ":") {
+        var isDouble = s.charAt(i + 1) === ":";
+        var nameStart = i + (isDouble ? 2 : 1);
+        var nameEnd = cssSkipIdent(s, nameStart);
+        var name = s.slice(nameStart, nameEnd).toLowerCase();
+        var k = nameEnd;
+        while (k < s.length && /\s/.test(s.charAt(k))) k++;
+        if (isDouble) {
+          total[2] += 1;
+          i = s.charAt(k) === "(" ? cssSkipParen(s, k) : k;
+          continue;
+        }
+        if (s.charAt(k) === "(") {
+          var end = cssSkipParen(s, k);
+          var args = s.slice(k + 1, Math.max(k + 1, end - 1));
+          if (name === "where") {
+            // 恒为 0
+          } else if (
+            name === "is" ||
+            name === "not" ||
+            name === "has" ||
+            name === "matches" ||
+            name === "-webkit-any" ||
+            name === "-moz-any"
+          ) {
+            var sub = cssMaxSpecificity(cssSplitList(args));
+            total[0] += sub[0];
+            total[1] += sub[1];
+            total[2] += sub[2];
+          } else if (name === "nth-child" || name === "nth-last-child") {
+            total[1] += 1;
+            var of = args.toLowerCase().indexOf(" of ");
+            if (of >= 0) {
+              var subOf = cssMaxSpecificity(cssSplitList(args.slice(of + 4)));
+              total[0] += subOf[0];
+              total[1] += subOf[1];
+              total[2] += subOf[2];
+            }
+          } else {
+            total[1] += 1;
+          }
+          i = end;
+          continue;
+        }
+        if (name === "before" || name === "after" || name === "first-line" || name === "first-letter") {
+          total[2] += 1;
+        } else {
+          total[1] += 1;
+        }
+        i = k;
+        continue;
+      }
+      if (/[-_a-zA-Z0-9\u00a0-\uffff\\]/.test(ch)) {
+        total[2] += 1;
+        i = cssSkipIdent(s, i);
+        continue;
+      }
+      i++;
+    }
+    return total;
+  }
+
+  function cssMaxSpecificity(list) {
+    var best = [0, 0, 0];
+    for (var i = 0; i < list.length; i++) {
+      var s = cssSpecificity(list[i]);
+      if (cssCompareSpec(s, best) > 0) best = s;
+    }
+    return best;
+  }
+
+  function cssCompareSpec(a, b) {
+    return a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
+  }
+
+  function cssSkipIdent(s, from) {
+    var i = from;
+    while (i < s.length) {
+      var ch = s.charAt(i);
+      if (ch === "\\") {
+        i += 2;
+        continue;
+      }
+      if (!/[-_a-zA-Z0-9\u00a0-\uffff]/.test(ch)) break;
+      i++;
+    }
+    return i;
+  }
+
+  function cssSkipBracket(s, from) {
+    var quote = "";
+    for (var i = from + 1; i < s.length; i++) {
+      var ch = s.charAt(i);
+      if (quote) {
+        if (ch === "\\") i++;
+        else if (ch === quote) quote = "";
+        continue;
+      }
+      if (ch === '"' || ch === "'") {
+        quote = ch;
+        continue;
+      }
+      if (ch === "]") return i + 1;
+    }
+    return s.length;
+  }
+
+  function cssSkipParen(s, from) {
+    var depth = 0;
+    var quote = "";
+    for (var i = from; i < s.length; i++) {
+      var ch = s.charAt(i);
+      if (quote) {
+        if (ch === "\\") i++;
+        else if (ch === quote) quote = "";
+        continue;
+      }
+      if (ch === '"' || ch === "'") {
+        quote = ch;
+        continue;
+      }
+      if (ch === "(") depth++;
+      else if (ch === ")") {
+        depth--;
+        if (depth === 0) return i + 1;
+      }
+    }
+    return s.length;
+  }
+
+  function cssSplitList(text) {
+    var out = [];
+    var depth = 0;
+    var quote = "";
+    var cur = "";
+    for (var i = 0; i < text.length; i++) {
+      var ch = text.charAt(i);
+      if (quote) {
+        cur += ch;
+        if (ch === "\\") {
+          cur += text.charAt(i + 1);
+          i++;
+        } else if (ch === quote) {
+          quote = "";
+        }
+        continue;
+      }
+      if (ch === '"' || ch === "'") {
+        quote = ch;
+        cur += ch;
+        continue;
+      }
+      if (ch === "(" || ch === "[") depth++;
+      else if (ch === ")" || ch === "]") depth = Math.max(0, depth - 1);
+      if (ch === "," && depth === 0) {
+        if (cur.trim()) out.push(cur.trim());
+        cur = "";
+        continue;
+      }
+      cur += ch;
+    }
+    if (cur.trim()) out.push(cur.trim());
+    return out;
+  }
+
+  /** 样式表来源：内联时由 data-lh-inline 标明原文件；外部/未知为空。 */
+  function cssSheetSource(sheet) {
+    try {
+      var owner = sheet.ownerNode || sheet.owningElement;
+      if (owner && owner.getAttribute) return owner.getAttribute("data-lh-inline") || "";
+    } catch (e) {}
+    return "";
+  }
+
+  function cssConditionText(rule) {
+    try {
+      if (rule.media && typeof rule.media.mediaText === "string") {
+        return "@media " + rule.media.mediaText;
+      }
+      if (typeof rule.conditionText === "string" && rule.conditionText) {
+        if (rule.type === 12) return "@supports " + rule.conditionText;
+        if (rule.name) return "@" + rule.name + " " + rule.conditionText;
+        return "@condition " + rule.conditionText;
+      }
+      if (rule.name && typeof rule.name === "string") return "@layer " + rule.name;
+    } catch (e) {}
+    return "";
+  }
+
+  /**
+   * 遍历 styleSheets，用 el.matches(selectorText) 判断命中。
+   * 跨源样式表读 cssRules 会抛 SecurityError —— 直接跳过（内联后不存在这个问题）。
+   */
+  function collectCssHits(el) {
+    var hits = [];
+    if (!el || !el.matches) return hits;
+    var sheets = [];
+    try {
+      sheets = document.styleSheets || [];
+    } catch (e0) {
+      return hits;
+    }
+    var order = 0;
+
+    function walkRules(list, conds, file, active) {
+      if (!list) return;
+      for (var j = 0; j < list.length; j++) {
+        var rule = list[j];
+        if (!rule) continue;
+        if (typeof rule.selectorText === "string") {
+          var matched = false;
+          try {
+            matched = el.matches(rule.selectorText);
+          } catch (eMatch) {
+            matched = false;
+          }
+          if (matched) {
+            hits.push({
+              selector: rule.selectorText,
+              // cssText 只为面板兜底展示，截断以免大页面把 postMessage 撑爆
+              cssText: String(rule.cssText || "").slice(0, 500),
+              file: file,
+              conditions: conds.slice(),
+              // 条件当前是否成立（@media (max-width: 520px) 在宽屏上不生效）
+              active: active,
+              specificity: cssSpecificity(rule.selectorText),
+              order: order,
+            });
+          }
+          order++;
+          continue;
+        }
+        if (rule.cssRules) {
+          var cond = cssConditionText(rule);
+          var next = conds.slice();
+          var nextActive = active;
+          if (cond) {
+            next.push(cond);
+            if (rule.media && typeof rule.media.mediaText === "string") {
+              try {
+                nextActive = active && window.matchMedia(rule.media.mediaText).matches;
+              } catch (eMedia) {}
+            }
+          }
+          walkRules(rule.cssRules, next, file, nextActive);
+        }
+      }
+    }
+
+    for (var i = 0; i < sheets.length; i++) {
+      var rules = null;
+      try {
+        rules = sheets[i].cssRules;
+      } catch (e1) {
+        continue; // 跨源：读不到规则
+      }
+      if (!rules) continue;
+      walkRules(rules, [], cssSheetSource(sheets[i]), true);
+    }
+
+    // specificity 从高到低；相同则源码靠后的优先（后者覆盖前者）
+    hits.sort(function (a, b) {
+      return (
+        cssCompareSpec(b.specificity, a.specificity) || b.order - a.order
+      );
+    });
+    return hits.slice(0, 30);
+  }
+
+  function cssElementLabel(el) {
+    if (!el) return "";
+    var tag = el.tagName ? el.tagName.toLowerCase() : "";
+    var id = el.id ? "#" + el.id : "";
+    var cls = "";
+    try {
+      var list = el.classList || [];
+      for (var i = 0; i < list.length && i < 3; i++) cls += "." + list[i];
+    } catch (e) {}
+    return tag + id + cls;
+  }
+
+  /**
+   * 元素身份（元素检视用）：tag / id / class 列表 + 打开标签要显示的属性。
+   * 只回传 DOM 上直接读得到的属性，不做任何推断——静态分析在父窗口里做。
+   */
+  function elementAttrs(el) {
+    var out = [];
+    try {
+      var list = el.attributes || [];
+      for (var i = 0; i < list.length && out.length < 12; i++) {
+        var a = list[i];
+        var name = String(a.name || "").toLowerCase();
+        if (!name || name === "data-lh" || name.indexOf("data-lh-") === 0) continue;
+        var v = String(a.value == null ? "" : a.value).replace(/\s+/g, " ").trim();
+        if (v.length > 80) v = v.slice(0, 80) + "…";
+        out.push({ name: name, value: v });
+      }
+    } catch (e) {}
+    return out;
+  }
+
+  function elementIdentity(el) {
+    if (!el || !el.tagName) return null;
+    var out = { tag: el.tagName.toLowerCase(), id: el.id || "", classes: [], attrs: [] };
+    try {
+      var list = el.classList || [];
+      for (var i = 0; i < list.length && i < 8; i++) out.classes.push(list[i]);
+    } catch (e) {}
+    out.attrs = elementAttrs(el);
+    return out;
+  }
+
+  /**
+   * 祖先链（最多 6 层，到 body 为止）。事件委托只能定位到父元素上的绑定，
+   * 所以链要短、要够用：点 <li> 时必须能看到 <ul id="list">。
+   */
+  function elementAncestors(el, depth) {
+    var out = [];
+    var node = el ? el.parentElement : null;
+    while (node && out.length < depth) {
+      var tag = node.tagName ? node.tagName.toLowerCase() : "";
+      if (!tag || tag === "html") break;
+      out.push(elementIdentity(node));
+      node = node.parentElement;
+    }
+    return out;
+  }
+
+  /**
+   * 点击元素自己没有规则时，向上找几层（点到卡片里的标题，看到的是卡片的样式）。
+   * 最多 4 层，且不算 html/body/:root 这种「哪都命中」的规则——否则每次都只会
+   * 停在 body 的 margin 上，既没用又会把面板顶出来。
+   */
+  function cssGenericHit(hit) {
+    var sel = String((hit && hit.selector) || "").replace(/\s+/g, "");
+    return sel === "html" || sel === "body" || sel === ":root" || sel === "*";
+  }
+
+  function resolveCssTarget(el) {
+    var node = el;
+    var depth = 0;
+    while (node && depth < 4) {
+      var hits = [];
+      var all = collectCssHits(node);
+      for (var i = 0; i < all.length; i++) {
+        if (!cssGenericHit(all[i])) hits.push(all[i]);
+      }
+      if (hits.length) return { el: node, hits: hits };
+      node = node.parentElement;
+      depth++;
+    }
+    return { el: el, hits: [] };
+  }
+
+  function reportCssHits(nonce) {
+    var resolved = lastClickEl
+      ? resolveCssTarget(lastClickEl)
+      : { el: null, hits: [] };
+    var el = resolved.el;
+    var text = "";
+    try {
+      text = String((el && el.textContent) || "").replace(/\s+/g, " ").trim().slice(0, 80);
+    } catch (eText) {}
+    parent.postMessage(
+      {
+        type: "lh-css-hits",
+        nonce: nonce,
+        label: cssElementLabel(el),
+        text: text,
+        hits: resolved.hits,
+        // 行为面板要的是「真正点到的那个元素」：样式面板会往上找祖先，行为不该跟着走
+        element: elementIdentity(lastClickEl),
+        ancestors: elementAncestors(lastClickEl, 6),
+      },
+      "*"
+    );
+  }
+
   document.addEventListener("click", function (e) {
     if (downBtn !== 0 || e.button !== 0) return;
     if (Math.abs(e.clientX - downX) > 5 || Math.abs(e.clientY - downY) > 5) return;
@@ -747,10 +1299,14 @@
 
     var clickEl = target && target.nodeType === 1 ? target : (target && target.parentElement) || lhEl;
     var snippet = textSnippetOf(clickEl);
+    var hasText = !!(snippet && String(snippet).trim());
+    // Attributes are source text too: <img alt> has no visible text to match.
+    var attr = attrNear(clickEl, lhEl);
+    var hasAttr = !!(attr && attr.value);
     // Plain click on blank / no-text chrome: do not locate or jump.
-    if (!explicitLocate && (!snippet || !String(snippet).trim())) return;
+    if (!explicitLocate && !hasText && !(hasAttr && lhEl)) return;
     // Explicit with no text still needs a data-lh anchor.
-    if (explicitLocate && (!snippet || !String(snippet).trim()) && !lhEl) return;
+    if (explicitLocate && !hasText && !hasAttr && !lhEl) return;
 
     var lh = parseLh(lhEl);
     // Prefer card/题号 index for script disambiguation; else Nth equal snippet.
@@ -780,6 +1336,9 @@
       flashClickOutline(clickEl || lhEl);
     } catch (eFlash) {}
 
+    // Word-level offset; undefined (not null) when unknown so old payload shapes stay equal.
+    var plainOff = lhEl ? clickPlainOffset(lhEl, e.clientX, e.clientY) : null;
+
     parent.postMessage({
       type: "lh-locate",
       text: snippet,
@@ -792,6 +1351,10 @@
       id: (lhEl && lhEl.id) || (target && target.id) || undefined,
       annotatedSelf: selfAnnotated,
       occurrence: occurrence,
+      // Word-level: caret offset inside the annotated element's rendered text.
+      plainOffset: plainOff == null ? undefined : plainOff,
+      attrName: hasAttr ? attr.name : undefined,
+      attrValue: hasAttr ? attr.value : undefined,
       metaKey: !!e.metaKey,
       ctrlKey: !!e.ctrlKey,
       detail: e.detail || 1
@@ -820,6 +1383,10 @@
     }
     if (d.type === "lh-quiz-set-open") {
       quizSetOpen(d);
+      return;
+    }
+    if (d.type === "lh-css-query") {
+      reportCssHits(d.nonce);
       return;
     }
     // legacy text highlight

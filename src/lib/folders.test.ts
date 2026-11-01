@@ -61,6 +61,29 @@ describe("buildTree empty folders", () => {
   });
 });
 
+describe("buildTree project files", () => {
+  it("把项目里非文档的文件挂到所属文件夹下", () => {
+    const tree = buildTree(
+      [{ id: "1", path: "demo/index.html", type: "html" }],
+      [],
+      ["demo/css/style.css", "demo/js/app.js", "demo/index.html"]
+    );
+    const demo = tree.children.get("demo")!;
+    // 文档仍然只出现一次（路径与项目文件重复时不重复挂）
+    expect(demo.docs.map((d) => d.name)).toEqual(["index.html"]);
+    expect(demo.children.get("css")!.files.map((f) => f.name)).toEqual(["style.css"]);
+    expect(demo.children.get("js")!.files.map((f) => f.path)).toEqual([
+      "demo/js/app.js",
+    ]);
+  });
+
+  it("项目文件在文档之前建出整条目录", () => {
+    const tree = buildTree([], [], ["demo/css/theme/dark.css"]);
+    expect(tree.children.get("demo")!.children.get("css")!.children.get("theme")!.files)
+      .toEqual([{ name: "dark.css", path: "demo/css/theme/dark.css" }]);
+  });
+});
+
 describe("pruneEmptyFolders", () => {
   it("removes folders that now contain documents", () => {
     expect(

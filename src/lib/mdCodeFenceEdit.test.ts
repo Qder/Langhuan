@@ -87,7 +87,9 @@ describe("previewBlockEditMode policy", () => {
 });
 
 describe("removeOrphanCodeFenceHosts", () => {
-  it("removes implanted code hosts but can keep one", async () => {
+  // Generous timeout: the dynamic `import("jsdom")` below costs ~2.5s cold and
+  // blows the 5s default when the whole suite runs in parallel.
+  it("removes implanted code hosts but can keep one", { timeout: 20_000 }, async () => {
     const { JSDOM } = await import("jsdom");
     const dom = new JSDOM("<!DOCTYPE html><html><body></body></html>");
     const document = dom.window.document;

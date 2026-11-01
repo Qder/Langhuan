@@ -1,6 +1,7 @@
 export * from "./types";
 export * from "./frontmatter";
 export * from "./mdPlainMap";
+export * from "./htmlPlainMap";
 export * from "./mdLocate";
 export * from "./htmlLocate";
 export * from "./bridge";

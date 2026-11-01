@@ -56,6 +56,15 @@ export type HtmlLocatePayload = {
   annotatedSelf?: boolean;
   /** 1-based ordinal among equal visible texts (multi-hit disambiguation). */
   occurrence?: number;
+  /**
+   * Character offset of the click inside the annotated element's rendered text
+   * (`data-lh` container). Present only when the bridge could resolve a caret;
+   * enables word-level locate. Undefined → tag-level fallback.
+   */
+  plainOffset?: number;
+  /** Attribute fallback for elements without text (img alt / title / aria-label). */
+  attrName?: string;
+  attrValue?: string;
   /** Element id when available (script/JSON disambiguation). */
   id?: string;
   /** Modifiers for focus/select behavior */
@@ -114,6 +123,56 @@ export type HtmlQuizPeekedPayload = {
   id: string;
 };
 
+/** 元素身份（元素检视用）：bridge 从 DOM 直接读，不做任何推断。 */
+export type BridgeElementNode = {
+  tag: string;
+  id?: string;
+  classes?: string[];
+  /** 主要属性（抽屉里「打开标签」用；插桩属性已被 bridge 过滤掉） */
+  attrs?: Array<{ name: string; value: string }>;
+};
+
+/** CSS 面板：iframe 回传的命中规则（已按 specificity/源码顺序排好）。 */
+export type HtmlCssHitsPayload = {
+  type: "lh-css-hits";
+  nonce: number;
+  /** 元素的粗略描述，如 `div.card` */
+  label: string;
+  /** 元素文本前 80 字，面板标题用 */
+  text: string;
+  /** 行为面板用：真正点到的元素（样式面板会往上找祖先，这里不走） */
+  element?: BridgeElementNode | null;
+  /** 行为面板用：祖先链（最多 6 层），事件委托只能定位到父元素的绑定 */
+  ancestors?: BridgeElementNode[];
+  hits: Array<{
+    selector: string;
+    cssText: string;
+    /** 内联样式表的来源文件（data-lh-inline）；外部/未知为空串 */
+    file: string;
+    /** 外层 @ 条件，外→内 */
+    conditions: string[];
+    /** 条件当前是否成立（宽屏上的 @media max-width 规则为 false） */
+    active: boolean;
+    specificity: [number, number, number];
+    /** 文档顺序（跨样式表递增） */
+    order: number;
+  }>;
+};
+
+/**
+ * 点击就报的元素身份：交互元素（button/a/input）不发 lh-locate，但「元素」面板照样要能开。
+ * 父窗口收到后自己决定要不要追问 lh-css-query（样式规则）。
+ */
+export type HtmlElementPayload = {
+  type: "lh-element";
+  element: BridgeElementNode | null;
+  ancestors: BridgeElementNode[];
+  /** 元素（或其祖先）的 data-lh 源码区间：抽屉的 HTML 段靠它给「精确」行号 */
+  range?: { start: number; end: number } | null;
+  /** 元素自身的文本片段（定位不到标注时的推断线索） */
+  text?: string;
+};
+
 export type BridgeInboundMessage =
   | HtmlLocatePayload
   | HtmlBgPayload
@@ -122,7 +181,9 @@ export type BridgeInboundMessage =
   | HtmlKeydownPayload
   | HtmlReadyPayload
   | HtmlQuizListPayload
-  | HtmlQuizPeekedPayload;
+  | HtmlQuizPeekedPayload
+  | HtmlCssHitsPayload
+  | HtmlElementPayload;
 
 export const BRIDGE_INBOUND_TYPES = [
   "lh-locate",
@@ -136,6 +197,8 @@ export const BRIDGE_INBOUND_TYPES = [
   "lh-ready",
   "lh-quiz-list",
   "lh-quiz-peeked",
+  "lh-css-hits",
+  "lh-element",
 ] as const;
 
 export type BridgeInboundType = (typeof BRIDGE_INBOUND_TYPES)[number];
@@ -150,4 +213,5 @@ export type BridgeOutboundMessage =
   | { type: "clearHighlight" }
   | { type: "lh-highlight"; text: string }
   | { type: "lh-quiz-list" }
-  | { type: "lh-quiz-set-open"; id?: string; all?: boolean; open: boolean };
+  | { type: "lh-quiz-set-open"; id?: string; all?: boolean; open: boolean }
+  | { type: "lh-css-query"; nonce: number };

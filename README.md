@@ -52,12 +52,33 @@ npm run tauri:dev
 - 首页概览、最近编辑、收藏、标签云
 - Markdown 阅读：大纲、反向链接、双链 `[[页面]]`、提示块、代码块
 - HTML 沙箱预览（`allow-scripts allow-popups allow-forms`，不含 `allow-same-origin`）
+- 预览点元素 → 右侧「元素检视」抽屉，一次给出三段：**HTML**（打开标签 + `index.html:42`，标注命中才说精确）、
+  **样式**（命中它的 CSS 规则按 specificity 列出，点规则跳到 `.css` 对应行并高亮整条，含 `@media` 条件标注）、
+  **行为**（谁绑了事件：`click → onSaveClick`，`app.js:12`，点条目跳到源码并高亮整个函数体；
+  静态分析 acorn + HTML 内联 `<script>`，找不到就明说「未在源码中找到直接绑定，可能通过事件委托注册」）
+- 抽屉对齐 DevTools 心智模型：跳转不关抽屉（回来后选中态还在）、可钉在右侧让预览变窄而不遮挡、
+  移动端从底部升起；Esc 关、↑↓ 选条目、Enter 跳转，`role="dialog"` + 焦点管理可读屏
+  —— 三段合一的设计与边界见 [docs/status/STATUS-element-inspector.md](docs/status/STATUS-element-inspector.md)，
+  行为静态分析的边界见 [docs/行为定位.md](docs/行为定位.md)
 - 源码 / 分栏编辑，草稿机制，`⌘S` 保存，`⌘K` 命令面板
 - 导入文件夹 / 文件；支持 File System Access 的浏览器可打开本地文件夹
 
 ## 功能验收示例
 
 仓库内 `examples/功能验收/` 可整包 **导入文件夹**，用于核对相对图片、双链 Peek、代码行号、Mermaid、MD 白名单、HTML 沙盒与剪贴板粘贴。已有知识库请用导入；种子文档仅首次初始化写入。
+
+`examples/项目示例/` 是多文件站点示例（`index.html` + `css/` + `js/`）：导入后打开 `index.html`，
+点那张卡片的任意位置，右侧抽屉的三段应同时有内容 —— HTML 段指向 `index.html` 那一行、样式段列出 4 条规则
+（`body div`、`.card`、`.card:hover`、`@media` 内的 `.card`）、行为段给出那张卡片上绑的监听；
+点任意一条都会跳到对应文件的行（样式跳 `css/style.css` 并高亮整条规则），跳完抽屉还开着，返回后选中态还在。
+
+`examples/样式定位验收/` 是专门给「样式」段做的验收现场：十个方块各考一个点
+（特异性排序、属性选择器、`:is`/`:where`/`:not`、`@supports` 套 `@media`、两个文件的同名规则、
+运行时注入与内联 `<style>` 的「推断」降级、不弹抽屉的情况），文件夹里的 `README.md` 有逐条清单。
+
+`examples/行为定位验收/` 是「行为」段的验收现场：`#btn` 直接绑定（`js/app.js:12`）、
+父元素上的事件委托、变量间接绑定、HTML 内联 `<script>`、页面级监听、以及「确实找不到」的灰区，
+逐条清单同样在该文件夹的 `README.md` 里。
 
 ## 技术栈
 

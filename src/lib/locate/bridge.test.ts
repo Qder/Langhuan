@@ -173,8 +173,10 @@ const DATA = {
     expect(clickRegion).not.toContain("showOverlayFor");
     expect(clickRegion).toContain("flashClickOutline");
     expect(clickRegion).toContain('type: "lh-locate"');
-    // Blank / no-text plain click skipped
-    expect(clickRegion).toContain("!String(snippet).trim()");
+    // Blank / no-text plain click skipped (attribute-only clicks are allowed when
+    // the click sits inside an annotated node, e.g. <img alt>).
+    expect(clickRegion).toContain("var hasText = !!(snippet && String(snippet).trim())");
+    expect(clickRegion).toContain("if (!explicitLocate && !hasText && !(hasAttr && lhEl)) return;");
     // Overlay draw remains for source→preview sync
     const msgRegion = HTML_LOCATE_BRIDGE.slice(msgIdx);
     expect(msgRegion).toContain("showOverlayFor(el)");

@@ -188,6 +188,10 @@ export const createSyncBackupSlice: StateCreator<
               documents: snap.documents,
               assets: snap.assets,
               trash: snap.trash,
+              projects: snap.projects ?? [],
+              projectTexts: snap.projectTexts ?? {},
+              cssIndexes: snap.cssIndexes ?? [],
+              jsIndexes: snap.jsIndexes ?? [],
             });
             void saveAssetMetaList(snap.assets);
             void fetchQuizStore()

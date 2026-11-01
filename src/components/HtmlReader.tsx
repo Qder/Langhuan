@@ -24,6 +24,9 @@ import {
   lineAtOffset,
 } from "@/lib/locate";
 import type { HtmlLocatePayload, LocateResult } from "@/lib/locate";
+import type { RawCssHit } from "@/lib/locate/cssLocate";
+import type { BridgeElementNode } from "@/lib/locate/types";
+import { ElementInspector } from "./ElementInspector";
 import { prepareHtmlPreview } from "@/lib/fixHtmlPreview";
 import {
   computeHtmlPreviewFrameLayout,
@@ -37,7 +40,9 @@ import {
   parseQuizItemId,
   type QuizItem,
 } from "@/lib/quiz";
-import { cn } from "@/lib/utils";
+import { cn, dirname } from "@/lib/utils";
+import { findProjectForPath, projectRelPath } from "@/lib/project";
+import { collectExternalRefs, inlineProjectHtml } from "@/lib/inlineProject";
 
 
 function editReadyMessage(source: string, start: number, end: number): string {
@@ -63,6 +68,8 @@ export function HtmlReader({ doc }: { doc: Document }) {
   const setViewMode = useStore((s) => s.setViewMode);
   const openHome = useStore((s) => s.requestOpenHome);
   const setCommandOpen = useStore((s) => s.setCommandOpen);
+  const projects = useStore((s) => s.projects);
+  const projectTexts = useStore((s) => s.projectTexts);
   const htmlReloadToken = useStore((s) => s.htmlReloadToken);
   const theme = useStore((s) => s.theme);
   // Subscribe to the prefs record entry so width/zoom clicks re-render.
@@ -100,6 +107,31 @@ export function HtmlReader({ doc }: { doc: Document }) {
 
   const iframeRef = React.useRef<HTMLIFrameElement>(null);
   const stageRef = React.useRef<HTMLDivElement>(null);
+  const cssNonceRef = React.useRef(0);
+  const inspectElement = useStore((s) => s.inspectElement);
+  const elementPanel = useStore((s) => s.elementPanel);
+  const elementPanelPinned = useStore((s) => s.elementPanelPinned);
+  const setElementPanelPinned = useStore((s) => s.setElementPanelPinned);
+  const closeInspector = useStore((s) => s.closeInspector);
+  /** 最近一次点击的源码定位结果：抽屉的 HTML 段用它给行号（精确 / 推断）。 */
+  const lastLocateRef = React.useRef<{
+    payload: HtmlLocatePayload;
+    result: LocateResult;
+  } | null>(null);
+  /** lh-element 自带的标注区间：交互元素不发 lh-locate，但抽屉仍要能给出精确行号。 */
+  const lastElementRangeRef = React.useRef<{ start: number; end: number } | null>(null);
+  /** lh-element 带的元素自身文本：没有标注时按文本给「推断」行号 */
+  const lastElementTextRef = React.useRef<string>("");
+  /** 点击时要解析当前 HTML 的内联 <script>：用 ref 拿最新内容，避免每敲一个字就重挂 message 监听。 */
+  const contentRef = React.useRef(content);
+  React.useEffect(() => {
+    contentRef.current = content;
+  }, [content]);
+  const postToBridge = React.useCallback((msg: Record<string, unknown>) => {
+    const win = iframeRef.current?.contentWindow;
+    if (!win) return;
+    win.postMessage(msg, "*");
+  }, []);
   const postQuiz = React.useCallback((msg: Record<string, unknown>) => {
     const win = iframeRef.current?.contentWindow;
     if (!win) return;
@@ -114,10 +146,38 @@ export function HtmlReader({ doc }: { doc: Document }) {
   const [loaded, setLoaded] = React.useState(false);
   const [stageSize, setStageSize] = React.useState({ w: 0, h: 0 });
 
-  const srcDoc = React.useMemo(
-    () => buildInstrumentedSrcDoc(content),
-    [content]
+  /** 换文档时收起上一次的元素面板（面板是全局状态，不该串到别的页面）。 */
+  React.useEffect(() => {
+    closeInspector();
+  }, [doc.id, closeInspector]);
+
+  /** 文档属于某个项目时，预览前把项目内的 css/js 内联进来（iframe 无同源，相对路径必然 404）。 */
+  const project = React.useMemo(
+    () => findProjectForPath(doc.path, projects),
+    [doc.path, projects]
   );
+  const projectDir = React.useMemo(
+    () => (project ? dirname(projectRelPath(doc.path, project.root)) : ""),
+    [project, doc.path]
+  );
+  const projectFiles = project ? projectTexts[project.root] : undefined;
+  const externalRefs = React.useMemo(
+    () => (project ? collectExternalRefs(content, { baseDir: projectDir }) : []),
+    [project, content, projectDir]
+  );
+
+  const srcDoc = React.useMemo(() => {
+    if (!project || !projectFiles) return buildInstrumentedSrcDoc(content);
+    return buildInstrumentedSrcDoc(content, undefined, {
+      inline: (html) =>
+        inlineProjectHtml(html, {
+          baseDir: projectDir,
+          readFile: (rel) => projectFiles[rel] ?? null,
+          // 样式面板靠这个属性把「某条规则来自哪个文件」认出来，必须是库内路径
+          mapPath: (rel) => `${project.root}/${rel}`,
+        }).html,
+    });
+  }, [content, project, projectDir, projectFiles]);
   /** When static anchors do not cover the viewport, disable percent / weak sync. */
   const anchorsWeakRef = React.useRef(false);
   const ignoreScrollUntil = React.useRef(0);
@@ -156,11 +216,12 @@ export function HtmlReader({ doc }: { doc: Document }) {
     (
       payload: HtmlLocatePayload,
       opts?: { select?: boolean; focus?: boolean }
-    ) => {
+    ): LocateResult | null => {
       let result: LocateResult;
 
       if (payload.range) {
-        // Bug 2: annotatedSelf is messaging-only. Always: static-in-slice → script → container.
+        // Bug 2: annotatedSelf is messaging-only. Always: word-level (caret) →
+        // static-in-slice → attribute → script → container.
         result = locatePreviewClick({
           source: content,
           text: payload.textSnippet || payload.text || "",
@@ -169,11 +230,14 @@ export function HtmlReader({ doc }: { doc: Document }) {
           id: payload.id,
           tag: payload.tag,
           annotatedSelf: payload.annotatedSelf,
+          plainOffset: payload.plainOffset,
+          attrName: payload.attrName,
+          attrValue: payload.attrValue,
         });
       } else {
         if (isTrivialSelection(payload.text || "")) {
           setStatus("请先选中一段文字");
-          return;
+          return null;
         }
         result = locateInHtml({
           source: content,
@@ -195,6 +259,7 @@ export function HtmlReader({ doc }: { doc: Document }) {
       }
       applyLocateResult(result, { select, focus: select, highlight: true });
       setMenu(null);
+      return result;
     },
     [content, applyLocateResult, setStatus, setHtmlImmersive]
   );
@@ -276,6 +341,11 @@ export function HtmlReader({ doc }: { doc: Document }) {
         return;
       }
       if (k === "Escape") {
+        // 抽屉开着时，Esc 先关抽屉（焦点可能还在 iframe 里）
+        if (elementPanel) {
+          closeInspector();
+          return;
+        }
         if (htmlImmersive) {
           setHtmlImmersive(false);
           setStatus("已退出沉浸模式");
@@ -288,7 +358,7 @@ export function HtmlReader({ doc }: { doc: Document }) {
         setStatus(next ? "已进入沉浸模式" : "已退出沉浸模式");
       }
     },
-    [htmlImmersive, setCommandOpen, setViewMode, setHtmlImmersive, setStatus]
+    [htmlImmersive, setCommandOpen, setViewMode, setHtmlImmersive, setStatus, elementPanel, closeInspector]
   );
 
   React.useEffect(() => {
@@ -412,6 +482,52 @@ export function HtmlReader({ doc }: { doc: Document }) {
         return;
       }
 
+      if (data.type === "lh-css-hits") {
+        if (typeof data.nonce === "number" && data.nonce !== cssNonceRef.current) return;
+        // HTML 段：lh-locate 已算好位置就用它；否则用 lh-element 的标注区间（精确）；
+        // 都没有就按元素自身文本找一次——降到「推断」，绝不冒充精确。
+        const range = lastLocateRef.current?.payload.range ?? lastElementRangeRef.current ?? null;
+        let located = lastLocateRef.current?.result ?? null;
+        if (!located && !range) {
+          const text = lastElementTextRef.current;
+          if (text) {
+            const found = locateInHtml({ source: contentRef.current, text });
+            if (found.precision !== "none" && found.end > found.start) {
+              located = { ...found, precision: "fuzzy" };
+            }
+          }
+        }
+        void inspectElement({
+          nonce: typeof data.nonce === "number" ? data.nonce : 0,
+          label: typeof data.label === "string" ? data.label : "",
+          text: typeof data.text === "string" ? data.text : "",
+          hits: Array.isArray(data.hits) ? (data.hits as RawCssHit[]) : [],
+          element: (data.element ?? null) as BridgeElementNode | null,
+          ancestors: Array.isArray(data.ancestors)
+            ? (data.ancestors as BridgeElementNode[])
+            : [],
+          docPath: doc.path,
+          docContent: contentRef.current,
+          range,
+          located,
+        });
+        return;
+      }
+
+      // 每次点击先到的是元素身份：交互元素（button/a/input）不会发 lh-locate，
+      // 但「元素检视」对它们同样有意义（谁绑了 click），所以这里统一追问一次样式规则。
+      if (data.type === "lh-element") {
+        lastLocateRef.current = null; // 上一次点击的定位结果不能串到这一次
+        lastElementRangeRef.current =
+          data.range && Number.isFinite(data.range.start) && Number.isFinite(data.range.end)
+            ? { start: data.range.start, end: data.range.end }
+            : null;
+        lastElementTextRef.current = typeof data.text === "string" ? data.text : "";
+        cssNonceRef.current += 1;
+        postToBridge({ type: "lh-css-query", nonce: cssNonceRef.current });
+        return;
+      }
+
       if (data.type === "lh-locate") {
         // Click outside the context menu (inside iframe) dismisses it.
         setMenu(null);
@@ -428,7 +544,8 @@ export function HtmlReader({ doc }: { doc: Document }) {
         // ⌘/Ctrl+click or double-click = enter edit (select + focus; preview→split).
         // Pure preview + plain click → applyLocateResult sets pendingReveal + tip only
         // (does not switch layout). Explicit locate still opens split via select/focus.
-        runLocate(data);
+        const result = runLocate(data);
+        lastLocateRef.current = result ? { payload: data, result } : null;
         return;
       }
 
@@ -449,7 +566,7 @@ export function HtmlReader({ doc }: { doc: Document }) {
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [runLocate, handleBridgeKey, setHtmlScrollPercent, getSyncScrollEnabled, publishScrollSync, doc.id, isQuizPage, postQuiz, setQuizItemState, setPendingQuizReveal, quizDoc?.items]);
+  }, [runLocate, handleBridgeKey, setHtmlScrollPercent, getSyncScrollEnabled, publishScrollSync, doc.id, doc.path, isQuizPage, postQuiz, setQuizItemState, setPendingQuizReveal, quizDoc?.items, inspectElement, postToBridge]);
 
   // Source → Preview highlight via range (data-lh).
   // Caret follow: highlight only (no scroll) — scrolling preview would emit
@@ -605,6 +722,18 @@ export function HtmlReader({ doc }: { doc: Document }) {
 
   return (
     <div className="relative h-full min-h-0 flex flex-col bg-[var(--bg)]">
+      {/* 项目外链提示：本期不内联 http(s) 资源，明确告诉用户需要联网 */}
+      {project && externalRefs.length > 0 && (
+        <div
+          className="flex shrink-0 items-center gap-2 border-b border-[var(--border)] bg-[var(--card)] px-3 py-1 text-[11px] text-[var(--muted)]"
+          title={externalRefs.join("\n")}
+        >
+          <span className="shrink-0">
+            项目引用了 {externalRefs.length} 个外链资源，未内联（预览需联网）：
+          </span>
+          <span className="truncate font-mono opacity-80">{externalRefs[0]}</span>
+        </div>
+      )}
       {showQuizToolbar && (
         <QuizToolbar
           counts={quizCounts}
@@ -620,12 +749,14 @@ export function HtmlReader({ doc }: { doc: Document }) {
           }}
         />
       )}
-      {/* Stage: full-bleed, no padding/radius */}
-      <div
-        ref={stageRef}
-        className="relative flex-1 min-h-0 overflow-hidden"
-        style={{ background: pageBg === "transparent" ? "var(--bg)" : pageBg }}
-      >
+      {/* Stage + 元素检视抽屉：pin 后并排（预览变窄），否则抽屉浮在预览右侧 */}
+      <div className="relative flex min-h-0 flex-1">
+        {/* Stage: full-bleed, no padding/radius */}
+        <div
+          ref={stageRef}
+          className="relative min-h-0 min-w-0 flex-1 overflow-hidden"
+          style={{ background: pageBg === "transparent" ? "var(--bg)" : pageBg }}
+        >
         {/* Skeleton */}
         {!loaded && (
           <div className="absolute inset-0 z-10 p-6 space-y-4 pointer-events-none">
@@ -682,6 +813,18 @@ export function HtmlReader({ doc }: { doc: Document }) {
             />
           </div>
         </div>
+        </div>
+
+        {/* 元素检视：一次点击，HTML / 样式 / 行为三段一起看 */}
+        {elementPanel && (
+          <ElementInspector
+            key={elementPanel.nonce}
+            panel={elementPanel}
+            pinned={elementPanelPinned}
+            onTogglePin={() => setElementPanelPinned(!elementPanelPinned)}
+            onClose={closeInspector}
+          />
+        )}
       </div>
 
       {/* Immersive floating strip */}
