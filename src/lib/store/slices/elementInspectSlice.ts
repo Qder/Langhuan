@@ -134,11 +134,19 @@ export function shouldOpenElementPanel(
   return cssHits > 0 || behavior.hits.length > 0 || behavior.queries.length > 0;
 }
 
-/** 抽屉只认「当前打开的还是点它的那个文档」：切文档后旧结果不许落到新文档上。 */
+/**
+ * 抽屉只认「点它的那篇文档还在眼前」：切文档后旧结果不许落到新文档上。
+ *
+ * 分屏时有两篇同时在眼前（`activeId` + `secondaryId`），点哪一篇都算数 ——
+ * 只在两边都不是它时才判过期。
+ */
 function docStillActive(state: LanghuanState, docPath: string): boolean {
   if (!docPath) return true;
-  const active = state.documents.find((d) => d.id === state.activeId);
-  return !!active && active.path === docPath;
+  const panes: Array<string | null> = [state.activeId, state.secondaryId];
+  return panes.some((id) => {
+    if (!id) return false;
+    return state.documents.find((d) => d.id === id)?.path === docPath;
+  });
 }
 
 type SourceState = SourceSnapshot & Pick<LanghuanState, "cssIndexes" | "jsIndexes">;

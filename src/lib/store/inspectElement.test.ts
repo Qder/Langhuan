@@ -58,12 +58,13 @@ const PROJECT: ProjectMeta = {
 };
 
 type Harness = SourceSnapshot &
-  Pick<LanghuanStateLite, "documents" | "activeId" | "cssIndexes" | "jsIndexes"> &
+  Pick<LanghuanStateLite, "documents" | "activeId" | "secondaryId" | "cssIndexes" | "jsIndexes"> &
   ElementInspectSlice;
 
 type LanghuanStateLite = {
   documents: Document[];
   activeId: string | null;
+  secondaryId: string | null;
   cssIndexes: CssFileIndex[];
   jsIndexes: JsFileIndex[];
 };
@@ -79,6 +80,7 @@ function createHarness(seed: Partial<Harness> = {}) {
     ...slice(set, get, api),
     documents: [] as Document[],
     activeId: null as string | null,
+    secondaryId: null as string | null,
     projects: [] as ProjectMeta[],
     projectTexts: {} as Record<string, Record<string, string>>,
     cssIndexes: [] as CssFileIndex[],
@@ -343,6 +345,26 @@ describe("连点竞态：旧的请求不再算数", () => {
     slow.resolve(await buildCssIndex(CSS_FILE, CSS));
     await request;
     expect(panel(store)).toBeNull();
+  });
+
+  it("分屏时点副窗格里的元素也算数（两篇都在眼前）", async () => {
+    const index = await buildCssIndex(CSS_FILE, CSS);
+    const store = createHarness({
+      documents: [DOC_A, DOC_B],
+      activeId: DOC_A.id,
+      secondaryId: DOC_B.id,
+      projects: [PROJECT],
+      projectTexts: { [ROOT]: { "css/site.css": CSS } },
+      cssIndexes: [index],
+    });
+
+    await store.getState().inspectElement({
+      hits: [cssHit()],
+      docPath: DOC_B.path,
+      label: "副窗格的元素",
+    });
+
+    expect(panel(store)?.label).toBe("副窗格的元素");
   });
 
   it("作废（关抽屉 / 切文档）后，在途请求再醒来也不开面板", async () => {
