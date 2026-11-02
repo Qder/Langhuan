@@ -379,6 +379,7 @@ export type LanghuanState = {
   addAnnotation: (input: AnnotationInput) => Annotation;
   updateAnnotation: (id: string, patch: { note?: string; color?: Annotation["color"] }) => void;
   removeAnnotation: (id: string) => void;
+  reanchorDocAnnotations: (docId: string, source: string) => void;
   setQuizReviewOpen: (v: boolean) => void;
   setLinkHealthOpen: (v: boolean) => void;
   setFindReplaceOpen: (v: boolean) => void;

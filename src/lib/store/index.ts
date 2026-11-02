@@ -1,6 +1,7 @@
 "use client";
 
 import { create } from "zustand";
+import { normalizeAnnotation } from "../annotations";
 import { persist } from "zustand/middleware";
 import type { AssetMeta, Document, TrashItem } from "../types";
 import type { ShortcutMap } from "../shortcuts";
@@ -130,6 +131,11 @@ export const useStore = create<LanghuanState>()(
         if (!("statusFilter" in p)) p.statusFilter = null;
         if (!Array.isArray(p.assets)) p.assets = [];
         if (!Array.isArray(p.annotations)) p.annotations = [];
+        else {
+          p.annotations = (p.annotations as unknown[]).map((raw) =>
+            normalizeAnnotation(raw as Parameters<typeof normalizeAnnotation>[0])
+          );
+        }
         if (!Array.isArray(p.quizDocs)) p.quizDocs = [];
         p.readingPrefs = normalizeReadingPrefs(
           (p.readingPrefs as Partial<ReadingPrefs>) || DEFAULT_READING_PREFS

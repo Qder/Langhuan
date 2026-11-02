@@ -58,6 +58,7 @@ import { PreviewContextMenu, type ContextMenuItem } from "./locate/PreviewContex
 import { subscribeScrollSync } from "@/lib/locate/scrollBus";
 import { probeRender, probeSection } from "@/lib/dev/perfProbe";
 import { AssetImage } from "./editor/AssetImage";
+import { rematchAnnotation } from "@/lib/annotations";
 import {
   InlineCodeFenceEditor,
   removeOrphanCodeFenceHosts,
@@ -725,6 +726,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
   const assetsForDoc = useStore((s) => s.assetsForDoc);
   const annotations = useStore((s) => s.annotations);
   const addAnnotation = useStore((s) => s.addAnnotation);
+  const reanchorDocAnnotations = useStore((s) => s.reanchorDocAnnotations);
   const ingestImageFile = useStore((s) => s.ingestImageFile);
   const setDraft = useStore((s) => s.setDraft);
   const pushPreviewUndo = useStore((s) => s.pushPreviewUndo);
@@ -2169,9 +2171,12 @@ export function MarkdownReader({ doc }: { doc: Document }) {
           });
           addAnnotation({
             docId: doc.id,
+            path: doc.path,
             quote: info.text,
             start: result.start,
             end: result.end,
+            plainOffset: result.start,
+            source: content,
             note: "",
           });
           setStatus("已添加划线批注");
@@ -2179,7 +2184,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
         },
       },
     ];
-  }, [runLocate, content, setStatus, menu, addAnnotation, doc.id, applyLocateResult]);
+  }, [runLocate, content, setStatus, menu, addAnnotation, doc.id, doc.path, applyLocateResult]);
 
   const mentionCount = React.useMemo(() => {
     if (doc.type !== "md") return 0;
@@ -2203,6 +2208,12 @@ export function MarkdownReader({ doc }: { doc: Document }) {
   const assetCount = assetsForDoc(doc.id).length;
 
 
+
+  // Reanchor annotations against current source (marks「已失效」when lost).
+  React.useEffect(() => {
+    if (doc.type !== "md") return;
+    reanchorDocAnnotations(doc.id, content);
+  }, [doc.id, doc.type, content, reanchorDocAnnotations]);
 
   // Soft-highlight annotation quotes in preview (does not mutate markdown body).
   React.useEffect(() => {
@@ -2228,11 +2239,16 @@ export function MarkdownReader({ doc }: { doc: Document }) {
       textNodes.push(tnode);
     }
     for (const ann of anns) {
+      const hit = rematchAnnotation(content, ann);
+      if (hit.precision === "lost" || ann.status === "stale") continue; // 已失效：不贴错句
       const q = ann.quote.trim();
+      // Prefer locating the quote string in preview text (body), not raw offsets
       for (const tn of textNodes) {
         const val = tn.nodeValue || "";
         const idx = val.indexOf(q);
         if (idx < 0) continue;
+        // If the quote appears multiple times in this text node, skip rather than guess
+        if (val.indexOf(q, idx + 1) >= 0) continue;
         try {
           const range = document.createRange();
           range.setStart(tn, idx);
@@ -2247,7 +2263,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
         break;
       }
     }
-  }, [annotations, doc.id, body]);
+  }, [annotations, doc.id, body, content]);
 
   const showRail =
     outlineRailOpen &&

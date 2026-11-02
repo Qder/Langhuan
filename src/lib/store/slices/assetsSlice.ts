@@ -2,7 +2,7 @@
 
 import type { StateCreator } from "zustand";
 import type { AssetMeta } from "../../types";
-import { createAnnotation, updateAnnotationNote } from "../../annotations";
+import { createAnnotation, updateAnnotationNote, resolveAnnotation, normalizeAnnotation } from "../../annotations";
 import {
   setQuizItemState as applyQuizItemState,
   syncQuizDocFromSource,
@@ -45,6 +45,7 @@ type AssetsSliceKeys =
   | "addAnnotation"
   | "updateAnnotation"
   | "removeAnnotation"
+  | "reanchorDocAnnotations"
   | "upsertQuizDoc"
   | "setQuizItemState"
   | "setQuizForce"
@@ -251,6 +252,18 @@ export const createAssetsSlice: StateCreator<
   removeAnnotation: (id) => {
         set((s) => ({ annotations: s.annotations.filter((a) => a.id !== id) }));
         get().setStatus("已删除批注");
+      },
+  reanchorDocAnnotations: (docId, source) => {
+        set((s) => {
+          let changed = false;
+          const annotations = s.annotations.map((a) => {
+            if (a.docId !== docId) return a;
+            const next = resolveAnnotation(source, normalizeAnnotation(a));
+            if (next !== a) changed = true;
+            return next;
+          });
+          return changed ? { annotations } : {};
+        });
       },
   persistQuizStore: () => {
         const docs = get().quizDocs;

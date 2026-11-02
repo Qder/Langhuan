@@ -9,6 +9,7 @@ import { useStore } from "@/lib/store";
 import { findUnlinkedMentions, linkifyMention } from "@/lib/wikilink";
 import { getDocMeta } from "@/lib/docMeta";
 import { AssetsPanel } from "./AssetsPanel";
+import { resolveAnnotation } from "@/lib/annotations";
 
 export type DocAsideProps = {
   outline: OutlineHeading[];
@@ -345,13 +346,21 @@ export function DocAside({
           </button>
           {annOpen && (
             <ul className="mt-1 space-y-2">
-              {docAnns.map((a) => (
+              {docAnns.map((a) => {
+                const resolved = doc?.content
+                  ? resolveAnnotation(doc.content, a)
+                  : a;
+                const stale = resolved.status === "stale";
+                return (
                 <li
                   key={a.id}
-                  className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-2"
+                  className={cn(
+                    "rounded-xl border bg-[var(--card)] p-2",
+                    stale ? "border-[var(--accent)]/40 opacity-80" : "border-[var(--border)]"
+                  )}
                 >
                   <div className="mb-1 flex items-start gap-1">
-                    <mark className={cn("lh-annot flex-1 text-xs leading-5", `lh-annot-${a.color}`)}>
+                    <mark className={cn("lh-annot flex-1 text-xs leading-5", `lh-annot-${a.color}`, stale && "line-through opacity-70")}>
                       {a.quote.length > 80 ? a.quote.slice(0, 80) + "…" : a.quote}
                     </mark>
                     <button
@@ -363,6 +372,9 @@ export function DocAside({
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
                   </div>
+                  {stale && (
+                    <div className="mb-1 text-[10px] text-[var(--accent)]">已失效 · 可删除</div>
+                  )}
                   <textarea
                     value={a.note}
                     placeholder="批注…"
@@ -371,7 +383,8 @@ export function DocAside({
                     onChange={(e) => updateAnnotation(a.id, { note: e.target.value })}
                   />
                 </li>
-              ))}
+                );
+              })}
             </ul>
           )}
         </div>
