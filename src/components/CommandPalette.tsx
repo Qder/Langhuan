@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { BookOpenCheck, Archive, HeartPulse, Replace, BookmarkPlus, CalendarDays, ClipboardPaste, Columns2, Download, FilePlus2, FileText, FolderSync, Globe, History, Home, Keyboard, LayoutTemplate, Network, Palette, Search, SlidersHorizontal, Trash2, Maximize2, Blend, Type, Code2 } from "lucide-react";
+import { Tag, BookOpenCheck, Archive, HeartPulse, Replace, BookmarkPlus, CalendarDays, ClipboardPaste, Columns2, Download, FilePlus2, FileText, FolderSync, Globe, History, Home, Keyboard, LayoutTemplate, Network, Palette, Search, SlidersHorizontal, Trash2, Maximize2, Blend, Type, Code2 } from "lucide-react";
 import { Dialog } from "./ui/dialog";
 import { useStore } from "@/lib/store";
 import { themeLabel } from "@/lib/theme";
@@ -48,6 +48,7 @@ export function CommandPalette() {
   const setFindReplaceOpen = useStore((s) => s.setFindReplaceOpen);
   const setClipUrlDialogOpen = useStore((s) => s.setClipUrlDialogOpen);
   const setPropsDialogOpen = useStore((s) => s.setPropsDialogOpen);
+  const renameTagAcrossLibrary = useStore((s) => s.renameTagAcrossLibrary);
   const setExportDialogOpen = useStore((s) => s.setExportDialogOpen);
   const setShortcutsDialogOpen = useStore((s) => s.setShortcutsDialogOpen);
   const toggleDocSplit = useStore((s) => s.toggleDocSplit);
@@ -310,6 +311,19 @@ export function CommandPalette() {
         run: () => {
           if (activeId) setPropsDialogOpen(true);
           else setStatus("请先打开一篇文档");
+        },
+      },
+      {
+        key: "cmd-rename-tag",
+        label: "重命名标签…",
+        hint: "全库 YAML / keywords 一起改",
+        icon: <Tag className="h-4 w-4 text-[var(--accent)]" />,
+        run: () => {
+          const from = window.prompt("要重命名的标签（旧名）");
+          if (from === null) return;
+          const to = window.prompt(`把「${from.trim()}」改成（新名）`);
+          if (to === null) return;
+          renameTagAcrossLibrary(from, to);
         },
       },
       {

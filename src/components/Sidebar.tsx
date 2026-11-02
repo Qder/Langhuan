@@ -381,6 +381,7 @@ export function Sidebar() {
   const tagFilters = useStore((s) => s.tagFilters);
   const toggleTagFilter = useStore((s) => s.toggleTagFilter);
   const clearTagFilters = useStore((s) => s.clearTagFilters);
+  const renameTagAcrossLibrary = useStore((s) => s.renameTagAcrossLibrary);
   const statusFilter = useStore((s) => s.statusFilter);
   const setStatusFilter = useStore((s) => s.setStatusFilter);
   const openDailyNote = useStore((s) => s.openDailyNote);
@@ -444,6 +445,11 @@ export function Sidebar() {
     x: number;
     y: number;
     folderPath: string;
+  } | null>(null);
+  const [tagMenu, setTagMenu] = React.useState<{
+    x: number;
+    y: number;
+    name: string;
   } | null>(null);
   const [fileMenu, setFileMenu] = React.useState<{
     x: number;
@@ -611,6 +617,33 @@ export function Sidebar() {
     },
     []
   );
+
+  const openTagContextMenu = React.useCallback(
+    (name: string, e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setFolderMenu(null);
+      setFileMenu(null);
+      setTagMenu({ x: e.clientX, y: e.clientY, name });
+    },
+    []
+  );
+
+  const tagMenuItems: ContextMenuItem[] = React.useMemo(() => {
+    if (!tagMenu) return [];
+    const name = tagMenu.name;
+    return [
+      {
+        id: "rename-tag",
+        label: "重命名标签…",
+        onSelect: () => {
+          const to = window.prompt(`把「${name}」改成（新名）`, name);
+          if (to === null) return;
+          renameTagAcrossLibrary(name, to);
+        },
+      },
+    ];
+  }, [tagMenu, renameTagAcrossLibrary]);
 
   const createInFolder = React.useCallback(
     (folderPath: string, type: "md" | "html") => {
@@ -1309,13 +1342,14 @@ export function Sidebar() {
                       type="button"
                       aria-pressed={selected}
                       onClick={() => toggleTag(name)}
+                      onContextMenu={(e) => openTagContextMenu(name, e)}
                       className={cn(
                         "rounded-full px-2.5 py-1 text-xs border transition-colors truncate text-left",
                         selected
                           ? "border-[var(--accent)] text-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_10%,transparent)]"
                           : "border-[var(--border)] hover:bg-[var(--hover)]"
                       )}
-                      title={`${name} · ${n}${selected ? "（已选）" : ""}`}
+                      title={`${name} · ${n}${selected ? "（已选）" : ""} · 右键可重命名`}
                     >
                       {name} · {n}
                     </button>
@@ -1671,6 +1705,15 @@ export function Sidebar() {
           items={fileMenuItems}
           onClose={() => setFileMenu(null)}
           ariaLabel="文件菜单"
+        />
+      )}
+      {tagMenu && (
+        <PreviewContextMenu
+          x={tagMenu.x}
+          y={tagMenu.y}
+          items={tagMenuItems}
+          onClose={() => setTagMenu(null)}
+          ariaLabel={`标签「${tagMenu.name}」菜单`}
         />
       )}
       {createFolderOpen ? (

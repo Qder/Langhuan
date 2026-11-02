@@ -69,3 +69,122 @@ export function collectTagCounts(docs: Document[]): Map<string, number> {
   }
   return map;
 }
+
+/** Trim; reject empty or comma-containing names. */
+export function normalizeTagRenameName(raw: string): string | null {
+  const t = String(raw ?? "").trim();
+  if (!t || /[,，]/.test(t)) return null;
+  return t;
+}
+
+/** Replace `from` with `to` in a tag list; merge duplicates; preserve order of first occurrence. */
+export function renameTagList(tags: string[], from: string, to: string): string[] | null {
+  if (!tags.some((t) => t === from)) return null;
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const t of tags) {
+    const next = t === from ? to : t;
+    if (seen.has(next)) continue;
+    seen.add(next);
+    out.push(next);
+  }
+  return out;
+}
+
+/**
+ * Rename one tag inside a single document body.
+ * Markdown: only the YAML `tags` line (other frontmatter keys keep order).
+ * HTML: only the keywords meta tokens. Exact match per getTags.
+ */
+export function renameTagInContent(
+  content: string,
+  type: Document["type"],
+  from: string,
+  to: string
+): string {
+  if (type === "md") {
+    const m = content.match(/^(---\r?\n)([\s\S]*?)(\r?\n---)(\r?\n?[\s\S]*)$/);
+    if (!m) return content;
+    const [, open, fm, close, body] = m;
+    const lines = fm.split(/\r?\n/);
+    let changed = false;
+    const nextLines = lines.map((line) => {
+      const kv = line.match(/^(tags\s*:\s*)(.*)$/);
+      if (!kv) return line;
+      const prefix = kv[1];
+      const raw = kv[2].trim();
+      let tags: string[];
+      if (raw.startsWith("[") && raw.endsWith("]")) {
+        tags = raw
+          .slice(1, -1)
+          .split(",")
+          .map((s) => s.trim().replace(/^["']|["']$/g, ""))
+          .filter(Boolean);
+      } else {
+        tags = raw
+          .split(",")
+          .map((s) => s.trim().replace(/^["']|["']$/g, ""))
+          .filter(Boolean);
+      }
+      const renamed = renameTagList(tags, from, to);
+      if (!renamed) return line;
+      changed = true;
+      if (raw.startsWith("[")) {
+        return `${prefix}[${renamed.map((x) => JSON.stringify(x)).join(", ")}]`;
+      }
+      return `${prefix}${renamed.join(", ")}`;
+    });
+    if (!changed) return content;
+    return `${open}${nextLines.join("\n")}${close}${body}`;
+  }
+
+  const re = /(<meta\s+name=["']keywords["']\s+content=["'])([^"']+)(["']\s*\/?>)/i;
+  const hit = content.match(re);
+  if (!hit) return content;
+  const tags = hit[2]
+    .split(/[,，]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const renamed = renameTagList(tags, from, to);
+  if (!renamed) return content;
+  return content.replace(re, `$1${renamed.join(", ")}$3`);
+}
+
+export type RenameTagLibraryResult = {
+  documents: Document[];
+  /** Per-id draft content after rename (only ids that had a draft and changed). */
+  draftPatches: Record<string, string>;
+  changedIds: string[];
+};
+
+/**
+ * Rename a tag across the library. Also rewrites draft bodies when provided
+ * so unsaved non-tag edits are kept (policy: 连草稿一起改).
+ */
+export function renameTagAcrossLibrary(
+  docs: Document[],
+  from: string,
+  to: string,
+  drafts: Record<string, string> = {}
+): RenameTagLibraryResult {
+  const draftPatches: Record<string, string> = {};
+  const changedIds: string[] = [];
+  const documents = docs.map((d) => {
+    const nextContent = renameTagInContent(d.content, d.type, from, to);
+    const contentChanged = nextContent !== d.content;
+    if (d.id in drafts) {
+      const nextDraft = renameTagInContent(drafts[d.id], d.type, from, to);
+      if (nextDraft !== drafts[d.id]) {
+        draftPatches[d.id] = nextDraft;
+      }
+    }
+    if (!contentChanged) return d;
+    changedIds.push(d.id);
+    return { ...d, content: nextContent, updatedAt: Date.now() };
+  });
+  // Draft-only change (persisted body lacked tag but draft had it) still counts
+  for (const id of Object.keys(draftPatches)) {
+    if (!changedIds.includes(id)) changedIds.push(id);
+  }
+  return { documents, draftPatches, changedIds };
+}

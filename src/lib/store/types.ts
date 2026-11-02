@@ -346,6 +346,8 @@ export type LanghuanState = {
   purgeExpiredTrash: () => number;
   toggleStar: (id: string) => void;
   setDocTags: (id: string, tags: string[]) => void;
+  /** Rename a tag in all persisted docs (+ drafts). Returns changed doc count. */
+  renameTagAcrossLibrary: (from: string, to: string) => number;
   resetSeed: () => void;
   storageBytes: () => number;
   refreshStorageUsage: () => Promise<void>;
