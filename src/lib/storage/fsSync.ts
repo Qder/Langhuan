@@ -51,7 +51,19 @@ export type ExternalChange = {
   libraryUpdatedAt?: number;
   /** Human label for UI */
   detail?: string;
+  /** Conflict preview: content/ side (≤ ~12 lines). */
+  libraryExcerpt?: string;
+  /** Conflict preview: disk side (≤ ~12 lines). */
+  diskExcerpt?: string;
 };
+
+/** First N lines for conflict side-by-side preview. */
+export function excerptForCompare(text: string, maxLines = 12): string {
+  const lines = String(text ?? "").split(/\r?\n/);
+  if (lines.length <= maxLines) return lines.join("\n");
+  return lines.slice(0, maxLines).join("\n") + "\n…";
+}
+
 
 export type DetectExternalResult = {
   changes: ExternalChange[];
@@ -333,6 +345,8 @@ export function detectExternalChanges(
         diskSize: file.size,
         libraryUpdatedAt: existing.updatedAt,
         detail: "两侧均有改动 · 将保留 content/",
+        libraryExcerpt: excerptForCompare(existing.content),
+        diskExcerpt: excerptForCompare(file.content),
       });
     } else if (diskChanged && contentDiff) {
       changes.push({
@@ -391,10 +405,15 @@ export function detectExternalChanges(
     }
   }
 
-  for (const [path] of assetByPath) {
+  for (const [path, asset] of assetByPath) {
     if (seenAssets.has(path)) continue;
-    // Assets may live only in content/ without being mirrored — only flag if under a scanned tree
-    // Skip asset deletes unless index has documents (bound session). Soft.
+    changes.push({
+      path,
+      entity: "asset",
+      change: "delete",
+      libraryUpdatedAt: asset.createdAt,
+      detail: "磁盘上已不存在（需勾选才会从库删除）",
+    });
   }
 
   const order = { add: 0, modify: 1, conflict: 2, delete: 3 };
@@ -441,12 +460,16 @@ export function applyExternalPull(
       skippedConflicts.push(path);
       continue;
     }
-    if (ch.entity === "doc") {
-      if (ch.change === "delete") {
+    if (ch.change === "delete") {
+      if (ch.entity === "doc") {
         docMap.delete(path);
-        applied.push(ch);
-        continue;
+      } else {
+        assetMap.delete(path);
       }
+      applied.push(ch);
+      continue;
+    }
+    if (ch.entity === "doc") {
       const file = diskDocMap.get(path);
       if (!file) {
         errors.push(`${path}: 磁盘文件缺失`);

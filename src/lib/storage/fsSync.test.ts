@@ -4,6 +4,7 @@ import {
   buildIndexFromDocuments,
   detectExternalChanges,
   emptyIndex,
+  excerptForCompare,
   planSyncIn,
   safeRelPath,
   type DiskDoc,
@@ -129,5 +130,87 @@ describe("detectExternalChanges", () => {
         change: "add",
       }),
     ]);
+  });
+});
+
+
+describe("conflict excerpts and asset deletes", () => {
+  it("truncates excerpts to about 12 lines", () => {
+    const body = Array.from({ length: 20 }, (_, i) => `L${i}`).join("\n");
+    const ex = excerptForCompare(body, 12);
+    expect(ex.split("\n").length).toBe(13); // 12 lines + ellipsis line
+    expect(ex.endsWith("…")).toBe(true);
+  });
+
+  it("attaches conflict excerpts and reports vanished png; unchecked delete stays", () => {
+    const library = [
+      doc({ id: "1", path: "both.md", content: "lib-line-1\nlib-line-2", updatedAt: 8000 }),
+    ];
+    const assets: AssetMeta[] = [
+      {
+        id: "a1",
+        path: "notes/assets/gone.png",
+        mime: "image/png",
+        size: 10,
+        createdAt: 1000,
+      },
+      {
+        id: "a2",
+        path: "notes/assets/keep.png",
+        mime: "image/png",
+        size: 10,
+        createdAt: 1000,
+      },
+    ];
+    const index = buildIndexFromDocuments(library, 3000);
+    const diskDocs = [disk("both.md", "disk-line-1\ndisk-line-2", 9000)];
+    const diskAssets = [{ path: "notes/assets/keep.png", mtime: 1, size: 10 }];
+    const changes = detectExternalChanges(
+      library,
+      assets,
+      diskDocs,
+      diskAssets,
+      index,
+    );
+    const conflict = changes.find((c) => c.path === "both.md");
+    expect(conflict?.change).toBe("conflict");
+    expect(conflict?.libraryExcerpt).toContain("lib-line-1");
+    expect(conflict?.diskExcerpt).toContain("disk-line-1");
+
+    const gone = changes.find((c) => c.path === "notes/assets/gone.png");
+    expect(gone).toEqual(
+      expect.objectContaining({ entity: "asset", change: "delete" }),
+    );
+
+    // Unchecked delete must not remove the asset
+    const withoutDelete = changes.filter((c) => c.change !== "delete");
+    const pulled = applyExternalPull(
+      library,
+      assets,
+      diskDocs,
+      [],
+      index,
+      withoutDelete,
+    );
+    expect(pulled.assets.some((a) => a.path === "notes/assets/gone.png")).toBe(
+      true,
+    );
+    expect(pulled.skippedConflicts).toEqual(["both.md"]);
+
+    // Checked delete removes asset meta from the pull result
+    const withDelete = applyExternalPull(
+      library,
+      assets,
+      diskDocs,
+      [],
+      index,
+      changes.filter((c) => c.change === "delete"),
+    );
+    expect(withDelete.assets.some((a) => a.path === "notes/assets/gone.png")).toBe(
+      false,
+    );
+    expect(withDelete.assets.some((a) => a.path === "notes/assets/keep.png")).toBe(
+      true,
+    );
   });
 });

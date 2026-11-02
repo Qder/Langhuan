@@ -32,8 +32,8 @@ import {
   type ExternalChange,
   type FsIndex,
 } from "@/lib/storage/fsSync";
-import { putAssetBlob, blobToBase64 } from "@/lib/assets/store";
-import { putLibraryAsset } from "@/lib/storage/contentApi";
+import { putAssetBlob, blobToBase64, deleteAssetBlob } from "@/lib/assets/store";
+import { putLibraryAsset, deleteLibraryAsset } from "@/lib/storage/contentApi";
 import { relativeTime, cn } from "@/lib/utils";
 
 const CHANGE_LABEL: Record<ExternalChange["change"], string> = {
@@ -61,6 +61,7 @@ export function FsSyncDialog() {
   const [permOk, setPermOk] = React.useState<boolean | null>(null);
   const [changes, setChanges] = React.useState<ExternalChange[]>([]);
   const [selected, setSelected] = React.useState<Record<string, boolean>>({});
+  const [expanded, setExpanded] = React.useState<Record<string, boolean>>({});
   const snapRef = React.useRef<{
     docs: DiskDoc[];
     assets: DiskAsset[];
@@ -74,6 +75,7 @@ export function FsSyncDialog() {
       setInfo(null);
       setChanges([]);
       setSelected({});
+      setExpanded({});
       snapRef.current = null;
       return;
     }
@@ -167,9 +169,12 @@ export function FsSyncDialog() {
       setChanges(list);
       const sel: Record<string, boolean> = {};
       for (const c of list) {
-        sel[`${c.entity}:${c.path}`] = c.change !== "conflict";
+        // Conflicts stay unchecked (skip). Deletes require explicit check.
+        sel[`${c.entity}:${c.path}`] =
+          c.change !== "conflict" && c.change !== "delete";
       }
       setSelected(sel);
+      setExpanded({});
       if (!list.length) {
         setInfo("未发现外部更改（按 mtime/size 对比）。");
       } else {
@@ -210,8 +215,22 @@ export function FsSyncDialog() {
       );
 
       // Persist new/updated asset binaries into IDB + content/
+      const prevAssets = st.assets;
       for (const ch of pulled.applied) {
         if (ch.entity !== "asset") continue;
+        if (ch.change === "delete") {
+          const victim = prevAssets.find((a) => a.path === ch.path);
+          if (!victim) continue;
+          try {
+            await deleteAssetBlob(victim.id);
+            await deleteLibraryAsset(victim.path);
+          } catch (e) {
+            pulled.errors.push(
+              `${ch.path}: ${e instanceof Error ? e.message : String(e)}`
+            );
+          }
+          continue;
+        }
         const disk = snap.assets.find((a) => a.path === ch.path);
         const meta = pulled.assets.find((a) => a.path === ch.path);
         if (!disk || !meta) continue;
@@ -259,6 +278,7 @@ export function FsSyncDialog() {
       if (pulled.errors.length) setError(pulled.errors.slice(0, 3).join("；"));
       setChanges([]);
       setSelected({});
+      setExpanded({});
       snapRef.current = null;
     } catch (e) {
       setError(e instanceof Error ? e.message : "拉入失败");
@@ -344,7 +364,7 @@ export function FsSyncDialog() {
       open={open}
       onClose={() => setOpen(false)}
       labelledBy="fs-sync-title"
-      className="max-w-lg"
+      className="max-w-2xl"
     >
       <div className="p-5 space-y-4">
         <div>
@@ -442,39 +462,82 @@ export function FsSyncDialog() {
         </div>
 
         {changes.length > 0 && (
-          <div className="rounded-xl border border-[var(--border)] max-h-56 overflow-auto">
+          <div className="rounded-xl border border-[var(--border)] max-h-80 overflow-auto">
             <ul className="divide-y divide-[var(--border)] text-xs">
               {changes.map((c) => {
                 const key = `${c.entity}:${c.path}`;
+                const isOpen = !!expanded[key];
                 return (
-                  <li key={key} className="flex items-start gap-2 px-3 py-2">
-                    <input
-                      type="checkbox"
-                      className="mt-0.5"
-                      checked={!!selected[key]}
-                      disabled={c.change === "conflict"}
-                      onChange={(e) =>
-                        setSelected((s) => ({ ...s, [key]: e.target.checked }))
-                      }
-                    />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-1">
-                        <span
-                          className={cn(
-                            "rounded px-1 py-0.5 text-[10px]",
-                            c.change === "conflict"
-                              ? "bg-[var(--accent)]/15 text-[var(--accent)]"
-                              : "bg-[var(--hover)] text-[var(--muted)]"
+                  <li key={key} className="px-3 py-2">
+                    <div className="flex items-start gap-2">
+                      <input
+                        type="checkbox"
+                        className="mt-0.5"
+                        checked={!!selected[key]}
+                        disabled={c.change === "conflict"}
+                        title={
+                          c.change === "conflict"
+                            ? "冲突默认跳过，保留 content/"
+                            : c.change === "delete"
+                              ? "删除类默认不勾选"
+                              : undefined
+                        }
+                        onChange={(e) =>
+                          setSelected((s) => ({ ...s, [key]: e.target.checked }))
+                        }
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-1">
+                          <span
+                            className={cn(
+                              "rounded px-1 py-0.5 text-[10px]",
+                              c.change === "conflict"
+                                ? "bg-[var(--accent)]/15 text-[var(--accent)]"
+                                : c.change === "delete"
+                                  ? "bg-[var(--hover)] text-[var(--accent)]"
+                                  : "bg-[var(--hover)] text-[var(--muted)]"
+                            )}
+                          >
+                            {CHANGE_LABEL[c.change]}
+                            {c.entity === "asset" ? "·图" : ""}
+                          </span>
+                          <span className="font-mono truncate">{c.path}</span>
+                          {c.change === "conflict" && (
+                            <button
+                              type="button"
+                              className="ml-auto text-[10px] text-[var(--accent)] hover:underline"
+                              onClick={() =>
+                                setExpanded((s) => ({ ...s, [key]: !s[key] }))
+                              }
+                            >
+                              {isOpen ? "收起对照" : "展开对照"}
+                            </button>
                           )}
-                        >
-                          {CHANGE_LABEL[c.change]}
-                          {c.entity === "asset" ? "·图" : ""}
-                        </span>
-                        <span className="font-mono truncate">{c.path}</span>
+                        </div>
+                        {c.detail && (
+                          <div className="mt-0.5 text-[var(--muted)]">{c.detail}</div>
+                        )}
+                        {c.change === "conflict" && isOpen && (
+                          <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] p-2">
+                              <div className="mb-1 text-[10px] uppercase tracking-wider text-[var(--muted)]">
+                                content/（将保留）
+                              </div>
+                              <pre className="whitespace-pre-wrap break-all font-mono text-[10px] leading-relaxed max-h-36 overflow-auto">
+                                {c.libraryExcerpt || "（空）"}
+                              </pre>
+                            </div>
+                            <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] p-2">
+                              <div className="mb-1 text-[10px] uppercase tracking-wider text-[var(--muted)]">
+                                磁盘
+                              </div>
+                              <pre className="whitespace-pre-wrap break-all font-mono text-[10px] leading-relaxed max-h-36 overflow-auto">
+                                {c.diskExcerpt || "（空）"}
+                              </pre>
+                            </div>
+                          </div>
+                        )}
                       </div>
-                      {c.detail && (
-                        <div className="mt-0.5 text-[var(--muted)]">{c.detail}</div>
-                      )}
                     </div>
                   </li>
                 );
