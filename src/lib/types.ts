@@ -31,6 +31,9 @@ export type PendingNav =
 /** preview | split | source | mixed (Typora-like block edit for MD) */
 export type ViewMode = "preview" | "split" | "source" | "mixed";
 
+/** Top-level shell: notes library vs IDE project mode. */
+export type AppMode = "notes" | "ide";
+
 /** Reading themes — UI labels in THEME_LABELS (theme.ts). Legacy paper/ink migrate on load. */
 export type ThemeMode =
   | "bamboo"

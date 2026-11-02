@@ -29,6 +29,7 @@ import { BookOpenCheck,
   Columns2,
   FileCode2,
   Boxes,
+  Code2,
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Dialog } from "./ui/dialog";
@@ -398,6 +399,7 @@ export function Sidebar() {
   const setStatus = useStore((s) => s.setStatus);
   const setCommandOpen = useStore((s) => s.setCommandOpen);
   const theme = useStore((s) => s.theme);
+  const setAppMode = useStore((s) => s.setAppMode);
   const setTheme = useStore((s) => s.setTheme);
   const sidebarOpen = useStore((s) => s.sidebarOpen);
   const setSidebarOpen = useStore((s) => s.setSidebarOpen);
@@ -894,6 +896,16 @@ export function Sidebar() {
               )}
             </span>
           </button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn("shrink-0", narrow ? "h-10 w-10" : compact ? "h-7 w-7" : "h-8 w-8")}
+            aria-label="切换到 IDE 模式"
+            title="IDE 模式：打开本地工程"
+            onClick={() => setAppMode("ide")}
+          >
+            <Code2 className="h-3.5 w-3.5" />
+          </Button>
           <Dropdown
             align="right"
             trigger={

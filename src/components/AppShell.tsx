@@ -29,12 +29,14 @@ import { ShortcutsDialog } from "./ShortcutsDialog";
 import { CreateDocDialogHost } from "./CreateDocDialog";
 import { openCreateDocDialog } from "@/lib/createDocDialogBus";
 import { RegisterSW } from "./pwa/RegisterSW";
+import { IdeShell } from "./ide/IdeShell";
 import { AUTOSAVE_DEBOUNCE_MS } from "@/lib/storage/constants";
 import { matchShortcut, normalizeShortcuts } from "@/lib/shortcuts";
 import { shouldHandlePreviewUndoShortcut } from "@/lib/previewUndo";
 
 export function AppShell() {
   const hydrated = useStore((s) => s.hydrated);
+  const appMode = useStore((s) => s.appMode);
   const activeId = useStore((s) => s.activeId);
   const setHydrated = useStore((s) => s.setHydrated);
   const setCommandOpen = useStore((s) => s.setCommandOpen);
@@ -291,6 +293,10 @@ export function AppShell() {
         </div>
       </div>
     );
+  }
+
+  if (appMode === "ide") {
+    return <IdeShell />;
   }
 
   const active = getActive();

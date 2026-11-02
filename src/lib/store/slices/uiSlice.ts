@@ -15,6 +15,7 @@ import type { LanghuanState } from "../types";
 type UiSliceKeys =
   | "hydrated"
   | "theme"
+  | "appMode"
   | "sidebarOpen"
   | "commandOpen"
   | "status"
@@ -51,6 +52,7 @@ type UiSliceKeys =
   | "fsLastSyncAt"
   | "setHydrated"
   | "setTheme"
+  | "setAppMode"
   | "toggleTheme"
   | "setSidebarOpen"
   | "setCommandOpen"
@@ -103,6 +105,7 @@ export const createUiSlice: StateCreator<
 > = (set, get) => ({
   hydrated: false,
   theme: "xuan",
+  appMode: "notes",
   sidebarOpen: false,
   commandOpen: false,
   status: null,
@@ -138,6 +141,10 @@ export const createUiSlice: StateCreator<
   fsBoundName: null,
   fsLastSyncAt: null,
   setHydrated: (v) => set({ hydrated: v }),
+  setAppMode: (m) => {
+        set({ appMode: m === "ide" ? "ide" : "notes" });
+        get().setStatus(m === "ide" ? "已切换到 IDE 模式" : "已切换到笔记模式");
+      },
   setTheme: (t) => {
         const id = normalizeTheme(t);
         set({ theme: id });

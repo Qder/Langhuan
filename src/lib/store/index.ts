@@ -62,6 +62,7 @@ export const useStore = create<LanghuanState>()(
         emptyFolders: s.emptyFolders,
         theme: s.theme,
         viewMode: s.viewMode,
+        appMode: s.appMode,
         activeId: s.activeId,
         splitRatio: s.splitRatio,
         splitSourceFirst: s.splitSourceFirst,

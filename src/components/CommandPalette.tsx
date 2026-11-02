@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { BookOpenCheck, Archive, HeartPulse, Replace, BookmarkPlus, CalendarDays, ClipboardPaste, Columns2, Download, FilePlus2, FileText, FolderSync, Globe, History, Home, Keyboard, LayoutTemplate, Network, Palette, Search, SlidersHorizontal, Trash2, Maximize2, Blend, Type } from "lucide-react";
+import { BookOpenCheck, Archive, HeartPulse, Replace, BookmarkPlus, CalendarDays, ClipboardPaste, Columns2, Download, FilePlus2, FileText, FolderSync, Globe, History, Home, Keyboard, LayoutTemplate, Network, Palette, Search, SlidersHorizontal, Trash2, Maximize2, Blend, Type, Code2 } from "lucide-react";
 import { Dialog } from "./ui/dialog";
 import { useStore } from "@/lib/store";
 import { themeLabel } from "@/lib/theme";
@@ -22,6 +22,8 @@ export function CommandPalette() {
   const setStatus = useStore((s) => s.setStatus);
   const toggleTheme = useStore((s) => s.toggleTheme);
   const setTheme = useStore((s) => s.setTheme);
+  const setAppMode = useStore((s) => s.setAppMode);
+  const appMode = useStore((s) => s.appMode);
   const theme = useStore((s) => s.theme);
   const setBackupDialogOpen = useStore((s) => s.setBackupDialogOpen);
   const setFsSyncDialogOpen = useStore((s) => s.setFsSyncDialogOpen);
@@ -243,6 +245,13 @@ export function CommandPalette() {
           if (activeId) setVersionDialogOpen(true);
           else setStatus("请先打开一篇文档");
         },
+      },
+      {
+        key: "cmd-ide-mode",
+        label: appMode === "ide" ? "切换到笔记模式" : "切换到 IDE 模式",
+        hint: "同一应用 · 打开本地工程",
+        icon: <Code2 className="h-4 w-4 text-[var(--accent)]" />,
+        run: () => setAppMode(appMode === "ide" ? "notes" : "ide"),
       },
       {
         key: "cmd-daily",

@@ -9,6 +9,7 @@ import type {
   ThemeMode,
   TrashItem,
   ViewMode,
+  AppMode,
 } from "../types";
 import type { ShortcutMap } from "../shortcuts";
 import type { Annotation, AnnotationInput } from "../annotations";
@@ -98,6 +99,8 @@ export type LanghuanState = {
   elementPanel: ElementPanelState | null;
   activeId: string | null;
   viewMode: ViewMode;
+  /** notes library shell vs IDE project shell */
+  appMode: AppMode;
   theme: ThemeMode;
   tagFilters: string[];
   sidebarOpen: boolean;
@@ -196,6 +199,7 @@ export type LanghuanState = {
   toggleTagFilter: (tag: string) => void;
   clearTagFilters: () => void;
   setViewMode: (m: ViewMode) => void;
+  setAppMode: (m: AppMode) => void;
   setSplitRatio: (r: number) => void;
   setSplitSourceFirst: (v: boolean) => void;
   toggleSplitSourceFirst: () => void;
