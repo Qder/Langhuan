@@ -357,7 +357,7 @@ export type LanghuanState = {
   setFsBoundName: (name: string | null) => void;
   setFsLastSyncAt: (t: number | null) => void;
   /** Apply documents returned from a folder sync-in (preserves drafts for untouched ids). */
-  applySyncedDocuments: (docs: Document[]) => void;
+  applySyncedDocuments: (docs: Document[], assets?: AssetMeta[]) => void;
   /** Replace or merge library from backup payload. */
   importLibrary: (payload: BackupPayload, mode: "merge" | "replace") => number;
   exportPayload: () => BackupPayload;

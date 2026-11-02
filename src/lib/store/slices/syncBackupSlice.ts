@@ -55,20 +55,25 @@ export const createSyncBackupSlice: StateCreator<
           /* ignore */
         }
       },
-  applySyncedDocuments: (docs) => {
+  applySyncedDocuments: (docs, nextAssets) => {
         const prevDrafts = get().drafts;
         const nextIds = new Set(docs.map((d) => d.id));
         const drafts = Object.fromEntries(
           Object.entries(prevDrafts).filter(([id]) => nextIds.has(id))
         );
         const activeId = get().activeId;
+        const assets = nextAssets ?? get().assets;
         set({
           documents: docs,
           drafts,
+          assets,
           activeId: activeId && nextIds.has(activeId) ? activeId : activeId,
         });
+        if (nextAssets) {
+          void saveAssetMetaList(nextAssets);
+        }
         // Mirror optional FS-Access sync result into primary content/
-        void bulkWriteLibrary({ documents: docs, assets: get().assets }).catch((e) => {
+        void bulkWriteLibrary({ documents: docs, assets }).catch((e) => {
           const msg = e instanceof Error ? e.message : String(e);
           get().setStatus(`写入 content/ 失败：${msg}`);
         });

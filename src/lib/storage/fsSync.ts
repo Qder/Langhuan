@@ -29,6 +29,34 @@ export type DiskDoc = {
   path: string;
   content: string;
   mtime: number;
+  size: number;
+};
+
+export type DiskAsset = {
+  path: string;
+  mtime: number;
+  size: number;
+  blob: Blob;
+  mime: string;
+};
+
+export type ExternalChangeKind = "add" | "modify" | "delete" | "conflict";
+
+export type ExternalChange = {
+  path: string;
+  entity: "doc" | "asset";
+  change: ExternalChangeKind;
+  diskMtime?: number;
+  diskSize?: number;
+  libraryUpdatedAt?: number;
+  /** Human label for UI */
+  detail?: string;
+};
+
+export type DetectExternalResult = {
+  changes: ExternalChange[];
+  docs: DiskDoc[];
+  assets: DiskAsset[];
 };
 
 export type SyncOutResult = {
@@ -186,10 +214,12 @@ export async function scanDiskDocs(root: FileSystemDirectoryHandle): Promise<Dis
         if (rel.toLowerCase().endsWith(".htm")) {
           rel = rel.replace(/\.htm$/i, ".html");
         }
+        const text = normalizeNewlines(await file.text());
         out.push({
           path: rel,
-          content: normalizeNewlines(await file.text()),
+          content: text,
           mtime: file.lastModified,
+          size: file.size,
         });
       } else if (entry.kind === "directory") {
         if (name === FS_INDEX_DIR || name === "node_modules" || name === ".git") continue;
@@ -202,6 +232,292 @@ export async function scanDiskDocs(root: FileSystemDirectoryHandle): Promise<Dis
   };
   await walk(root, "");
   return out;
+}
+
+
+const IMAGE_RE = /\.(png|jpe?g|gif|webp|bmp|avif)$/i;
+
+function utf8Size(text: string): number {
+  if (typeof TextEncoder !== "undefined") {
+    return new TextEncoder().encode(text).length;
+  }
+  return unescape(encodeURIComponent(text)).length;
+}
+
+/** Recursively list image files under root (skip dot / .langhuan). */
+export async function scanDiskAssets(root: FileSystemDirectoryHandle): Promise<DiskAsset[]> {
+  const out: DiskAsset[] = [];
+  const walk = async (dir: FileSystemDirectoryHandle, prefix: string) => {
+    for await (const [name, entry] of dir.entries()) {
+      if (name.startsWith(".")) continue;
+      if (entry.kind === "file") {
+        if (!IMAGE_RE.test(name)) continue;
+        const file = await (entry as FileSystemFileHandle).getFile();
+        const rel = prefix ? `${prefix}/${name}` : name;
+        const mime =
+          file.type ||
+          (name.toLowerCase().endsWith(".png")
+            ? "image/png"
+            : name.toLowerCase().endsWith(".webp")
+              ? "image/webp"
+              : name.toLowerCase().endsWith(".gif")
+                ? "image/gif"
+                : "image/jpeg");
+        out.push({
+          path: rel,
+          mtime: file.lastModified,
+          size: file.size,
+          blob: file,
+          mime,
+        });
+      } else if (entry.kind === "directory") {
+        if (name === FS_INDEX_DIR || name === "node_modules" || name === ".git") continue;
+        await walk(
+          entry as FileSystemDirectoryHandle,
+          prefix ? `${prefix}/${name}` : name
+        );
+      }
+    }
+  };
+  await walk(root, "");
+  return out;
+}
+
+/**
+ * Compare bound folder vs library using mtime/size (no continuous watch).
+ * Both-sides dirty →「conflict」(keep content/ on apply); never silent overwrite.
+ */
+export function detectExternalChanges(
+  library: Document[],
+  assets: AssetMeta[],
+  diskDocs: DiskDoc[],
+  diskAssets: Omit<DiskAsset, "blob" | "mime">[],
+  index: FsIndex
+): ExternalChange[] {
+  const changes: ExternalChange[] = [];
+  const libByPath = new Map(library.map((d) => [safeRelPath(d.path), d]));
+  const assetByPath = new Map(assets.map((a) => [safeRelPath(a.path), a]));
+  const seenDocs = new Set<string>();
+  const seenAssets = new Set<string>();
+
+  for (const file of diskDocs) {
+    const path = safeRelPath(file.path);
+    if (!path) continue;
+    seenDocs.add(path);
+    const existing = libByPath.get(path);
+    const meta = index.documents[path];
+    const lastSynced = meta?.lastSyncedAt ?? 0;
+    if (!existing) {
+      changes.push({
+        path,
+        entity: "doc",
+        change: "add",
+        diskMtime: file.mtime,
+        diskSize: file.size,
+        detail: "磁盘新增",
+      });
+      continue;
+    }
+    const libSize = utf8Size(existing.content);
+    const sizeDiff = file.size !== libSize;
+    const contentDiff = existing.content !== file.content;
+    if (!contentDiff && !sizeDiff) continue;
+    const diskChanged = file.mtime > lastSynced || sizeDiff;
+    const libChanged = existing.updatedAt > lastSynced;
+    if (diskChanged && libChanged && contentDiff) {
+      changes.push({
+        path,
+        entity: "doc",
+        change: "conflict",
+        diskMtime: file.mtime,
+        diskSize: file.size,
+        libraryUpdatedAt: existing.updatedAt,
+        detail: "两侧均有改动 · 将保留 content/",
+      });
+    } else if (diskChanged && contentDiff) {
+      changes.push({
+        path,
+        entity: "doc",
+        change: "modify",
+        diskMtime: file.mtime,
+        diskSize: file.size,
+        libraryUpdatedAt: existing.updatedAt,
+        detail: "磁盘较新",
+      });
+    }
+  }
+
+  for (const [path, doc] of libByPath) {
+    if (seenDocs.has(path)) continue;
+    // Only report delete when the path was previously mirrored in the FS index.
+    const meta = index.documents[path];
+    if (!meta) continue;
+    changes.push({
+      path,
+      entity: "doc",
+      change: "delete",
+      libraryUpdatedAt: doc.updatedAt,
+      detail: "磁盘上已不存在",
+    });
+  }
+
+  for (const file of diskAssets) {
+    const path = safeRelPath(file.path);
+    if (!path) continue;
+    seenAssets.add(path);
+    const existing = assetByPath.get(path);
+    if (!existing) {
+      changes.push({
+        path,
+        entity: "asset",
+        change: "add",
+        diskMtime: file.mtime,
+        diskSize: file.size,
+        detail: "磁盘新图片",
+      });
+      continue;
+    }
+    if (existing.size !== file.size || (file.mtime && file.mtime > existing.createdAt)) {
+      if (existing.size !== file.size) {
+        changes.push({
+          path,
+          entity: "asset",
+          change: "modify",
+          diskMtime: file.mtime,
+          diskSize: file.size,
+          detail: "图片大小变化",
+        });
+      }
+    }
+  }
+
+  for (const [path] of assetByPath) {
+    if (seenAssets.has(path)) continue;
+    // Assets may live only in content/ without being mirrored — only flag if under a scanned tree
+    // Skip asset deletes unless index has documents (bound session). Soft.
+  }
+
+  const order = { add: 0, modify: 1, conflict: 2, delete: 3 };
+  changes.sort(
+    (a, b) => order[a.change] - order[b.change] || a.path.localeCompare(b.path, "zh")
+  );
+  return changes;
+}
+
+export type ApplyExternalPullResult = {
+  documents: Document[];
+  assets: AssetMeta[];
+  applied: ExternalChange[];
+  skippedConflicts: string[];
+  errors: string[];
+};
+
+/**
+ * Apply confirmed external changes into library snapshots.
+ * Conflicts are skipped (content/ wins). Deletes remove docs from the list.
+ * Asset blobs must be supplied via diskAssets map.
+ */
+export function applyExternalPull(
+  library: Document[],
+  assets: AssetMeta[],
+  diskDocs: DiskDoc[],
+  diskAssets: DiskAsset[],
+  index: FsIndex,
+  selected: ExternalChange[],
+  now = Date.now()
+): ApplyExternalPullResult {
+  const docMap = new Map(library.map((d) => [safeRelPath(d.path), { ...d }]));
+  const assetMap = new Map(assets.map((a) => [safeRelPath(a.path), { ...a }]));
+  const diskDocMap = new Map(diskDocs.map((d) => [safeRelPath(d.path), d]));
+  const diskAssetMap = new Map(diskAssets.map((a) => [safeRelPath(a.path), a]));
+  const applied: ExternalChange[] = [];
+  const skippedConflicts: string[] = [];
+  const errors: string[] = [];
+
+  for (const ch of selected) {
+    const path = safeRelPath(ch.path);
+    if (!path) continue;
+    if (ch.change === "conflict") {
+      skippedConflicts.push(path);
+      continue;
+    }
+    if (ch.entity === "doc") {
+      if (ch.change === "delete") {
+        docMap.delete(path);
+        applied.push(ch);
+        continue;
+      }
+      const file = diskDocMap.get(path);
+      if (!file) {
+        errors.push(`${path}: 磁盘文件缺失`);
+        continue;
+      }
+      const type = libraryDocTypeFromPath(path);
+      const existing = docMap.get(path);
+      const meta = index.documents[path];
+      if (!existing) {
+        docMap.set(path, {
+          id: meta?.id || `fs_${Math.random().toString(36).slice(2, 10)}_${now.toString(36)}`,
+          path,
+          type,
+          content: file.content,
+          starred: meta?.starred ?? false,
+          createdAt: meta?.createdAt ?? (file.mtime || now),
+          updatedAt: file.mtime || now,
+        });
+      } else {
+        docMap.set(path, {
+          ...existing,
+          content: file.content,
+          type,
+          updatedAt: file.mtime || now,
+        });
+      }
+      applied.push(ch);
+    } else {
+      const file = diskAssetMap.get(path);
+      if (!file) {
+        errors.push(`${path}: 磁盘附件缺失`);
+        continue;
+      }
+      const existing = assetMap.get(path);
+      if (!existing) {
+        assetMap.set(path, {
+          id: `fs_asset_${Math.random().toString(36).slice(2, 10)}_${now.toString(36)}`,
+          path,
+          mime: file.mime,
+          size: file.size,
+          createdAt: file.mtime || now,
+        });
+      } else {
+        assetMap.set(path, {
+          ...existing,
+          mime: file.mime || existing.mime,
+          size: file.size,
+        });
+      }
+      applied.push(ch);
+    }
+  }
+
+  return {
+    documents: Array.from(docMap.values()),
+    assets: Array.from(assetMap.values()),
+    applied,
+    skippedConflicts,
+    errors,
+  };
+}
+
+export async function collectExternalSnapshot(
+  root: FileSystemDirectoryHandle
+): Promise<{ docs: DiskDoc[]; assets: DiskAsset[]; index: FsIndex }> {
+  const [docs, assets, index] = await Promise.all([
+    scanDiskDocs(root),
+    scanDiskAssets(root),
+    readIndex(root),
+  ]);
+  return { docs, assets, index };
 }
 
 export function emptyIndex(): FsIndex {
@@ -330,8 +646,8 @@ export async function syncOutAll(
 
 /**
  * Pull disk files into the in-memory document list (does not mutate store itself).
- * Conflict policy (MVP): if both sides changed since lastSyncedAt, **disk wins**
- * and the path is listed in `conflicts`. Soft-deleted / orphan disk cleanup is out of scope.
+ * Conflict policy: if both sides changed since lastSyncedAt, **content/ (library) wins**
+ * and the path is listed in `conflicts` (no silent overwrite). Orphan disk cleanup is out of scope.
  */
 export function planSyncIn(
   library: Document[],
@@ -398,15 +714,9 @@ export function planSyncIn(
     const idbChanged = existing.updatedAt > lastSynced;
 
     if (diskChanged && idbChanged) {
+      // Both dirty → keep content/ (library); list path for the user. Never silent overwrite.
       conflicts.push(path);
-      nextMap.set(path, {
-        ...existing,
-        content: file.content,
-        type,
-        updatedAt: Math.max(file.mtime, Date.now()),
-        starred: meta?.starred ?? existing.starred,
-      });
-      updated += 1;
+      unchanged += 1;
       continue;
     }
 
@@ -433,7 +743,7 @@ export function planSyncIn(
 }
 
 /**
- * Bidirectional sync: resolve disk→IDB first (so external edits win when newer),
+ * Bidirectional sync: pull newer disk files into library (conflicts keep content/),
  * then write full library to disk + refresh index.
  */
 export async function syncBidirectional(
