@@ -852,6 +852,52 @@
     true
   );
 
+  // Hover → source range strip (parent shows L12–L18; no click locate).
+  var lastHoverKey = "";
+  document.addEventListener(
+    "pointerover",
+    function (e) {
+      var t = e.target;
+      var el = t && t.nodeType === 1 ? t : (t && t.parentElement) || null;
+      if (!el) return;
+      var lhEl = closestLh(el);
+      var range = (lhEl && parseLh(lhEl)) || null;
+      var key = range ? range.start + "-" + range.end : "none";
+      if (key === lastHoverKey) return;
+      lastHoverKey = key;
+      parent.postMessage(
+        {
+          type: "lh-hover",
+          range: range,
+          degrade: !range,
+        },
+        "*"
+      );
+    },
+    true
+  );
+  document.addEventListener(
+    "pointerout",
+    function (e) {
+      var related = e.relatedTarget;
+      if (related && related.nodeType === 1 && document.documentElement.contains(related)) {
+        return;
+      }
+      lastHoverKey = "";
+      parent.postMessage({ type: "lh-hover", range: null, degrade: false }, "*");
+    },
+    true
+  );
+  window.addEventListener(
+    "scroll",
+    function () {
+      if (!lastHoverKey) return;
+      lastHoverKey = "";
+      parent.postMessage({ type: "lh-hover", range: null, degrade: false }, "*");
+    },
+    true
+  );
+
   /**
    * specificity（与 src/lib/locate/cssLocate.ts 同一算法，测试里逐条比对防漂移）。
    * [id, class/attr/伪类, 类型/伪元素]

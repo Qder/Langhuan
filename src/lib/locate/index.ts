@@ -9,3 +9,4 @@ export * from "./dom";
 export * from "./rehypeSrcPositions";
 export * from "./scrollSync";
 export * from "./htmlInstrument";
+export * from "./sourceRangeLabel";

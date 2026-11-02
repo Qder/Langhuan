@@ -43,6 +43,7 @@ import {
   isTrivialSelection,
   locateInMarkdown,
   locateMdTextRunInRange,
+  lineRangeLabel,
   previewTopToSourceOffsetSorted,
   sourceOffsetToPreviewTopSorted,
   buildSortedAnchorArrays,
@@ -1808,6 +1809,56 @@ export function MarkdownReader({ doc }: { doc: Document }) {
     doc.id,
     getContent,
   ]);
+
+  // Hover: show source line range strip without stealing click locate.
+  React.useEffect(() => {
+    const root = articleRef.current;
+    if (!root) return;
+    const setHoverReveal = useStore.getState().setHoverReveal;
+    const clearHoverReveal = useStore.getState().clearHoverReveal;
+    let lastEl: HTMLElement | null = null;
+    const onOver = (e: PointerEvent) => {
+      if (useStore.getState().viewMode === "preview") {
+        // still show label in status; soft highlight only useful in split/source
+      }
+      const t = e.target as HTMLElement | null;
+      const el = t?.closest?.<HTMLElement>("[data-src-start]");
+      if (!el || !root.contains(el)) {
+        if (lastEl) {
+          lastEl = null;
+          clearHoverReveal();
+        }
+        return;
+      }
+      if (el === lastEl) return;
+      lastEl = el;
+      const start = Number(el.getAttribute("data-src-start"));
+      const end = Number(el.getAttribute("data-src-end") || start);
+      if (!Number.isFinite(start)) return;
+      const { label } = lineRangeLabel(content, start, end);
+      setHoverReveal({ start, end, label, nonce: Date.now() });
+    };
+    const onLeave = (e: PointerEvent) => {
+      const related = e.relatedTarget as Node | null;
+      if (related && root.contains(related)) return;
+      lastEl = null;
+      clearHoverReveal();
+    };
+    const onScroll = () => {
+      lastEl = null;
+      clearHoverReveal();
+    };
+    root.addEventListener("pointerover", onOver);
+    root.addEventListener("pointerleave", onLeave);
+    const scroll = document.getElementById("reader-scroll");
+    scroll?.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      root.removeEventListener("pointerover", onOver);
+      root.removeEventListener("pointerleave", onLeave);
+      scroll?.removeEventListener("scroll", onScroll);
+      clearHoverReveal();
+    };
+  }, [content, body, doc.id]);
 
   // Clicks on #reader-scroll chrome below the article (outside <article>) also append.
   React.useEffect(() => {

@@ -43,6 +43,18 @@ export type PendingReveal = {
   center?: boolean;
 };
 
+/** Preview hover → source range strip (does not steal click locate). */
+export type HoverReveal = {
+  start: number;
+  end: number;
+  /** e.g. L12–L18 */
+  label: string;
+  nonce: number;
+  /** Script-generated / no data-lh: show degrade copy, no guessed lines. */
+  degrade?: boolean;
+  message?: string;
+};
+
 /** Per-document scroll-sync preference (default on). */
 export type SyncScrollPrefs = Record<string, boolean>;
 
@@ -107,6 +119,7 @@ export type LanghuanState = {
   commandOpen: boolean;
   status: StatusFeedback;
   pendingReveal: PendingReveal | null;
+  hoverReveal: HoverReveal | null;
   pendingPreviewLocate: PendingPreviewLocate | null;
   /** Sidebar tree: expand + scrollIntoView once (not on activeId change). */
   treeRevealRequest: TreeRevealRequest | null;
@@ -224,6 +237,8 @@ export type LanghuanState = {
   setStatus: (message: string) => void;
   applyLocateResult: (result: LocateResult, opts?: { select?: boolean; focus?: boolean; highlight?: boolean; center?: boolean }) => void;
   clearPendingReveal: () => void;
+  setHoverReveal: (h: HoverReveal | null) => void;
+  clearHoverReveal: () => void;
   requestPreviewLocate: (offset: number, opts?: PreviewLocateOpts) => void;
   clearPendingPreviewLocate: () => void;
   /** Expand ancestors and scroll the sidebar tree to this doc once. */

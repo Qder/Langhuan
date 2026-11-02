@@ -174,6 +174,14 @@ export type HtmlCssHitsPayload = {
  * 点击就报的元素身份：交互元素（button/a/input）不发 lh-locate，但「元素」面板照样要能开。
  * 父窗口收到后自己决定要不要追问 lh-css-query（样式规则）。
  */
+export type HtmlHoverPayload = {
+  type: "lh-hover";
+  /** data-lh range when present */
+  range: { start: number; end: number } | null;
+  /** true when element (and ancestors) lack data-lh — script-generated etc. */
+  degrade?: boolean;
+};
+
 export type HtmlElementPayload = {
   type: "lh-element";
   element: BridgeElementNode | null;
@@ -194,7 +202,8 @@ export type BridgeInboundMessage =
   | HtmlQuizListPayload
   | HtmlQuizPeekedPayload
   | HtmlCssHitsPayload
-  | HtmlElementPayload;
+  | HtmlElementPayload
+  | HtmlHoverPayload;
 
 export const BRIDGE_INBOUND_TYPES = [
   "lh-locate",
@@ -210,6 +219,7 @@ export const BRIDGE_INBOUND_TYPES = [
   "lh-quiz-peeked",
   "lh-css-hits",
   "lh-element",
+  "lh-hover",
 ] as const;
 
 export type BridgeInboundType = (typeof BRIDGE_INBOUND_TYPES)[number];

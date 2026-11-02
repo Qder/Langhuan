@@ -22,6 +22,7 @@ import {
   parseBridgeMessage,
   previewTopToSourceOffset,
   lineAtOffset,
+  lineRangeLabel,
 } from "@/lib/locate";
 import type { HtmlLocatePayload, LocateResult } from "@/lib/locate";
 import type { RawCssHit } from "@/lib/locate/cssLocate";
@@ -620,6 +621,34 @@ export function HtmlReader({ doc }: { doc: Document }) {
         lastElementTextRef.current = typeof data.text === "string" ? data.text : "";
         cssNonceRef.current += 1;
         postToBridge({ type: "lh-css-query", nonce: cssNonceRef.current });
+        return;
+      }
+
+      if (data.type === "lh-hover") {
+        const setHoverReveal = useStore.getState().setHoverReveal;
+        const clearHoverReveal = useStore.getState().clearHoverReveal;
+        if (!data.range) {
+          if (data.degrade) {
+            setHoverReveal({
+              start: 0,
+              end: 0,
+              label: "",
+              nonce: Date.now(),
+              degrade: true,
+              message: "动态生成，无稳定源码行号",
+            });
+          } else {
+            clearHoverReveal();
+          }
+          return;
+        }
+        const { label } = lineRangeLabel(content, data.range.start, data.range.end);
+        setHoverReveal({
+          start: data.range.start,
+          end: data.range.end,
+          label,
+          nonce: Date.now(),
+        });
         return;
       }
 

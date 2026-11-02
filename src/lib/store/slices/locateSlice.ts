@@ -7,6 +7,7 @@ import { publishScrollBus } from "@/lib/locate/scrollBus";
 type LocateSliceKeys =
   | "viewMode"
   | "pendingReveal"
+  | "hoverReveal"
   | "pendingPreviewLocate"
   | "treeRevealRequest"
   | "htmlScrollPercent"
@@ -21,6 +22,8 @@ type LocateSliceKeys =
   | "clearScrollSyncEvent"
   | "applyLocateResult"
   | "clearPendingReveal"
+  | "setHoverReveal"
+  | "clearHoverReveal"
   | "requestPreviewLocate"
   | "clearPendingPreviewLocate"
   | "requestTreeReveal";
@@ -35,6 +38,7 @@ export const createLocateSlice: StateCreator<
 > = (set, get) => ({
   viewMode: "preview",
   pendingReveal: null,
+  hoverReveal: null,
   pendingPreviewLocate: null,
   treeRevealRequest: null,
   htmlScrollPercent: 0,
@@ -130,6 +134,8 @@ export const createLocateSlice: StateCreator<
         });
       },
   clearPendingReveal: () => set({ pendingReveal: null }),
+  setHoverReveal: (h) => set({ hoverReveal: h }),
+  clearHoverReveal: () => set({ hoverReveal: null }),
   requestPreviewLocate: (offset, opts) => {
         set({
           pendingPreviewLocate: {

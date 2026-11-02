@@ -27,6 +27,7 @@ import {
 import {
   clearRevealInView,
   locateHighlightExtensions,
+  revealRangeInView,
   scheduleRevealRangeInView,
 } from "./locateHighlight";
 import { safeCoordsAtPos, createRafScrollToOffset } from "./safeCoords";
@@ -54,6 +55,7 @@ export function MdCodeMirror({
   const getContent = useStore((s) => s.getContent);
   const setDraft = useStore((s) => s.setDraft);
   const pendingReveal = useStore((s) => s.pendingReveal);
+  const hoverReveal = useStore((s) => s.hoverReveal);
   const clearPendingReveal = useStore((s) => s.clearPendingReveal);
   const requestPreviewLocate = useStore((s) => s.requestPreviewLocate);
   const setStatus = useStore((s) => s.setStatus);
@@ -589,6 +591,24 @@ export function MdCodeMirror({
       cancelled = true;
     };
   }, [pendingReveal, clearPendingReveal, viewMode]);
+
+  // Hover strip: soft highlight without scroll/focus (does not clear click reveal).
+  React.useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    if (!hoverReveal || hoverReveal.degrade) {
+      // leave click highlight alone when hover clears
+      return;
+    }
+    if (viewMode === "preview") return;
+    revealRangeInView(view, hoverReveal.start, hoverReveal.end, {
+      center: false,
+      highlight: true,
+      select: false,
+      focus: false,
+      forceScroll: false,
+    });
+  }, [hoverReveal, viewMode]);
 
   // Preview → editor anchor scroll sync (bus; no React re-render on scroll)
   React.useEffect(() => {

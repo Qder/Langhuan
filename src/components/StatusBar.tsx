@@ -12,6 +12,7 @@ export function StatusBar() {
   const viewMode = useStore((s) => s.viewMode);
   const htmlImmersive = useStore((s) => s.htmlImmersive);
   const editorCaret = useStore((s) => s.editorCaret);
+  const hoverReveal = useStore((s) => s.hoverReveal);
 
   const content = active ? getContent(active.id) : "";
   const words = active ? countWords(content) : 0;
@@ -32,7 +33,13 @@ export function StatusBar() {
   if (htmlPreview) {
     return (
       <footer className="h-5 shrink-0 border-t border-[var(--chrome-border)] bg-[var(--chrome)] px-3 flex items-center justify-between text-[10px] text-[var(--muted)] font-ui">
-        <div className="truncate">{status?.message || "就绪"}</div>
+        <div className="truncate">
+          {hoverReveal?.degrade
+            ? hoverReveal.message || "动态生成，无稳定源码行号"
+            : hoverReveal?.label
+              ? `源码 ${hoverReveal.label}`
+              : status?.message || "就绪"}
+        </div>
         <div className="flex items-center gap-3 shrink-0 tabular-nums">
           {showCaret && (
             <span>
@@ -48,7 +55,13 @@ export function StatusBar() {
 
   return (
     <footer className="h-7 shrink-0 border-t border-[var(--chrome-border)] bg-[var(--chrome)] px-3 flex items-center justify-between text-[11px] text-[var(--muted)] font-ui">
-      <div className="truncate">{status?.message || "就绪"}</div>
+      <div className="truncate">
+          {hoverReveal?.degrade
+            ? hoverReveal.message || "动态生成，无稳定源码行号"
+            : hoverReveal?.label
+              ? `源码 ${hoverReveal.label}`
+              : status?.message || "就绪"}
+        </div>
       <div className="flex items-center gap-3 shrink-0 tabular-nums">
         {active && (
           <>
