@@ -7,14 +7,13 @@ import { useStore } from "@/lib/store";
 import {
   buildKnowledgeGraph,
   initSimNodes,
+  shouldUseListLayout,
   tickForce,
   type GraphEdge,
   type GraphNode,
   type SimNode,
 } from "@/lib/graph";
 import { cn } from "@/lib/utils";
-
-const FORCE_LAYOUT_LIMIT = 300;
 
 export function KnowledgeGraphDialog() {
   const open = useStore((s) => s.graphDialogOpen);
@@ -29,7 +28,7 @@ export function KnowledgeGraphDialog() {
   const [query, setQuery] = React.useState("");
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
 
-  const useList = graph.nodes.length > FORCE_LAYOUT_LIMIT;
+  const useList = shouldUseListLayout(graph.nodes.length);
 
   React.useEffect(() => {
     if (!open) return;

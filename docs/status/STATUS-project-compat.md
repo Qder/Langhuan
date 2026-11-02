@@ -151,5 +151,5 @@ npm run check && npm run build
 - 不认 import map（`<script type="importmap">`），哪怕写了也照报「建议用 import map」——
   因为预览本身没有 base URL，import map 也救不了。
 - 不抓 CDN 快照（本期明确不做），外站资源只提示需要联网。
-- CSS `@import` 仍未展平；展平要按被导入文件自己的目录重解析 `url()`，留到下一期。
+- 本地 CSS `@import` 已按被导入文件目录展平；缺文件 / 外站 / 环仍保留原句并进报告。
 - `@import` 后面如果跟 `media` 查询或 `layer()`，报告只关心路径，不区分条件。

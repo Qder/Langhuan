@@ -23,6 +23,13 @@ export type KnowledgeGraph = {
   edges: GraphEdge[];
 };
 
+/** Above this node count the graph dialog uses list+search instead of force layout. */
+export const FORCE_LAYOUT_LIMIT = 300;
+
+export function shouldUseListLayout(nodeCount: number): boolean {
+  return nodeCount > FORCE_LAYOUT_LIMIT;
+}
+
 export function buildKnowledgeGraph(docs: Document[]): KnowledgeGraph {
   const inbound = new Map<string, number>();
   const edges: GraphEdge[] = [];

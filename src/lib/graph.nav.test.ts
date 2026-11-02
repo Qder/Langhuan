@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildKnowledgeGraph } from "./graph";
+import {
+  buildKnowledgeGraph,
+  FORCE_LAYOUT_LIMIT,
+  shouldUseListLayout,
+} from "./graph";
 import type { Document } from "./types";
 
 function md(path: string, content: string): Document {
@@ -29,9 +33,17 @@ describe("knowledge graph navigation data", () => {
     expect(g.edges.some((e) => e.from === "a.md" && e.to === "b.md")).toBe(true);
     expect(g.edges.some((e) => e.from === "b.md" && e.to === "a.md")).toBe(true);
     expect(g.edges.some((e) => e.from === "c.md" && e.to === "a.md")).toBe(true);
+    expect(shouldUseListLayout(g.nodes.length)).toBe(false);
   });
 
-  it("switches to list mode threshold at 300+ conceptually", () => {
-    expect(300).toBeGreaterThan(0); // FORCE_LAYOUT_LIMIT mirrored in dialog
+  it("uses list mode when node count exceeds FORCE_LAYOUT_LIMIT", () => {
+    const docs = Array.from({ length: FORCE_LAYOUT_LIMIT + 1 }, (_, i) =>
+      md(`n${i}.md`, `note ${i}`),
+    );
+    const g = buildKnowledgeGraph(docs);
+    expect(g.nodes.length).toBe(FORCE_LAYOUT_LIMIT + 1);
+    expect(g.nodes.length).toBeGreaterThan(FORCE_LAYOUT_LIMIT);
+    expect(shouldUseListLayout(g.nodes.length)).toBe(true);
+    expect(shouldUseListLayout(FORCE_LAYOUT_LIMIT)).toBe(false);
   });
 });
