@@ -6,6 +6,9 @@ import { useIdeStore } from "@/lib/ide/store";
 import type { IdeFsEntry } from "@/lib/ide/ideFs";
 import { cn } from "@/lib/utils";
 
+/** Stable empty list for zustand selectors (avoid `|| []` new ref → getSnapshot loop). */
+const EMPTY_ENTRIES: IdeFsEntry[] = [];
+
 function TreeRow({
   entry,
   depth,
@@ -83,7 +86,7 @@ function TreeRow({
 
 export function IdeExplorer() {
   const session = useIdeStore((s) => s.session);
-  const rootChildren = useIdeStore((s) => s.children[""] || []);
+  const rootChildren = useIdeStore((s) => s.children[""] ?? EMPTY_ENTRIES);
   const ensureDirListed = useIdeStore((s) => s.ensureDirListed);
   const loadingTree = useIdeStore((s) => s.loadingTree);
 
