@@ -96,6 +96,26 @@ export type RematchResult = {
   precision: "exact" | "reanchor" | "lost";
 };
 
+export type ReanchorSummary = {
+  exact: number;
+  reanchor: number;
+  lost: number;
+};
+
+export function summarizeReanchor(results: RematchResult[]): ReanchorSummary {
+  const out: ReanchorSummary = { exact: 0, reanchor: 0, lost: 0 };
+  for (const r of results) {
+    out[r.precision] += 1;
+  }
+  return out;
+}
+
+/** Status bar copy; null when nothing drifted (all exact / empty). */
+export function formatReanchorStatus(summary: ReanchorSummary): string | null {
+  if (summary.reanchor === 0 && summary.lost === 0) return null;
+  return `批注已对齐：${summary.reanchor} 条重锚，${summary.lost} 条已失效`;
+}
+
 /**
  * Reanchor using offset + surrounding context.
  * Never falls back to a global first-indexOf of the quote (that drifts to wrong sentences).

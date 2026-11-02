@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   annotationsForDoc,
   createAnnotation,
+  formatReanchorStatus,
   rematchAnnotation,
   resolveAnnotation,
+  summarizeReanchor,
   updateAnnotationNote,
 } from "./annotations";
 
@@ -98,5 +100,41 @@ describe("annotations model", () => {
       end: 3,
     });
     expect(rematchAnnotation("全是别的", a).precision).toBe("lost");
+  });
+});
+
+
+describe("reanchor summary", () => {
+  it("counts insert-line reanchor and delete-sentence lost", () => {
+    const body0 = "第一段目标句在这里。\n第二段保留句。";
+    const q1 = "目标句在这里";
+    const q2 = "第二段保留句";
+    const a1 = createAnnotation({
+      docId: "d",
+      quote: q1,
+      start: body0.indexOf(q1),
+      end: body0.indexOf(q1) + q1.length,
+      source: body0,
+    });
+    const a2 = createAnnotation({
+      docId: "d",
+      quote: q2,
+      start: body0.indexOf(q2),
+      end: body0.indexOf(q2) + q2.length,
+      source: body0,
+    });
+    const body1 = "插入的新行\n第一段目标句在这里。\n已被删掉的位置";
+    const r1 = rematchAnnotation(body1, a1);
+    const r2 = rematchAnnotation(body1, a2);
+    expect(r1.precision).toBe("reanchor");
+    expect(r2.precision).toBe("lost");
+    const summary = summarizeReanchor([r1, r2]);
+    expect(summary).toEqual({ exact: 0, reanchor: 1, lost: 1 });
+    expect(formatReanchorStatus(summary)).toBe(
+      "批注已对齐：1 条重锚，1 条已失效",
+    );
+    expect(
+      formatReanchorStatus({ exact: 2, reanchor: 0, lost: 0 }),
+    ).toBeNull();
   });
 });

@@ -2,7 +2,7 @@
 
 import type { StateCreator } from "zustand";
 import type { AssetMeta } from "../../types";
-import { createAnnotation, updateAnnotationNote, resolveAnnotation, normalizeAnnotation } from "../../annotations";
+import { createAnnotation, updateAnnotationNote, resolveAnnotation, normalizeAnnotation, rematchAnnotation, summarizeReanchor, formatReanchorStatus, type RematchResult } from "../../annotations";
 import {
   setQuizItemState as applyQuizItemState,
   syncQuizDocFromSource,
@@ -254,16 +254,18 @@ export const createAssetsSlice: StateCreator<
         get().setStatus("已删除批注");
       },
   reanchorDocAnnotations: (docId, source) => {
-        set((s) => {
-          let changed = false;
-          const annotations = s.annotations.map((a) => {
-            if (a.docId !== docId) return a;
-            const next = resolveAnnotation(source, normalizeAnnotation(a));
-            if (next !== a) changed = true;
-            return next;
-          });
-          return changed ? { annotations } : {};
+        const prev = get().annotations;
+        const matches: RematchResult[] = [];
+        const annotations = prev.map((a) => {
+          if (a.docId !== docId) return a;
+          const norm = normalizeAnnotation(a);
+          matches.push(rematchAnnotation(source, norm));
+          return resolveAnnotation(source, norm);
         });
+        const changed = annotations.some((a, i) => a !== prev[i]);
+        if (changed) set({ annotations });
+        const msg = formatReanchorStatus(summarizeReanchor(matches));
+        if (msg) get().setStatus(msg);
       },
   persistQuizStore: () => {
         const docs = get().quizDocs;

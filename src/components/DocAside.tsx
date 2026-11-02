@@ -146,6 +146,8 @@ export function DocAside({
   const annotations = useStore((s) => s.annotations);
   const updateAnnotation = useStore((s) => s.updateAnnotation);
   const removeAnnotation = useStore((s) => s.removeAnnotation);
+  const applyLocateResult = useStore((s) => s.applyLocateResult);
+  const requestPreviewLocate = useStore((s) => s.requestPreviewLocate);
   const assetsForDoc = useStore((s) => s.assetsForDoc);
   const [backlinksOpen, setBacklinksOpen] = React.useState(false);
   const [mentionsOpen, setMentionsOpen] = React.useState(true);
@@ -360,9 +362,58 @@ export function DocAside({
                   )}
                 >
                   <div className="mb-1 flex items-start gap-1">
-                    <mark className={cn("lh-annot flex-1 text-xs leading-5", `lh-annot-${a.color}`, stale && "line-through opacity-70")}>
-                      {a.quote.length > 80 ? a.quote.slice(0, 80) + "…" : a.quote}
-                    </mark>
+                    {stale ? (
+                      <mark
+                        className={cn(
+                          "lh-annot flex-1 text-xs leading-5 line-through opacity-70",
+                          `lh-annot-${a.color}`
+                        )}
+                      >
+                        {a.quote.length > 80 ? a.quote.slice(0, 80) + "…" : a.quote}
+                      </mark>
+                    ) : (
+                      <button
+                        type="button"
+                        className="min-w-0 flex-1 text-left"
+                        title="跳到原文"
+                        onClick={() => {
+                          const source = doc
+                            ? getContent(doc.id) || doc.content
+                            : "";
+                          const live = source
+                            ? resolveAnnotation(source, a)
+                            : resolved;
+                          if (live.status === "stale") return;
+                          applyLocateResult(
+                            {
+                              start: live.start,
+                              end: live.end,
+                              precision: "exact",
+                              message: `批注 · ${a.quote.slice(0, 24)}`,
+                            },
+                            {
+                              select: true,
+                              focus: true,
+                              highlight: true,
+                              center: true,
+                            }
+                          );
+                          requestPreviewLocate(live.start, {
+                            scroll: true,
+                            announce: true,
+                          });
+                        }}
+                      >
+                        <mark
+                          className={cn(
+                            "lh-annot block text-xs leading-5 hover:ring-1 hover:ring-[var(--accent)]/40",
+                            `lh-annot-${a.color}`
+                          )}
+                        >
+                          {a.quote.length > 80 ? a.quote.slice(0, 80) + "…" : a.quote}
+                        </mark>
+                      </button>
+                    )}
                     <button
                       type="button"
                       aria-label="删除批注"
