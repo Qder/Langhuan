@@ -545,6 +545,90 @@ export function applyExternalPull(
   };
 }
 
+export type ApplyDiskOverwriteResult = {
+  documents: Document[];
+  overwritten: string[];
+  errors: string[];
+};
+
+/**
+ * Explicit conflict resolution: replace library content/ with disk for listed paths only.
+ * Paths not listed are untouched. Does not treat checkbox-selected conflicts as overwrite.
+ */
+export function applyDiskOverwrite(
+  library: Document[],
+  diskDocs: DiskDoc[],
+  overwritePaths: string[],
+  now = Date.now()
+): ApplyDiskOverwriteResult {
+  const docMap = new Map(library.map((d) => [safeRelPath(d.path), { ...d }]));
+  const diskDocMap = new Map(diskDocs.map((d) => [safeRelPath(d.path), d]));
+  const overwritten: string[] = [];
+  const errors: string[] = [];
+  const seen = new Set<string>();
+
+  for (const raw of overwritePaths) {
+    const path = safeRelPath(raw);
+    if (!path || seen.has(path)) continue;
+    seen.add(path);
+    const file = diskDocMap.get(path);
+    if (!file) {
+      errors.push(`${path}: 磁盘文件缺失`);
+      continue;
+    }
+    const existing = docMap.get(path);
+    if (!existing) {
+      errors.push(`${path}: 库中无此文档`);
+      continue;
+    }
+    docMap.set(path, {
+      ...existing,
+      content: file.content,
+      type: libraryDocTypeFromPath(path),
+      updatedAt: now,
+    });
+    overwritten.push(path);
+  }
+
+  return {
+    documents: Array.from(docMap.values()),
+    overwritten,
+    errors,
+  };
+}
+
+/** Patch lastSyncedAt / updatedAt for paths just overwritten from disk. */
+export function patchIndexAfterDiskOverwrite(
+  index: FsIndex,
+  documents: Document[],
+  overwritten: string[],
+  now = Date.now()
+): FsIndex {
+  const byPath = new Map(
+    documents.map((d) => [safeRelPath(d.path), d] as const)
+  );
+  const nextDocs = { ...index.documents };
+  for (const raw of overwritten) {
+    const path = safeRelPath(raw);
+    if (!path) continue;
+    const doc = byPath.get(path);
+    if (!doc) continue;
+    nextDocs[path] = {
+      id: doc.id,
+      starred: doc.starred,
+      createdAt: doc.createdAt,
+      updatedAt: doc.updatedAt,
+      lastSyncedAt: now,
+    };
+  }
+  return {
+    ...index,
+    updatedAt: now,
+    documents: nextDocs,
+    assets: { ...(index.assets ?? {}) },
+  };
+}
+
 export async function collectExternalSnapshot(
   root: FileSystemDirectoryHandle
 ): Promise<{ docs: DiskDoc[]; assets: DiskAsset[]; index: FsIndex }> {

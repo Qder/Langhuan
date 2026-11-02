@@ -14,6 +14,7 @@ import { Dialog } from "./ui/dialog";
 import { Button } from "./ui/button";
 import { useStore } from "@/lib/store";
 import {
+  applyDiskOverwrite,
   applyExternalPull,
   buildIndexAfterExternalPull,
   clearStoredHandle,
@@ -22,6 +23,7 @@ import {
   ensurePermission,
   getStoredHandle,
   isFsAccessSupported,
+  patchIndexAfterDiskOverwrite,
   pickDirectory,
   storeHandle,
   syncBidirectional,
@@ -302,6 +304,72 @@ export function FsSyncDialog() {
     }
   };
 
+  const onOverwriteFromDisk = async (change: ExternalChange) => {
+    if (change.change !== "conflict" || change.entity !== "doc") return;
+    const snap = snapRef.current;
+    if (!snap) {
+      setError("请先检测外部更改");
+      return;
+    }
+    const ok = window.confirm(
+      `确定用磁盘版本覆盖 content/ 中的「${change.path}」？\n此操作不可自动撤销。`
+    );
+    if (!ok) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const handle = await getStoredHandle();
+      if (!handle) {
+        setError("未绑定文件夹");
+        return;
+      }
+      const st = useStore.getState();
+      const now = Date.now();
+      const over = applyDiskOverwrite(st.documents, snap.docs, [change.path], now);
+      if (over.errors.length) {
+        setError(over.errors.slice(0, 3).join("；"));
+        return;
+      }
+      if (!over.overwritten.length) {
+        setError(`未能覆盖 ${change.path}`);
+        return;
+      }
+      applySyncedDocuments(over.documents);
+      try {
+        await writeIndex(
+          handle,
+          patchIndexAfterDiskOverwrite(snap.index, over.documents, over.overwritten, now)
+        );
+        snapRef.current = {
+          ...snap,
+          index: patchIndexAfterDiskOverwrite(snap.index, over.documents, over.overwritten, now),
+        };
+      } catch {
+        /* index best-effort */
+      }
+      setFsLastSyncAt(now);
+      const msg = `已用磁盘覆盖 ${change.path}`;
+      setStatus(msg);
+      setInfo(msg);
+      const key = `${change.entity}:${change.path}`;
+      setChanges((list) => list.filter((c) => `${c.entity}:${c.path}` !== key));
+      setSelected((s) => {
+        const next = { ...s };
+        delete next[key];
+        return next;
+      });
+      setExpanded((s) => {
+        const next = { ...s };
+        delete next[key];
+        return next;
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "覆盖失败");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const onSync = async () => {
     setBusy(true);
     setError(null);
@@ -518,15 +586,27 @@ export function FsSyncDialog() {
                           </span>
                           <span className="font-mono truncate">{c.path}</span>
                           {c.change === "conflict" && (
-                            <button
-                              type="button"
-                              className="ml-auto text-[10px] text-[var(--accent)] hover:underline"
-                              onClick={() =>
-                                setExpanded((s) => ({ ...s, [key]: !s[key] }))
-                              }
-                            >
-                              {isOpen ? "收起对照" : "展开对照"}
-                            </button>
+                            <span className="ml-auto flex items-center gap-2 shrink-0">
+                              <button
+                                type="button"
+                                className="text-[10px] text-[var(--accent)] hover:underline"
+                                onClick={() =>
+                                  setExpanded((s) => ({ ...s, [key]: !s[key] }))
+                                }
+                              >
+                                {isOpen ? "收起对照" : "展开对照"}
+                              </button>
+                              {c.entity === "doc" && (
+                                <button
+                                  type="button"
+                                  className="text-[10px] rounded border border-[var(--border)] px-1.5 py-0.5 text-[var(--fg)] hover:bg-[var(--hover)] disabled:opacity-40"
+                                  disabled={busy}
+                                  onClick={() => void onOverwriteFromDisk(c)}
+                                >
+                                  用磁盘覆盖 content/
+                                </button>
+                              )}
+                            </span>
                           )}
                         </div>
                         {c.detail && (
@@ -585,7 +665,7 @@ export function FsSyncDialog() {
           <p>
             元数据写入 <code className="font-mono">.langhuan/index.json</code>
             ；正文内标签仍用 Markdown YAML / HTML keywords。两侧都改时默认保留{" "}
-            <code className="font-mono">content/</code>，并列出差异。
+            <code className="font-mono">content/</code>；冲突可显式采用磁盘版（需再确认）。
           </p>
           <p>不做持续后台监听；库内删除不会自动删磁盘文件。</p>
         </div>

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyDiskOverwrite,
   applyExternalPull,
   buildIndexAfterExternalPull,
   buildIndexFromDocuments,
@@ -8,6 +9,7 @@ import {
   excerptForCompare,
   markAssetsSynced,
   normalizeFsIndex,
+  patchIndexAfterDiskOverwrite,
   planSyncIn,
   safeRelPath,
   type DiskDoc,
@@ -272,5 +274,42 @@ describe("mirrored-only asset deletes (patch 0)", () => {
     // Confirmed delete also drops the mirror record from the index helper
     const after = buildIndexAfterExternalPull(index, [], changes, [], 5000);
     expect(after.assets?.["notes/assets/was-mirrored.png"]).toBeUndefined();
+  });
+});
+
+describe("applyDiskOverwrite", () => {
+  it("overwrites only listed conflict paths; selected conflict still skips", () => {
+    const library: Document[] = [
+      doc({ id: "1", path: "both.md", content: "lib-both", updatedAt: 8000 }),
+      doc({ id: "2", path: "other.md", content: "lib-other", updatedAt: 8000 }),
+      doc({ id: "3", path: "disk-newer.md", content: "old", updatedAt: 2000 }),
+    ];
+    const index = buildIndexFromDocuments(library, 3000);
+    const diskDocs: DiskDoc[] = [
+      disk("both.md", "disk-both", 9000),
+      disk("other.md", "disk-other", 9000),
+      disk("disk-newer.md", "fresh", 9000),
+    ];
+    const changes = detectExternalChanges(library, [], diskDocs, [], index);
+    expect(changes.find((c) => c.path === "both.md")?.change).toBe("conflict");
+    expect(changes.find((c) => c.path === "other.md")?.change).toBe("conflict");
+
+    // Checkbox-selected conflicts are still skipped by applyExternalPull
+    const pulled = applyExternalPull(library, [], diskDocs, [], index, changes);
+    expect(pulled.skippedConflicts).toEqual(expect.arrayContaining(["both.md", "other.md"]));
+    expect(pulled.documents.find((d) => d.path === "both.md")?.content).toBe("lib-both");
+
+    // Explicit overwrite list covers only both.md
+    const over = applyDiskOverwrite(library, diskDocs, ["both.md"], 12_000);
+    expect(over.overwritten).toEqual(["both.md"]);
+    expect(over.documents.find((d) => d.path === "both.md")?.content).toBe("disk-both");
+    expect(over.documents.find((d) => d.path === "both.md")?.updatedAt).toBe(12_000);
+    expect(over.documents.find((d) => d.path === "other.md")?.content).toBe("lib-other");
+    expect(over.errors).toEqual([]);
+
+    const patched = patchIndexAfterDiskOverwrite(index, over.documents, over.overwritten, 12_000);
+    expect(patched.documents["both.md"]?.lastSyncedAt).toBe(12_000);
+    expect(patched.documents["both.md"]?.updatedAt).toBe(12_000);
+    expect(patched.documents["other.md"]?.lastSyncedAt).toBe(3000);
   });
 });
