@@ -1,4 +1,4 @@
-/* 琅嬛 service worker — cache app shell for offline; library lives in IndexedDB */
+/* 琅嬛 service worker — cache app shell for offline only; library bodies live in content/ (needs Node API or Tauri FS to read/write) */
 const CACHE = "langhuan-shell-v1";
 const PRECACHE = ["/", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png"];
 

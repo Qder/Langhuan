@@ -24,6 +24,7 @@
 
 ## 已知限制
 
-- `tauri:build` 安装包内 UI 仍是占位页；请用 `tauri:dev` 做功能验收。
+- `tauri:build` 安装包内 UI 仍是占位页，不能当正式桌面应用；请用 `tauri:dev`（连 Next）做功能验收。完整产品仍是浏览器 `npm run dev`。
+- 桌面版不支持 HTML 项目导入与 CSS/JS 资源索引，请用浏览器（与 `contentApi.ts` 一致）。
 - 大图预览走 base64 `data:` URL，极大附件可能偏慢。
 - 未接系统托盘 / 自动更新。
