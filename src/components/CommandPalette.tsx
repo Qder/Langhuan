@@ -204,7 +204,7 @@ export function CommandPalette() {
       {
         key: "cmd-theme-phycat-abyss",
         label: "主题：绯猫深渊",
-        hint: theme === "phycat-abyss" ? "当前" : "午夜青 · Phycat",
+        hint: theme === "phycat-abyss" ? "当前" : "雾青 · Phycat",
         icon: <Palette className="h-4 w-4" />,
         run: () => { setTheme("phycat-abyss"); setStatus("已切换到绯猫深渊"); },
       },

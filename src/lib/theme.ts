@@ -37,7 +37,7 @@ export const THEME_HINTS: Record<ThemeId, string> = {
   phycat: "樱粉 · Phycat sakura",
   "phycat-mint": "薄荷绿 · Phycat mint",
   "phycat-sky": "晴空蓝 · Phycat sky",
-  "phycat-abyss": "午夜青 · Phycat abyss",
+  "phycat-abyss": "雾青 · Phycat abyss",
 };
 
 /** Palette swatch for the sidebar theme menu. */
@@ -50,7 +50,7 @@ export const THEME_SWATCHES: Record<ThemeId, string> = {
   phycat: "#ff7096",
   "phycat-mint": "#3db8bf",
   "phycat-sky": "#3498db",
-  "phycat-abyss": "#00f3ff",
+  "phycat-abyss": "#6a9faf",
 };
 
 const DARK_THEMES: ReadonlySet<ThemeId> = new Set([

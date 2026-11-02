@@ -178,28 +178,29 @@ html[data-theme="phycat-sky"] {
 }
 
 html[data-theme="phycat-abyss"] {
+  /* Soft abyss: keep midnight paper, drop neon cyan/magenta chrome */
   --bg: #0f111a;
   --bg-elevated: #161a28;
   --fg: #d6deeb;
   --muted: #7e8c9f;
-  --accent: #00f3ff;
-  --teal: #2979ff;
-  --gold: #d500f9;
+  --accent: #6a9faf;
+  --teal: #5a7f9a;
+  --gold: #8f7ab0;
   --border: rgba(214, 222, 235, 0.12);
-  --hover: rgba(0, 243, 255, 0.08);
+  --hover: rgba(106, 159, 175, 0.10);
   --card: rgba(22, 26, 40, 0.94);
   --menu: #161a28;
   --shadow: 0 12px 36px rgba(0, 0, 0, 0.45);
   --paper-noise: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.06'/%3E%3C/svg%3E");
-  --phycat-element: #00f3ff;
-  --phycat-element-deep: #7fd4ff;
-  --phycat-element-shallow: #2979ff;
-  --phycat-element-so-shallow: rgba(0, 243, 255, 0.12);
-  --phycat-element-soo-shallow: rgba(0, 243, 255, 0.06);
-  --phycat-h2-fg: #0f111a;
-  --phycat-h2-bg: linear-gradient(to right, #00f3ff, #2979ff, #00f3ff);
-  --phycat-linecode: #7fd4ff;
-  --phycat-linecode-bg: rgba(0, 243, 255, 0.12);
+  --phycat-element: #6a9faf;
+  --phycat-element-deep: #8eb8c4;
+  --phycat-element-shallow: #4a7080;
+  --phycat-element-so-shallow: rgba(106, 159, 175, 0.14);
+  --phycat-element-soo-shallow: rgba(106, 159, 175, 0.07);
+  --phycat-h2-fg: #e8eef4;
+  --phycat-h2-bg: linear-gradient(to right, #2f4a56, #3d6270, #2f4a56);
+  --phycat-linecode: #8eb8c4;
+  --phycat-linecode-bg: rgba(106, 159, 175, 0.14);
 }
 
 :root,

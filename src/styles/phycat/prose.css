@@ -240,5 +240,5 @@ html[data-theme="phycat-abyss"] .prose-langhuan blockquote {
 }
 
 html[data-theme="phycat-abyss"] .prose-langhuan h2 {
-  box-shadow: 0 0 12px color-mix(in srgb, var(--phycat-element) 35%, transparent);
+  box-shadow: 0 2px 10px color-mix(in srgb, var(--phycat-element) 18%, transparent);
 }
