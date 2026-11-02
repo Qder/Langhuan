@@ -90,7 +90,8 @@ export function metaDir(): string {
   return path.join(contentRoot(), FS_INDEX_DIR);
 }
 
-function absFromRel(rel: string): string {
+/** Resolve a library-relative path under content/; throws 路径无效 / 路径越界. */
+export function absFromRel(rel: string): string {
   const clean = safeRelPath(rel);
   if (!clean) throw new Error("路径无效");
   const root = contentRoot();

@@ -27,6 +27,11 @@ import { safeRelPath } from "@/lib/storage/pathSanitize";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+/** Reject raw `..` segments before sanitize (safeRelPath would otherwise strip them). */
+function pathHasTraversal(p: string): boolean {
+  return p.replace(/\\/g, "/").split("/").some((seg) => seg === "..");
+}
+
 export async function GET(req: NextRequest) {
   try {
     const pathParam = req.nextUrl.searchParams.get("path") || "";
@@ -71,6 +76,15 @@ export async function PUT(req: NextRequest) {
       /** 待建索引的 CSS 文件（库内相对路径） */
       file?: string;
     };
+    const traversalTarget =
+      (body.path && pathHasTraversal(body.path) && body.path) ||
+      (body.previousPath && pathHasTraversal(body.previousPath) && body.previousPath) ||
+      (body.mkdirOnly && pathHasTraversal(body.mkdirOnly) && body.mkdirOnly) ||
+      (body.file && pathHasTraversal(body.file) && body.file) ||
+      "";
+    if (traversalTarget) {
+      return NextResponse.json({ ok: false, error: "路径越界" }, { status: 400 });
+    }
     if (body.mkdirOnly) {
       await ensureLibraryDir(body.mkdirOnly);
       return NextResponse.json({ ok: true, mkdir: body.mkdirOnly });
