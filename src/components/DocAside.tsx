@@ -7,6 +7,7 @@ import type { Document } from "@/lib/types";
 import { cn, dirname, titleOf } from "@/lib/utils";
 import { useStore } from "@/lib/store";
 import { findUnlinkedMentions, linkifyMention } from "@/lib/wikilink";
+import { listBacklinkHits, type BacklinkHit } from "@/lib/search";
 import { getDocMeta } from "@/lib/docMeta";
 import { AssetsPanel } from "./AssetsPanel";
 import { resolveAnnotation } from "@/lib/annotations";
@@ -210,10 +211,15 @@ export function DocAside({
   );
   const assetCount = doc ? assetsForDoc(doc.id).length : 0;
   const tocTree = React.useMemo(() => buildTocTree(outline), [outline]);
+  const backlinkHits = React.useMemo(
+    () => (doc ? listBacklinkHits(documents, doc) : []),
+    [documents, doc]
+  );
 
   if (
     outline.length === 0 &&
     backlinks.length === 0 &&
+    backlinkHits.length === 0 &&
     mentions.length === 0 &&
     docAnns.length === 0 &&
     assetCount === 0
@@ -258,7 +264,7 @@ export function DocAside({
         </nav>
       )}
 
-      {backlinks.length > 0 && (
+      {(backlinkHits.length > 0 || backlinks.length > 0) && (
         <div>
           <button
             type="button"
@@ -269,24 +275,66 @@ export function DocAside({
             <ChevronDown
               className={cn("h-3 w-3 transition-transform", !backlinksOpen && "-rotate-90")}
             />
-            反向链接 {backlinks.length}
+            反向链接 {backlinkHits.length || backlinks.length}
           </button>
           {backlinksOpen && (
-            <ul className="mt-1 space-y-0.5">
-              {backlinks.map((b) => {
-                const folder = dirname(b.path);
+            <ul className="mt-1 space-y-1">
+              {(backlinkHits.length
+                ? backlinkHits
+                : backlinks.map(
+                    (b): BacklinkHit => ({
+                      docId: b.id,
+                      path: b.path,
+                      start: 0,
+                      end: 0,
+                      excerpt: "",
+                    })
+                  )
+              ).map((hit, i) => {
+                const folder = dirname(hit.path);
                 return (
-                  <li key={b.id} className="group/bl">
+                  <li key={`${hit.docId}-${hit.start}-${i}`} className="group/bl">
                     <button
                       type="button"
-                      onClick={() => openDoc(b.id)}
-                      className="flex w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-sm hover:bg-[var(--hover)] truncate"
-                      title={b.path}
+                      onClick={() => {
+                        openDoc(hit.docId);
+                        if (hit.end > hit.start) {
+                          applyLocateResult(
+                            {
+                              start: hit.start,
+                              end: hit.end,
+                              precision: "exact",
+                              message: `反向链接 · ${titleOf(hit.path)}`,
+                            },
+                            {
+                              select: true,
+                              focus: true,
+                              highlight: true,
+                              center: true,
+                            }
+                          );
+                          requestPreviewLocate(hit.start, {
+                            scroll: true,
+                            announce: true,
+                          });
+                        }
+                      }}
+                      className="flex w-full flex-col gap-0.5 rounded-lg px-2 py-1.5 text-left text-sm hover:bg-[var(--hover)]"
+                      title={hit.path}
                     >
-                      <span className="truncate min-w-0 flex-1">{titleOf(b.path)}</span>
-                      {folder ? (
-                        <span className="hidden group-hover/bl:inline shrink-0 max-w-[40%] truncate text-[10px] text-[var(--muted)]">
-                          {folder}
+                      <span className="flex w-full items-center gap-2 truncate">
+                        <span className="truncate min-w-0 flex-1 font-medium">
+                          {titleOf(hit.path)}
+                        </span>
+                        {folder ? (
+                          <span className="hidden group-hover/bl:inline shrink-0 max-w-[40%] truncate text-[10px] text-[var(--muted)]">
+                            {folder}
+                          </span>
+                        ) : null}
+                      </span>
+                      {hit.excerpt ? (
+                        <span className="line-clamp-2 text-[11px] leading-4 text-[var(--muted)]">
+                          {hit.excerpt}
                         </span>
                       ) : null}
                     </button>
