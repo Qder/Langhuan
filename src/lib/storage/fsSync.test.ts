@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   applyExternalPull,
+  buildIndexAfterExternalPull,
   buildIndexFromDocuments,
   detectExternalChanges,
   emptyIndex,
   excerptForCompare,
+  markAssetsSynced,
+  normalizeFsIndex,
   planSyncIn,
   safeRelPath,
   type DiskDoc,
@@ -142,7 +145,7 @@ describe("conflict excerpts and asset deletes", () => {
     expect(ex.endsWith("…")).toBe(true);
   });
 
-  it("attaches conflict excerpts and reports vanished png; unchecked delete stays", () => {
+  it("attaches conflict excerpts and reports vanished mirrored png; unchecked delete stays", () => {
     const library = [
       doc({ id: "1", path: "both.md", content: "lib-line-1\nlib-line-2", updatedAt: 8000 }),
     ];
@@ -162,7 +165,12 @@ describe("conflict excerpts and asset deletes", () => {
         createdAt: 1000,
       },
     ];
-    const index = buildIndexFromDocuments(library, 3000);
+    // Only previously mirrored attachments may appear as asset deletes.
+    const index = markAssetsSynced(
+      buildIndexFromDocuments(library, 3000),
+      ["notes/assets/gone.png", "notes/assets/keep.png"],
+      3000,
+    );
     const diskDocs = [disk("both.md", "disk-line-1\ndisk-line-2", 9000)];
     const diskAssets = [{ path: "notes/assets/keep.png", mtime: 1, size: 10 }];
     const changes = detectExternalChanges(
@@ -212,5 +220,57 @@ describe("conflict excerpts and asset deletes", () => {
     expect(withDelete.assets.some((a) => a.path === "notes/assets/keep.png")).toBe(
       true,
     );
+  });
+});
+
+describe("mirrored-only asset deletes (patch 0)", () => {
+  const png = (path: string): AssetMeta => ({
+    id: `id-${path}`,
+    path,
+    mime: "image/png",
+    size: 10,
+    createdAt: 1000,
+  });
+
+  it("does not report delete when library has png but index has no asset entry", () => {
+    const assets = [png("notes/assets/never-mirrored.png")];
+    // Old version:1 shape — documents only, no assets field
+    const index = normalizeFsIndex({
+      format: "langhuan-fs-index",
+      version: 1,
+      updatedAt: 1,
+      documents: {},
+    });
+    expect(index.assets).toEqual({});
+    const changes = detectExternalChanges([], assets, [], [], index);
+    expect(changes.find((c) => c.path === "notes/assets/never-mirrored.png")).toBeUndefined();
+    expect(changes.some((c) => c.entity === "asset" && c.change === "delete")).toBe(false);
+  });
+
+  it("reports delete when index has the asset record and disk is missing", () => {
+    const assets = [png("notes/assets/was-mirrored.png")];
+    const index = markAssetsSynced(emptyIndex(), ["notes/assets/was-mirrored.png"], 2000);
+    const changes = detectExternalChanges([], assets, [], [], index);
+    expect(changes).toEqual([
+      expect.objectContaining({
+        path: "notes/assets/was-mirrored.png",
+        entity: "asset",
+        change: "delete",
+      }),
+    ]);
+  });
+
+  it("leaves library asset in place when delete stays unchecked", () => {
+    const assets = [png("notes/assets/was-mirrored.png")];
+    const index = markAssetsSynced(emptyIndex(), ["notes/assets/was-mirrored.png"], 2000);
+    const changes = detectExternalChanges([], assets, [], [], index);
+    expect(changes).toHaveLength(1);
+    // Simulate UI default: deletes unchecked → selected list empty
+    const pulled = applyExternalPull([], assets, [], [], index, []);
+    expect(pulled.assets.some((a) => a.path === "notes/assets/was-mirrored.png")).toBe(true);
+
+    // Confirmed delete also drops the mirror record from the index helper
+    const after = buildIndexAfterExternalPull(index, [], changes, [], 5000);
+    expect(after.assets?.["notes/assets/was-mirrored.png"]).toBeUndefined();
   });
 });

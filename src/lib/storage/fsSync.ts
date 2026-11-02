@@ -17,12 +17,22 @@ export type FsIndexEntry = {
   lastSyncedAt: number;
 };
 
+/** Bound-folder mirror record for an attachment (keyed by library path). */
+export type FsAssetIndexEntry = {
+  lastSyncedAt: number;
+};
+
 export type FsIndex = {
   format: "langhuan-fs-index";
   version: 1;
   updatedAt: number;
   /** Relative library path → meta (tags live in file content). */
   documents: Record<string, FsIndexEntry>;
+  /**
+   * Attachments successfully mirrored to the bound folder.
+   * Old version:1 indexes omit this field — treat as {}.
+   */
+  assets?: Record<string, FsAssetIndexEntry>;
 };
 
 export type DiskDoc = {
@@ -405,8 +415,11 @@ export function detectExternalChanges(
     }
   }
 
+  const mirroredAssets = index.assets ?? {};
   for (const [path, asset] of assetByPath) {
     if (seenAssets.has(path)) continue;
+    // Only report delete for attachments that were previously mirrored out.
+    if (!mirroredAssets[path]) continue;
     changes.push({
       path,
       entity: "asset",
@@ -549,7 +562,79 @@ export function emptyIndex(): FsIndex {
     version: 1,
     updatedAt: Date.now(),
     documents: {},
+    assets: {},
   };
+}
+
+/** Compat: old version:1 indexes without `assets` → empty table. */
+export function normalizeFsIndex(index: FsIndex): FsIndex {
+  return {
+    format: "langhuan-fs-index",
+    version: 1,
+    updatedAt: index.updatedAt || Date.now(),
+    documents:
+      index.documents && typeof index.documents === "object" ? index.documents : {},
+    assets: index.assets && typeof index.assets === "object" ? index.assets : {},
+  };
+}
+
+/** Record paths that were successfully mirrored to the bound folder. */
+export function markAssetsSynced(
+  index: FsIndex,
+  paths: string[],
+  now = Date.now()
+): FsIndex {
+  const assets = { ...(index.assets ?? {}) };
+  for (const raw of paths) {
+    const path = safeRelPath(raw);
+    if (!path) continue;
+    assets[path] = { lastSyncedAt: now };
+  }
+  return { ...index, updatedAt: now, assets };
+}
+
+/** Drop mirrored-asset records after a confirmed external delete. */
+export function unmarkAssetsSynced(
+  index: FsIndex,
+  paths: string[],
+  now = Date.now()
+): FsIndex {
+  const assets = { ...(index.assets ?? {}) };
+  for (const raw of paths) {
+    const path = safeRelPath(raw);
+    if (!path) continue;
+    delete assets[path];
+  }
+  return { ...index, updatedAt: now, assets };
+}
+
+/**
+ * Rebuild document index and patch asset mirror table from a confirmed pull.
+ * Failed asset paths are left untouched in the assets table.
+ */
+export function buildIndexAfterExternalPull(
+  previous: FsIndex,
+  documents: Document[],
+  applied: ExternalChange[],
+  failedAssetPaths: Iterable<string> = [],
+  now = Date.now()
+): FsIndex {
+  const failed = new Set(
+    Array.from(failedAssetPaths, (p) => safeRelPath(p)).filter(Boolean) as string[]
+  );
+  const next = buildIndexFromDocuments(documents, now);
+  next.assets = { ...(previous.assets ?? {}) };
+  for (const ch of applied) {
+    if (ch.entity !== "asset") continue;
+    const path = safeRelPath(ch.path);
+    if (!path || failed.has(path)) continue;
+    if (ch.change === "delete") {
+      delete next.assets[path];
+    } else if (ch.change === "add" || ch.change === "modify") {
+      next.assets[path] = { lastSyncedAt: now };
+    }
+  }
+  return next;
 }
 
 export async function readIndex(root: FileSystemDirectoryHandle): Promise<FsIndex> {
@@ -561,13 +646,17 @@ export async function readIndex(root: FileSystemDirectoryHandle): Promise<FsInde
     if (!parsed.documents || typeof parsed.documents !== "object") {
       return emptyIndex();
     }
-    return parsed;
+    return normalizeFsIndex(parsed);
   } catch {
     return emptyIndex();
   }
 }
 
-export function buildIndexFromDocuments(docs: Document[], now = Date.now()): FsIndex {
+export function buildIndexFromDocuments(
+  docs: Document[],
+  now = Date.now(),
+  mirroredAssets: string[] = []
+): FsIndex {
   const documents: Record<string, FsIndexEntry> = {};
   for (const d of docs) {
     const path = safeRelPath(d.path);
@@ -580,11 +669,18 @@ export function buildIndexFromDocuments(docs: Document[], now = Date.now()): FsI
       lastSyncedAt: now,
     };
   }
+  const assets: Record<string, FsAssetIndexEntry> = {};
+  for (const raw of mirroredAssets) {
+    const path = safeRelPath(raw);
+    if (!path) continue;
+    assets[path] = { lastSyncedAt: now };
+  }
   return {
     format: "langhuan-fs-index",
     version: 1,
     updatedAt: now,
     documents,
+    assets,
   };
 }
 
@@ -646,6 +742,7 @@ export async function syncOutAll(
       errors.push(`${doc.path}: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
+  const mirroredAssetPaths: string[] = [];
   for (const a of assets) {
     try {
       const blob = await getAssetBlob(a.id);
@@ -655,12 +752,13 @@ export async function syncOutAll(
       }
       await writeBinaryFile(root, a.path, blob);
       written += 1;
+      mirroredAssetPaths.push(a.path);
     } catch (e) {
       errors.push(`${a.path}: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
   try {
-    await writeIndex(root, buildIndexFromDocuments(documents, now));
+    await writeIndex(root, buildIndexFromDocuments(documents, now, mirroredAssetPaths));
   } catch (e) {
     errors.push(`index: ${e instanceof Error ? e.message : String(e)}`);
   }
@@ -830,5 +928,12 @@ export async function writeThroughAssetBinary(
   const ok = await ensurePermission(handle, "readwrite");
   if (!ok) return false;
   await writeBinaryFile(handle, relPath, data);
+  try {
+    const index = await readIndex(handle);
+    const next = markAssetsSynced(index, [relPath]);
+    await writeIndex(handle, next);
+  } catch {
+    /* index best-effort after mirror write */
+  }
   return true;
 }

@@ -15,7 +15,7 @@ import { Button } from "./ui/button";
 import { useStore } from "@/lib/store";
 import {
   applyExternalPull,
-  buildIndexFromDocuments,
+  buildIndexAfterExternalPull,
   clearStoredHandle,
   collectExternalSnapshot,
   detectExternalChanges,
@@ -216,6 +216,7 @@ export function FsSyncDialog() {
 
       // Persist new/updated asset binaries into IDB + content/
       const prevAssets = st.assets;
+      const failedAssetPaths: string[] = [];
       for (const ch of pulled.applied) {
         if (ch.entity !== "asset") continue;
         if (ch.change === "delete") {
@@ -225,6 +226,7 @@ export function FsSyncDialog() {
             await deleteAssetBlob(victim.id);
             await deleteLibraryAsset(victim.path);
           } catch (e) {
+            failedAssetPaths.push(ch.path);
             pulled.errors.push(
               `${ch.path}: ${e instanceof Error ? e.message : String(e)}`
             );
@@ -233,7 +235,10 @@ export function FsSyncDialog() {
         }
         const disk = snap.assets.find((a) => a.path === ch.path);
         const meta = pulled.assets.find((a) => a.path === ch.path);
-        if (!disk || !meta) continue;
+        if (!disk || !meta) {
+          failedAssetPaths.push(ch.path);
+          continue;
+        }
         try {
           await putAssetBlob(meta.id, disk.blob);
           const b64 = await blobToBase64(disk.blob);
@@ -246,6 +251,7 @@ export function FsSyncDialog() {
             createdAt: meta.createdAt,
           });
         } catch (e) {
+          failedAssetPaths.push(ch.path);
           pulled.errors.push(
             `${ch.path}: ${e instanceof Error ? e.message : String(e)}`
           );
@@ -255,7 +261,16 @@ export function FsSyncDialog() {
       applySyncedDocuments(pulled.documents, pulled.assets);
       const now = Date.now();
       try {
-        await writeIndex(handle, buildIndexFromDocuments(pulled.documents, now));
+        await writeIndex(
+          handle,
+          buildIndexAfterExternalPull(
+            snap.index,
+            pulled.documents,
+            pulled.applied,
+            failedAssetPaths,
+            now
+          )
+        );
       } catch {
         /* index best-effort */
       }
