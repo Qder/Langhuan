@@ -31,7 +31,7 @@ export function StatusBar() {
 
   if (htmlPreview) {
     return (
-      <footer className="h-5 shrink-0 border-t border-[var(--border)] bg-[color-mix(in_srgb,var(--bg-elevated)_90%,transparent)] px-3 flex items-center justify-between text-[10px] text-[var(--muted)] font-ui">
+      <footer className="h-5 shrink-0 border-t border-[var(--chrome-border)] bg-[var(--chrome)] px-3 flex items-center justify-between text-[10px] text-[var(--muted)] font-ui">
         <div className="truncate">{status?.message || "就绪"}</div>
         <div className="flex items-center gap-3 shrink-0 tabular-nums">
           {showCaret && (
@@ -47,7 +47,7 @@ export function StatusBar() {
   }
 
   return (
-    <footer className="h-7 shrink-0 border-t border-[var(--border)] bg-[color-mix(in_srgb,var(--bg-elevated)_90%,transparent)] px-3 flex items-center justify-between text-[11px] text-[var(--muted)] font-ui">
+    <footer className="h-7 shrink-0 border-t border-[var(--chrome-border)] bg-[var(--chrome)] px-3 flex items-center justify-between text-[11px] text-[var(--muted)] font-ui">
       <div className="truncate">{status?.message || "就绪"}</div>
       <div className="flex items-center gap-3 shrink-0 tabular-nums">
         {active && (

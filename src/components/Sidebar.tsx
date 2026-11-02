@@ -858,8 +858,8 @@ export function Sidebar() {
   const panel = (
     <aside
       className={cn(
-        "flex h-full w-full flex-col overflow-hidden border-r border-[var(--border)]",
-        "bg-[color-mix(in_srgb,var(--bg-elevated)_88%,transparent)] backdrop-blur-md"
+        "flex h-full w-full flex-col overflow-hidden border-r border-[var(--chrome-border)]",
+        "bg-[var(--chrome)] lg:shadow-[var(--chrome-shadow)]"
       )}
     >
       {/* —— Top fixed ≤132px —— */}
@@ -1494,7 +1494,7 @@ export function Sidebar() {
 
   const rail = (
     <div
-      className="hidden lg:flex h-full w-14 shrink-0 flex-col items-center gap-1 border-r border-[var(--border)] bg-[color-mix(in_srgb,var(--bg-elevated)_92%,transparent)] py-2"
+      className="hidden lg:flex h-full w-14 shrink-0 flex-col items-center gap-1 border-r border-[var(--chrome-border)] bg-[var(--chrome)] lg:shadow-[var(--chrome-shadow)] py-2"
     >
       <button
         type="button"

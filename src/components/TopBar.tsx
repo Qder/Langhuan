@@ -294,7 +294,7 @@ export function TopBar() {
 
   return (
     <>
-      <header className="h-14 max-lg:h-14 shrink-0 glass flex items-center gap-2 px-3 md:px-4 border-b border-[var(--border)]">
+      <header className="h-14 max-lg:h-14 shrink-0 glass flex items-center gap-2 px-3 md:px-4">
         <Button
           variant="ghost"
           size="icon"

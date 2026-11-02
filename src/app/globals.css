@@ -22,6 +22,10 @@ html[data-theme="xuan"] {
   --card: rgba(255, 253, 249, 0.9);
   --menu: #fffcf8;
   --shadow: 0 10px 30px rgba(42, 38, 32, 0.06);
+  /* Shell chrome: cooler/muted vs paper --bg */
+  --chrome: #efe9e0;
+  --chrome-border: rgba(42, 38, 32, 0.16);
+  --chrome-shadow: 6px 0 18px rgba(42, 38, 32, 0.05);
   --paper-noise: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
 }
 
@@ -39,6 +43,10 @@ html[data-theme="bamboo"] {
   --card: rgba(245, 250, 247, 0.9);
   --menu: #f4f9f6;
   --shadow: 0 10px 30px rgba(27, 61, 47, 0.07);
+  /* Shell chrome: cooler/muted vs paper --bg */
+  --chrome: #d9e1db;
+  --chrome-border: rgba(27, 61, 47, 0.16);
+  --chrome-shadow: 6px 0 18px rgba(27, 61, 47, 0.06);
   --paper-noise: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
 }
 
@@ -56,6 +64,10 @@ html[data-theme="jiang"] {
   --card: rgba(255, 248, 235, 0.9);
   --menu: #fff8eb;
   --shadow: 0 10px 30px rgba(58, 36, 24, 0.08);
+  /* Shell chrome: cooler/muted vs paper --bg */
+  --chrome: #e6d9c3;
+  --chrome-border: rgba(58, 36, 24, 0.17);
+  --chrome-shadow: 6px 0 18px rgba(58, 36, 24, 0.06);
   --paper-noise: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
 }
 
@@ -74,6 +86,10 @@ html[data-theme="songyan"] {
   --card: rgba(26, 29, 38, 0.92);
   --menu: #1a1d26;
   --shadow: 0 12px 36px rgba(0, 0, 0, 0.4);
+  /* Shell chrome: slightly elevated panel vs paper --bg */
+  --chrome: #1a1d26;
+  --chrome-border: rgba(232, 236, 240, 0.14);
+  --chrome-shadow: 6px 0 20px rgba(0, 0, 0, 0.28);
   --paper-noise: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.06'/%3E%3C/svg%3E");
 }
 
@@ -91,6 +107,10 @@ html[data-theme="cyber"] {
   --card: rgba(16, 26, 23, 0.94);
   --menu: #101a17;
   --shadow: 0 12px 36px rgba(0, 0, 0, 0.45);
+  /* Shell chrome: slightly elevated panel vs paper --bg */
+  --chrome: #101a17;
+  --chrome-border: rgba(208, 232, 224, 0.14);
+  --chrome-shadow: 6px 0 20px rgba(0, 0, 0, 0.30);
   --paper-noise: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.06'/%3E%3C/svg%3E");
 }
 
@@ -115,6 +135,10 @@ html[data-theme="phycat"] {
   --card: rgba(255, 251, 253, 0.94);
   --menu: #fffbfd;
   --shadow: 0 10px 30px rgba(255, 112, 150, 0.12);
+  /* Shell chrome: cooler/muted vs paper --bg */
+  --chrome: #f3eaee;
+  --chrome-border: rgba(58, 42, 48, 0.15);
+  --chrome-shadow: 6px 0 18px rgba(255, 112, 150, 0.06);
   --paper-noise: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
   --phycat-element: #ff7096;
   --phycat-element-deep: #e91e63;
@@ -140,6 +164,10 @@ html[data-theme="phycat-mint"] {
   --card: rgba(248, 254, 254, 0.94);
   --menu: #f8fefe;
   --shadow: 0 10px 30px rgba(61, 184, 191, 0.12);
+  /* Shell chrome: cooler/muted vs paper --bg */
+  --chrome: #e6f1f1;
+  --chrome-border: rgba(30, 58, 60, 0.15);
+  --chrome-shadow: 6px 0 18px rgba(61, 184, 191, 0.06);
   --paper-noise: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
   --phycat-element: #3db8bf;
   --phycat-element-deep: #089ba3;
@@ -165,6 +193,10 @@ html[data-theme="phycat-sky"] {
   --card: rgba(250, 252, 255, 0.94);
   --menu: #fafcff;
   --shadow: 0 10px 30px rgba(52, 152, 219, 0.12);
+  /* Shell chrome: cooler/muted vs paper --bg */
+  --chrome: #e6eef6;
+  --chrome-border: rgba(30, 42, 58, 0.15);
+  --chrome-shadow: 6px 0 18px rgba(52, 152, 219, 0.06);
   --paper-noise: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
   --phycat-element: #3498db;
   --phycat-element-deep: #2980b9;
@@ -191,6 +223,10 @@ html[data-theme="phycat-abyss"] {
   --card: rgba(22, 26, 40, 0.94);
   --menu: #161a28;
   --shadow: 0 12px 36px rgba(0, 0, 0, 0.45);
+  /* Shell chrome: slightly elevated panel vs paper --bg */
+  --chrome: #161a28;
+  --chrome-border: rgba(214, 222, 235, 0.14);
+  --chrome-shadow: 6px 0 20px rgba(0, 0, 0, 0.30);
   --paper-noise: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.06'/%3E%3C/svg%3E");
   --phycat-element: #6a9faf;
   --phycat-element-deep: #8eb8c4;
@@ -312,9 +348,11 @@ body {
     border-radius: 16px;
   }
   .glass {
-    background: color-mix(in srgb, var(--card) 78%, transparent);
-    backdrop-filter: blur(14px);
-    border-bottom: 1px solid var(--border);
+    background: var(--chrome);
+    border-bottom: 1px solid var(--chrome-border);
+  }
+  .shell-chrome {
+    background: var(--chrome);
   }
   .hover-lift {
     transition: transform 200ms ease, box-shadow 200ms ease;

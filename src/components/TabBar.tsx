@@ -58,7 +58,7 @@ export function TabBar() {
   return (
     <>
       <div
-        className="shrink-0 flex items-stretch gap-0.5 px-2 pt-1.5 pb-0 max-lg:pt-2 max-lg:pb-1 overflow-x-auto scroll-thin border-b border-[var(--border)] bg-[color-mix(in_srgb,var(--bg-elevated)_80%,transparent)]"
+        className="shrink-0 flex items-stretch gap-0.5 px-2 pt-1.5 pb-0 max-lg:pt-2 max-lg:pb-1 overflow-x-auto scroll-thin border-b border-[var(--chrome-border)] bg-[var(--chrome)]"
         role="tablist"
         aria-label="打开的文档"
       >
@@ -85,7 +85,7 @@ export function TabBar() {
               className={cn(
                 "group relative flex max-w-[180px] min-w-[96px] max-lg:min-w-[112px] max-lg:min-h-11 items-center gap-1 rounded-t-lg border border-b-0 px-2 py-1.5 max-lg:px-2.5 max-lg:py-2 text-xs font-ui cursor-pointer select-none",
                 active
-                  ? "bg-[var(--card)] border-[var(--border)] text-[var(--fg)]"
+                  ? "bg-[var(--bg)] border-[var(--chrome-border)] text-[var(--fg)] shadow-[0_-1px_0_var(--bg)]"
                   : "bg-transparent border-transparent text-[var(--muted)] hover:bg-[var(--hover)]"
               )}
               onClick={() => openDoc(doc.id)}
