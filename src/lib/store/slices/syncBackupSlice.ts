@@ -68,7 +68,10 @@ export const createSyncBackupSlice: StateCreator<
           activeId: activeId && nextIds.has(activeId) ? activeId : activeId,
         });
         // Mirror optional FS-Access sync result into primary content/
-        void bulkWriteLibrary({ documents: docs, assets: get().assets }).catch(() => {});
+        void bulkWriteLibrary({ documents: docs, assets: get().assets }).catch((e) => {
+          const msg = e instanceof Error ? e.message : String(e);
+          get().setStatus(`写入 content/ 失败：${msg}`);
+        });
         void get().refreshStorageUsage();
       },
   exportPayload: () => ({
@@ -97,13 +100,20 @@ export const createSyncBackupSlice: StateCreator<
           });
           void saveAssetMetaList(assets);
           for (const id of oldIds) void clearVersions(id);
+          const replaceCount = payload.documents.length;
           void bulkWriteLibrary({
             documents: payload.documents,
             trash: payload.trash || [],
-          }).catch(() => {});
-          get().setStatus(`已替换导入 ${payload.documents.length} 篇文档`);
+          })
+            .then(() => {
+              get().setStatus(`已替换导入 ${replaceCount} 篇文档`);
+            })
+            .catch((e) => {
+              const msg = e instanceof Error ? e.message : String(e);
+              get().setStatus(`整库替换写入失败：${msg}`);
+            });
           void get().refreshStorageUsage();
-          return payload.documents.length;
+          return replaceCount;
         }
 
         // merge: by path — overwrite content/meta if path exists, else add
@@ -175,10 +185,17 @@ export const createSyncBackupSlice: StateCreator<
           quizDocs: nextQuiz,
         });
         void saveAssetMetaList(nextAssets);
-        void bulkWriteLibrary({ documents: nextDocs }).catch(() => {});
-        get().setStatus(`已合并导入 ${n} 篇文档`);
+        const mergeCount = n;
+        void bulkWriteLibrary({ documents: nextDocs })
+          .then(() => {
+            get().setStatus(`已合并导入 ${mergeCount} 篇文档`);
+          })
+          .catch((e) => {
+            const msg = e instanceof Error ? e.message : String(e);
+            get().setStatus(`合并导入写入失败：${msg}`);
+          });
         void get().refreshStorageUsage();
-        return n;
+        return mergeCount;
       },
   hydrateFromContent: async () => {
         try {

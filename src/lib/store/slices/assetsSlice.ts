@@ -206,9 +206,17 @@ export const createAssetsSlice: StateCreator<
         set({ assets });
         void saveAssetMetaList(assets);
         if (victim) {
-          void deleteLibraryAsset(victim.path).catch(() => {});
+          void deleteLibraryAsset(victim.path)
+            .then(() => {
+              get().setStatus("已删除附件");
+            })
+            .catch((e) => {
+              const msg = e instanceof Error ? e.message : String(e);
+              get().setStatus(`删除附件失败：${msg}`);
+            });
+        } else {
+          get().setStatus("已删除附件");
         }
-        get().setStatus("已删除附件");
         void get().refreshStorageUsage();
       },
   assetsForDoc: (docId) => {

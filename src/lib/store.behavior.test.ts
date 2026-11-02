@@ -72,6 +72,7 @@ vi.mock("./storage/contentMigration", () => ({
 
 import { useStore } from "./store";
 import type { LocateResult } from "./locate/types";
+import { bulkWriteLibrary, putLibraryDoc } from "./storage/contentApi";
 
 /** Sorted keys that must remain on useStore.getState() after any slice extract. */
 const EXPECTED_STATE_KEYS = [
@@ -831,5 +832,58 @@ describe("store behavior snapshots", () => {
 
     useStore.getState().closeTab(b.id);
     expect(useStore.getState().openTabs.includes(b.id)).toBe(false);
+  });
+
+  it("surfaces putLibraryDoc / bulkWriteLibrary reject in status", async () => {
+    const put = vi.mocked(putLibraryDoc);
+    const bulk = vi.mocked(bulkWriteLibrary);
+    put.mockRejectedValueOnce(new Error("disk full"));
+
+    useStore.getState().createDoc({
+      type: "md",
+      path: "fail-put.md",
+      content: "x",
+      open: false,
+    });
+    await vi.waitFor(() => {
+      expect(useStore.getState().status?.message || "").toMatch(/失败/);
+    });
+    expect(useStore.getState().status?.message).toContain("disk full");
+
+    put.mockResolvedValue(undefined as never);
+    useStore.setState({ status: null });
+    bulk.mockRejectedValueOnce(new Error("bulk boom"));
+    useStore.getState().importLibrary(
+      {
+        documents: [
+          {
+            id: "incoming-fail",
+            path: "fail-bulk.md",
+            type: "md",
+            content: "z",
+            starred: false,
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        ],
+        trash: [],
+      },
+      "replace"
+    );
+    await vi.waitFor(() => {
+      expect(useStore.getState().status?.message || "").toContain("bulk boom");
+    });
+
+    bulk.mockImplementation(async (x) => ({
+      documents: x?.documents ?? [],
+      assets: x?.assets ?? [],
+      trash: x?.trash ?? [],
+      projects: [],
+      projectTexts: {},
+      cssIndexes: [],
+      jsIndexes: [],
+      ok: true,
+      source: "content" as const,
+    }));
   });
 });

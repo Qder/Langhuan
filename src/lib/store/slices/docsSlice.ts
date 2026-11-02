@@ -474,12 +474,14 @@ export const createDocsSlice: StateCreator<
         get().setStatus(`已新建文件夹 ${full}`);
         for (let i = 0; i < parts.length; i++) {
           const layer = parts.slice(0, i + 1).join("/");
-          void ensureContentFolder(layer).catch(() => {
-            /* best-effort */
+          void ensureContentFolder(layer).catch((e) => {
+            const msg = e instanceof Error ? e.message : String(e);
+            get().setStatus(`创建 content/ 文件夹失败：${msg}`);
           });
           if (get().fsBoundName) {
-            void ensureLibraryDir(layer).catch(() => {
-              /* best-effort */
+            void ensureLibraryDir(layer).catch((e) => {
+              const msg = e instanceof Error ? e.message : String(e);
+              get().setStatus(`创建镜像文件夹失败：${msg}`);
             });
           }
         }
@@ -579,9 +581,15 @@ export const createDocsSlice: StateCreator<
           get().setStatus(st.replace(/^已重命名，/, `已重命名文件夹为 ${neu}，`));
         }
         if (get().fsBoundName) {
-          void ensureLibraryDir(neu).catch(() => {});
+          void ensureLibraryDir(neu).catch((e) => {
+            const msg = e instanceof Error ? e.message : String(e);
+            get().setStatus(`创建镜像文件夹失败：${msg}`);
+          });
         }
-        void ensureContentFolder(neu).catch(() => {});
+        void ensureContentFolder(neu).catch((e) => {
+          const msg = e instanceof Error ? e.message : String(e);
+          get().setStatus(`创建 content/ 文件夹失败：${msg}`);
+        });
         return neu;
       },
   moveFolder: (oldPath, newParentPath) => {
@@ -636,9 +644,15 @@ export const createDocsSlice: StateCreator<
           get().setStatus(st.replace(/^已重命名，/, `已移动文件夹到 ${neu}，`));
         }
         if (get().fsBoundName) {
-          void ensureLibraryDir(neu).catch(() => {});
+          void ensureLibraryDir(neu).catch((e) => {
+            const msg = e instanceof Error ? e.message : String(e);
+            get().setStatus(`创建镜像文件夹失败：${msg}`);
+          });
         }
-        void ensureContentFolder(neu).catch(() => {});
+        void ensureContentFolder(neu).catch((e) => {
+          const msg = e instanceof Error ? e.message : String(e);
+          get().setStatus(`创建 content/ 文件夹失败：${msg}`);
+        });
         return neu;
       },
   openDailyNote: () => {

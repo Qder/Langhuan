@@ -11,8 +11,9 @@ function scheduleWriteThrough(get: () => LanghuanState, set: (p: Partial<Langhua
     .then((ok) => {
       if (ok) set({ fsLastSyncAt: Date.now() });
     })
-    .catch(() => {
-      /* best-effort optional mirror */
+    .catch((e) => {
+      const msg = e instanceof Error ? e.message : String(e);
+      get().setStatus(`主库已写、镜像失败：${msg}`);
     });
 }
 
@@ -26,11 +27,11 @@ export function scheduleContentPersist(
   if (!doc) return;
   void putLibraryDoc(doc, previousPath)
     .then(() => {
-      /* content/ is source of truth */
+      /* content/ is source of truth — mirror only after primary write succeeds */
+      scheduleWriteThrough(get, set, doc);
     })
     .catch((e) => {
       const msg = e instanceof Error ? e.message : String(e);
       get().setStatus(`写入 content/ 失败：${msg}`);
     });
-  scheduleWriteThrough(get, set, doc);
 }
