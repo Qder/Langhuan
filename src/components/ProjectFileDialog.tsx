@@ -15,10 +15,13 @@ import { basename } from "@/lib/utils";
  */
 export function ProjectFileDialog({
   path,
+  highlightLine,
   onClose,
   onCopied,
 }: {
   path: string | null;
+  /** 1-based line to scroll into view and highlight */
+  highlightLine?: number;
   onClose: () => void;
   onCopied?: (msg: string) => void;
 }) {
@@ -51,6 +54,13 @@ export function ProjectFileDialog({
   const error = failure && failure.path === path ? failure.message : null;
 
   const lines = text ? text.split("\n") : [];
+  const lineRefs = React.useRef<(HTMLDivElement | null)[]>([]);
+
+  React.useEffect(() => {
+    if (!text || !highlightLine || highlightLine < 1) return;
+    const el = lineRefs.current[highlightLine - 1];
+    el?.scrollIntoView({ block: "center" });
+  }, [text, highlightLine, path]);
 
   return (
     <Dialog open={!!path} onClose={onClose} className="max-w-3xl">
@@ -79,7 +89,17 @@ export function ProjectFileDialog({
         ) : (
           <pre className="whitespace-pre-wrap break-words font-mono text-[12px] leading-relaxed text-[var(--fg)]">
             {lines.map((line, i) => (
-              <div key={i} className="flex gap-3">
+              <div
+                key={i}
+                ref={(el) => {
+                  lineRefs.current[i] = el;
+                }}
+                className={
+                  highlightLine === i + 1
+                    ? "flex gap-3 bg-[color-mix(in_srgb,var(--accent)_16%,transparent)] shadow-[inset_2px_0_0_var(--accent)]"
+                    : "flex gap-3"
+                }
+              >
                 <span className="w-9 shrink-0 select-none text-right text-[var(--muted)] opacity-50 tabular-nums">
                   {i + 1}
                 </span>

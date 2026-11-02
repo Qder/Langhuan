@@ -6,7 +6,11 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ProjectCompatNotice } from "./ProjectCompatNotice";
-import { analyzeProjectCompat, type CompatReport } from "@/lib/projectCompat";
+import {
+  analyzeProjectCompat,
+  compatIssueJumpTarget,
+  type CompatReport,
+} from "@/lib/projectCompat";
 
 function reportOf(issues: CompatReport["issues"]): CompatReport {
   const groups: CompatReport["groups"] = [];
@@ -113,8 +117,9 @@ describe("ProjectCompatNotice", () => {
     expect(html).toContain("脚本的 defer / async");
     expect(html).toContain("外站资源（需要联网）");
     expect(html).toContain("找不到的本地文件");
-    // 一个横条：只有一个按钮（展开 / 收起），没有一堆 toast 容器
+    // 无 onJump 时只有展开/收起一个按钮；文件:行仍是纯文字
     expect(html.match(/<button/g)).toHaveLength(1);
+    expect(html).toContain("demo/index.html:5");
   });
 
   it("在流内，不遮挡预览、不抢元素检视抽屉的语义", () => {
@@ -156,4 +161,49 @@ describe("ProjectCompatNotice", () => {
     expect(html).toContain("img/gone.png");
     expect(html).toContain("2 类 2 处");
   });
+
+
+  it("传入 onJump 后文件:行可点（button title 含路径）", () => {
+    const html = renderToStaticMarkup(
+      <ProjectCompatNotice report={THREE_ISSUES} defaultOpen onJump={() => {}} />
+    );
+    expect(html).toContain('title="打开 demo/index.html:5"');
+    expect((html.match(/<button/g) || []).length).toBeGreaterThan(1);
+  });
+
+  it("compatIssueJumpTarget：有行号回传 1-based；缺行号为 undefined；外站 file 拒绝", () => {
+    expect(
+      compatIssueJumpTarget({
+        kind: "module-relative-import",
+        file: "js/module-app.js",
+        line: 3,
+        target: "./greet.js",
+        impact: "可能不运行",
+        message: "m",
+      })
+    ).toEqual({ file: "js/module-app.js", line: 3 });
+    expect(
+      compatIssueJumpTarget({
+        kind: "missing-resource",
+        file: "demo/a.js",
+        target: "x",
+        impact: "预览会失真",
+        message: "m",
+      })
+    ).toEqual({ file: "demo/a.js", line: undefined });
+    // network-dependency 仍跳本地 file，不把 target URL 当路径
+    const net = THREE_ISSUES.issues.find((i) => i.kind === "network-dependency")!;
+    expect(compatIssueJumpTarget(net)).toEqual({ file: net.file, line: net.line });
+    expect(
+      compatIssueJumpTarget({
+        kind: "network-dependency",
+        file: "https://cdn.example.com/a.css",
+        line: 1,
+        target: "https://cdn.example.com/a.css",
+        impact: "需要联网",
+        message: "m",
+      })
+    ).toBeNull();
+  });
+
 });

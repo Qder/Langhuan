@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { analyzeProjectCompat, type CompatReport } from "./projectCompat";
+import { analyzeProjectCompat,
+  compatIssueJumpTarget,
+  rangeForSourceLine, type CompatReport } from "./projectCompat";
 
 /** `#bin` 表示「这个文件存在，但不是文本」（图片 / 字体）。 */
 type Fixture = Record<string, string | "#bin">;
@@ -284,5 +286,37 @@ import(\`./pages/\${page}.js\`);
       "missing-resource",
     ]);
     for (const issue of report.issues) expect(issue.line).toBeGreaterThanOrEqual(1);
+  });
+});
+
+
+describe("compatIssueJumpTarget + rangeForSourceLine", () => {
+  it("maps file+line and omits missing line", () => {
+    expect(
+      compatIssueJumpTarget({
+        kind: "module-relative-import",
+        file: "demo/js/module-app.js",
+        line: 3,
+        target: "./greet.js",
+        impact: "可能不运行",
+        message: "相对 import",
+      })
+    ).toEqual({ file: "demo/js/module-app.js", line: 3 });
+    expect(
+      compatIssueJumpTarget({
+        kind: "missing-resource",
+        file: "demo/a.js",
+        target: "x",
+        impact: "预览会失真",
+        message: "m",
+      })?.line
+    ).toBeUndefined();
+  });
+
+  it("rangeForSourceLine aligns to 1-based line text", () => {
+    const src = "line1\nimport { greet } from \"./greet.js\";\nline3\n";
+    const r = rangeForSourceLine(src, 2);
+    expect(src.slice(r.start, r.end)).toBe('import { greet } from "./greet.js";');
+    expect(rangeForSourceLine(src, 1).start).toBe(0);
   });
 });

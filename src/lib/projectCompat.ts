@@ -476,3 +476,58 @@ export function analyzeProjectCompat(input: CompatInput): CompatReport {
 
   return { issues: sorted, groups, total: sorted.length };
 }
+
+
+/** Jump payload for a compat row: always the library `file`, never an external URL target. */
+export type CompatJumpTarget = {
+  file: string;
+  /** 1-based; omitted when the issue has no usable line */
+  line?: number;
+};
+
+/** True when a string looks like an absolute / protocol-relative network URL. */
+export function isExternalCompatPath(path: string): boolean {
+  const t = String(path ?? "").trim();
+  return /^(https?:|data:|blob:|mailto:|\/\/)/i.test(t);
+}
+
+/**
+ * Where the compat strip should open when the user clicks `文件:行`.
+ * Uses `issue.file` (+ optional line). Never treats `network-dependency` `target` as a library path.
+ */
+export function compatIssueJumpTarget(
+  issue: Pick<CompatIssue, "file" | "line"> &
+    Partial<Pick<CompatIssue, "kind" | "target" | "impact" | "message">>
+): CompatJumpTarget | null {
+  const file = String(issue.file ?? "").trim();
+  if (!file) return null;
+  if (isExternalCompatPath(file)) return null;
+  const line =
+    typeof issue.line === "number" && Number.isFinite(issue.line) && issue.line >= 1
+      ? Math.floor(issue.line)
+      : undefined;
+  return { file, line };
+}
+
+/** Byte range covering a 1-based source line (end exclusive of newline). */
+export function rangeForSourceLine(
+  content: string,
+  line1based: number
+): { start: number; end: number } {
+  if (!content || line1based < 1) return { start: 0, end: 0 };
+  let line = 1;
+  let i = 0;
+  while (i < content.length && line < line1based) {
+    if (content[i] === "\n") line += 1;
+    i += 1;
+  }
+  if (line < line1based) {
+    const lastNl = content.lastIndexOf("\n");
+    const lastStart = lastNl < 0 ? 0 : lastNl + 1;
+    return { start: lastStart, end: content.length };
+  }
+  const start = i;
+  let end = start;
+  while (end < content.length && content[end] !== "\n") end += 1;
+  return { start, end };
+}

@@ -45,7 +45,14 @@ import {
 import { cn, dirname } from "@/lib/utils";
 import { findProjectForPath, projectRelPath } from "@/lib/project";
 import { inlineProjectHtml } from "@/lib/inlineProject";
-import { analyzeProjectCompat, type CompatReport } from "@/lib/projectCompat";
+import {
+  analyzeProjectCompat,
+  isExternalCompatPath,
+  rangeForSourceLine,
+  type CompatReport,
+} from "@/lib/projectCompat";
+import { findDocByLibraryPath } from "@/lib/resolveLibraryPath";
+import { ProjectFileDialog } from "./ProjectFileDialog";
 import {
   assetReaderFrom,
   loadProjectAssets,
@@ -71,6 +78,9 @@ function editReadyMessage(source: string, start: number, end: number): string {
 export function HtmlReader({ doc }: { doc: Document }) {
   const getContent = useStore((s) => s.getContent);
   const applyLocateResult = useStore((s) => s.applyLocateResult);
+  const requestPreviewLocate = useStore((s) => s.requestPreviewLocate);
+  const requestOpenDoc = useStore((s) => s.requestOpenDoc);
+  const documents = useStore((s) => s.documents);
   const setStatus = useStore((s) => s.setStatus);
   const pendingPreviewLocate = useStore((s) => s.pendingPreviewLocate);
   const clearPendingPreviewLocate = useStore((s) => s.clearPendingPreviewLocate);
@@ -158,7 +168,8 @@ export function HtmlReader({ doc }: { doc: Document }) {
     payload: HtmlLocatePayload;
   } | null>(null);
   const [pageBg, setPageBg] = React.useState<string>("transparent");
-  const [loaded, setLoaded] = React.useState(false);
+  const [compatFileView, setCompatFileView] = React.useState<{ path: string; line?: number } | null>(null);
+    const [loaded, setLoaded] = React.useState(false);
   const [stageSize, setStageSize] = React.useState({ w: 0, h: 0 });
 
   /** 换文档时收起上一次的元素面板（面板是全局状态，不该串到别的页面）。 */
@@ -845,13 +856,55 @@ export function HtmlReader({ doc }: { doc: Document }) {
     setPendingQuizReveal(null);
   }, [pendingQuizReveal, doc.id, loaded, isQuizPage, postQuiz, setPendingQuizReveal]);
 
+
+  const onCompatJump = React.useCallback(
+    (file: string, line?: number) => {
+      if (isExternalCompatPath(file)) {
+        setStatus(`外站地址不能当本地文件打开：${file}`);
+        return;
+      }
+      const hit = findDocByLibraryPath(documents, file);
+      if (hit) {
+        requestOpenDoc(hit.id);
+        if (line && line >= 1) {
+          const src = getContent(hit.id) || hit.content || "";
+          const range = rangeForSourceLine(src, line);
+          applyLocateResult(
+            {
+              start: range.start,
+              end: Math.max(range.end, range.start + 1),
+              precision: "exact",
+              line,
+              message: `兼容性 · ${file}:${line}`,
+            },
+            { select: true, focus: true, highlight: true, center: true }
+          );
+          requestPreviewLocate(range.start, { scroll: true, announce: true });
+        }
+        return;
+      }
+      // 非文档的项目源文件（css/js…）：只读对话框定位
+      setCompatFileView({ path: file, line });
+      setStatus(line ? `已打开 ${file}:${line}` : `已打开 ${file}`);
+    },
+    [
+      documents,
+      requestOpenDoc,
+      getContent,
+      applyLocateResult,
+      requestPreviewLocate,
+      setStatus,
+    ]
+  );
+
+
   return (
     <div className="relative h-full min-h-0 flex flex-col bg-[var(--bg)]">
       {/*
         项目预览的兼容性提示：一条横条，分类汇总（模块导入 / defer-async / 外站资源 / 缺文件 /
         没能内联的资源）。简单项目不会有任何问题，这里就什么都不渲染。
       */}
-      <ProjectCompatNotice report={compatReport} />
+      <ProjectCompatNotice report={compatReport} onJump={onCompatJump} />
       {showQuizToolbar && (
         <QuizToolbar
           counts={quizCounts}
@@ -993,6 +1046,12 @@ export function HtmlReader({ doc }: { doc: Document }) {
           onClose={() => setMenu(null)}
         />
       )}
+      <ProjectFileDialog
+        path={compatFileView?.path ?? null}
+        highlightLine={compatFileView?.line}
+        onClose={() => setCompatFileView(null)}
+        onCopied={(msg) => setStatus(msg)}
+      />
     </div>
   );
 }

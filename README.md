@@ -71,7 +71,7 @@ npm start
   不静默丢图 —— 边界与下一期打算见 [docs/status/STATUS-asset-inline.md](docs/status/STATUS-asset-inline.md)
 - 项目预览**说清支持边界**：模块脚本的相对 / 裸 `import`、运行时才定的动态加载、脚本的
   `defer` / `async`、外站 CDN、缺本地文件等，预览顶部一条可展开的提示
-  按类汇总（`文件:行` + 一句人话 + 当前影响），简单项目不显示；只影响预览，源码定位照旧；
+  按类汇总（可点的 `文件:行` 跳进源码 + 一句人话 + 当前影响），简单项目不显示；只影响预览，源码定位照旧；
   本地 `@import` 按被导入文件目录展平；缺文件 / 外站 / 环保留原句并进兼容性报告
   —— 边界与措辞规矩见 [docs/status/STATUS-project-compat.md](docs/status/STATUS-project-compat.md)
 
