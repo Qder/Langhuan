@@ -39,6 +39,10 @@ import {
   type IdeExplainMessage,
   type IdeExplainSelection,
 } from "./explain";
+import {
+  IDE_STORE_PERSIST_VERSION,
+  migrateIdePersistedState,
+} from "./idePersist";
 
 export type IdeTab = {
   path: string;
@@ -518,9 +522,17 @@ export const useIdeStore = create<IdeState>()(
           model: s.explainSettings.model,
         },
       }),
-      version: 2,
+      version: IDE_STORE_PERSIST_VERSION,
+      migrate: (persisted, fromVersion) =>
+        migrateIdePersistedState(persisted, fromVersion),
     }
   )
 );
 
 export type { IdeRecentProjectMeta, IdePendingReveal, IdeExplainMessage };
+export {
+  IDE_STORE_PERSIST_VERSION,
+  migrateIdePersistedState,
+  type IdePersistedSlice,
+} from "./idePersist";
+
