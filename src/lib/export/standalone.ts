@@ -11,8 +11,11 @@ export const EXPORT_CSS = `
   --muted: #7a7265;
   --accent: #b3382a;
   --border: rgba(43, 38, 31, 0.12);
-  --code-bg: #1a1814;
-  --code-fg: #ece4d2;
+  /* 导出是单页纸面，只有一个「浅纸」形态：代码块跟预览的浅色主题对齐（浅底深字），
+     不要再做深色终端砖。五套主题的切换只发生在应用里。 */
+  --code-bg: #efe7d6;
+  --code-fg: #2b261f;
+  --code-border: rgba(43, 38, 31, 0.16);
 }
 * { box-sizing: border-box; }
 html, body {
@@ -64,6 +67,7 @@ header.meta .path {
 .prose pre {
   background: var(--code-bg);
   color: var(--code-fg);
+  border: 1px solid var(--code-border);
   padding: 1rem 1.1rem;
   border-radius: 10px;
   overflow-x: auto;
@@ -77,8 +81,23 @@ header.meta .path {
   color: var(--muted);
 }
 .prose ul, .prose ol { padding-left: 1.4em; }
-.prose img { max-width: 100%; height: auto; border-radius: 8px; }
-.prose table { border-collapse: collapse; width: 100%; margin: 1em 0; font-size: 0.95em; }
+.prose img {
+  display: block;
+  max-width: 100%;
+  max-height: 720px;
+  height: auto;
+  object-fit: contain;
+  margin: 1.2em auto;
+  border-radius: 8px;
+}
+.prose figure { margin: 1.4em 0; text-align: center; }
+.prose figcaption {
+  margin-top: 0.5em;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+}
+.prose table { border-collapse: collapse; width: 100%; max-width: 100%; margin: 1em 0; font-size: 0.95em; }
 .prose th, .prose td { border: 1px solid var(--border); padding: 0.4em 0.6em; }
 .prose th { background: rgba(43,38,31,0.04); }
 .footer {

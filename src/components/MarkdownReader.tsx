@@ -14,6 +14,7 @@ import { Copy, Info, Lightbulb, TriangleAlert } from "lucide-react";
 import { flattenCodeText, isMermaidLanguage } from "@/lib/codeText";
 import { mdSanitizeSchema } from "@/lib/mdSanitizeSchema";
 import { resolveLibraryHref, resolveMediaSrc } from "@/lib/resolveLibraryPath";
+import { soleImageCaption } from "@/lib/mdFigure";
 import { MermaidBlock } from "./MermaidBlock";
 import { WikiLink } from "./WikiLink";
 import { WikiEmbed } from "./WikiEmbed";
@@ -93,8 +94,9 @@ import {
   type SplitResult,
 } from "@/lib/previewVisualCaret";
 
-import "highlight.js/styles/github-dark.css";
 import "katex/dist/katex.min.css";
+// 代码高亮的配色不引 highlight.js 自带主题（github-dark 在宣纸上就是一块黑砖），
+// 改由 globals.css 里的 --syn-* / --code-* 跟随五套主题。
 
 
 function isSourceMonoFallback(t: VisualBlockType): boolean {
@@ -261,18 +263,13 @@ function CodeBlock({
       ? { "data-src-start": srcStart, "data-src-end": srcEnd }
       : {};
   return (
-    <div
-      className="lh-codeblock not-prose my-5 overflow-hidden rounded-[14px] border border-[rgba(236,228,210,0.08)] bg-[#1a1814] text-[#ece4d2]"
-      {...attrs}
-    >
-      <div className="lh-codeblock-chrome flex items-center gap-2 px-3 py-2 border-b border-[rgba(236,228,210,0.08)] text-xs">
-        <span className="h-2.5 w-2.5 rounded-full bg-[#ff5f56]" />
-        <span className="h-2.5 w-2.5 rounded-full bg-[#ffbd2e]" />
-        <span className="h-2.5 w-2.5 rounded-full bg-[#27c93f]" />
-        <span className="ml-2 text-[var(--muted)] font-mono">{lang || "code"}</span>
+    <div className="lh-codeblock not-prose my-5" {...attrs}>
+      <div className="lh-codeblock-chrome">
+        <span className="lh-codeblock-lang">{lang || "code"}</span>
         <button
           type="button"
-          className="ml-auto inline-flex items-center gap-1 rounded-lg px-2 py-1 hover:bg-white/5"
+          className="lh-codeblock-copy"
+          data-copied={copied ? "1" : undefined}
           onClick={async () => {
             await navigator.clipboard.writeText(text);
             setCopied(true);
@@ -398,8 +395,25 @@ const MarkdownBody = React.memo(function MarkdownBody({
 
   const components = React.useMemo(
     () => ({
-      p: ({ node, children, ...props }: { node?: HastNode; children?: React.ReactNode } & Record<string, unknown>) =>
-        withSrc("p", node, props, walkChildren(children, documents, openDoc)),
+      p: ({ node, children, ...props }: { node?: HastNode; children?: React.ReactNode } & Record<string, unknown>) => {
+        const body = walkChildren(children, documents, openDoc);
+        // 一整段只有一张图、且写了 alt：当插页（图注走 figcaption），否则按普通段落
+        const caption = soleImageCaption(children);
+        if (caption) {
+          return withSrc(
+            "figure",
+            node,
+            { ...props, className: "lh-md-figure" },
+            [
+              body,
+              <figcaption key="cap" className="lh-md-figcaption">
+                {caption}
+              </figcaption>,
+            ]
+          );
+        }
+        return withSrc("p", node, props, body);
+      },
       li: ({ node, children, ...props }: { node?: HastNode; children?: React.ReactNode } & Record<string, unknown>) =>
         withSrc("li", node, props, walkChildren(children, documents, openDoc)),
       td: ({ node, children, ...props }: { node?: HastNode; children?: React.ReactNode } & Record<string, unknown>) =>
@@ -408,6 +422,13 @@ const MarkdownBody = React.memo(function MarkdownBody({
         withSrc("th", node, props, walkChildren(children, documents, openDoc)),
       tr: ({ node, children, ...props }: { node?: HastNode; children?: React.ReactNode } & Record<string, unknown>) =>
         withSrc("tr", node, props, children),
+      // 表格当插页：外壳负责横向滚动，列多也不会把 740px 的版心撑破。
+      // data-src-* 仍留在 <table> 上 —— 点选编辑靠它定位，外壳不掺和。
+      table: ({ node, children, ...props }: { node?: HastNode; children?: React.ReactNode } & Record<string, unknown>) => (
+        <div className="lh-md-table-wrap">
+          {withSrc("table", node, props, children)}
+        </div>
+      ),
       blockquote: ({ node, children, ...props }: { node?: HastNode; children?: React.ReactNode } & Record<string, unknown>) => {
         const { kind, title, rest } = calloutKindFromChildren(children);
         const attrs = srcAttrs(fmOffset, node);

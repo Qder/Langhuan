@@ -249,16 +249,14 @@ export function InlineCodeFenceEditor({
     <div
       className={cn(
         "lh-codeblock lh-code-editing not-prose my-5 overflow-hidden rounded-[14px]",
-        "border border-[rgba(236,228,210,0.08)] bg-[#1a1814] text-[#ece4d2]"
+        // 配色与预览代码块共用 --code-* / .lh-codeblock-*（点进来不许闪成另一套皮）
+        "border border-[var(--code-border)] bg-[var(--code-bg)] text-[var(--code-fg)]"
       )}
       data-lh-inline-editor="code-chrome"
     >
-      <div className="lh-codeblock-chrome flex items-center gap-2 px-3 py-2 border-b border-[rgba(236,228,210,0.08)] text-xs">
-        <span className="h-2.5 w-2.5 rounded-full bg-[#ff5f56]" />
-        <span className="h-2.5 w-2.5 rounded-full bg-[#ffbd2e]" />
-        <span className="h-2.5 w-2.5 rounded-full bg-[#27c93f]" />
-        <span className="ml-2 text-[var(--muted)] font-mono">{lang}</span>
-        <span className="ml-auto text-[10px] text-[var(--muted)]/70 select-none">
+      <div className="lh-codeblock-chrome">
+        <span className="lh-codeblock-lang">{lang}</span>
+        <span className="ml-auto text-[0.7rem] text-[var(--code-muted)] select-none">
           Esc 取消 · ⌘⏎ 完成
         </span>
       </div>
@@ -320,7 +318,7 @@ export function InlineCodeFenceEditor({
           }}
           className={cn(
             "flex-1 min-w-0 resize-none bg-transparent border-0 outline-none",
-            "m-0 font-mono text-[0.86rem] leading-[1.65] text-[#ece4d2]",
+            "m-0 font-mono text-[0.86rem] leading-[1.65] text-[var(--code-fg)]",
             "whitespace-pre caret-[var(--accent)]",
             "lh-code-fence-ta"
           )}

@@ -2,8 +2,8 @@
 @tailwind components;
 @tailwind utilities;
 
-/* —— Theme tokens via html[data-theme] (五套阅读主题) —— */
-/* Default / 宣纸靛青 (legacy paper) */
+/* 鈥斺€?Theme tokens via html[data-theme] (浜斿闃呰涓婚) 鈥斺€?*/
+/* Default / 瀹ｇ焊闈涢潚 (legacy paper) */
 :root,
 html[data-theme="xuan"] {
   --bg: #faf8f3;
@@ -21,7 +21,7 @@ html[data-theme="xuan"] {
   --paper-noise: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
 }
 
-/* 青灯竹影 */
+/* 闈掔伅绔瑰奖 */
 html[data-theme="bamboo"] {
   --bg: #e6ebe7;
   --bg-elevated: #eef2ef;
@@ -38,7 +38,7 @@ html[data-theme="bamboo"] {
   --paper-noise: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
 }
 
-/* 绛帐缃帙 */
+/* 缁涘笎缂冨笝 */
 html[data-theme="jiang"] {
   --bg: #f3e8d4;
   --bg-elevated: #f8efde;
@@ -55,7 +55,7 @@ html[data-theme="jiang"] {
   --paper-noise: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
 }
 
-/* 松烟月白 (legacy ink) + bare .dark fallback */
+/* 鏉剧儫鏈堢櫧 (legacy ink) + bare .dark fallback */
 html.dark:not([data-theme]),
 html[data-theme="songyan"] {
   --bg: #12141a;
@@ -73,7 +73,7 @@ html[data-theme="songyan"] {
   --paper-noise: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.06'/%3E%3C/svg%3E");
 }
 
-/* 赛博藏经 */
+/* 璧涘崥钘忕粡 */
 html[data-theme="cyber"] {
   --bg: #0a1210;
   --bg-elevated: #101a17;
@@ -88,6 +88,67 @@ html[data-theme="cyber"] {
   --menu: #101a17;
   --shadow: 0 12px 36px rgba(0, 0, 0, 0.45);
   --paper-noise: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.06'/%3E%3C/svg%3E");
+}
+
+/* 鈥斺€?娲剧敓 token锛氫唬鐮佸潡 / 璇硶楂樹寒 鈥斺€?
+   涓嶆柊澧炰富棰樸€佷笉鏀逛簲濂椾富鑹诧細浠ｇ爜鍧楃殑搴曡壊涓庢弿杈瑰叏閮ㄧ敱鏃㈡湁 token 娣疯壊寰楀嚭锛?
+   鎵€浠ュ湪浠讳綍涓婚涓嬮兘銆岃窡绾歌蛋銆嶏紝鑰屼笉鏄彟璐翠竴鍧楀埆鐨勭毊銆?
+   璇硶鑹叉槸鍞竴娌℃硶浠?--fg/--accent 娲剧敓鍑烘潵鐨勪笢瑗匡紙瑕?8 涓彲鍖哄垎鑹茬浉锛夛紝
+   鍥犳鎸夈€屾祬绾?/ 娣卞ⅷ銆嶄袱缁勫悇缁欎竴濂楋紝缁勫唴鏄浐瀹氬€笺€?*/
+:root,
+html[data-theme="xuan"],
+html[data-theme="bamboo"],
+html[data-theme="jiang"] {
+  --code-bg: color-mix(in srgb, var(--bg-elevated) 94%, var(--fg) 6%);
+  --code-fg: var(--fg);
+  --code-muted: var(--muted);
+  --code-border: color-mix(in srgb, var(--fg) 12%, transparent);
+  --code-gutter-bg: color-mix(in srgb, var(--code-bg) 95%, var(--fg) 5%);
+  --code-gutter-fg: color-mix(in srgb, var(--muted) 62%, transparent);
+  /* 瀹ｇ焊涓婄殑鏈辩爞 / 缁涚传 / 闈涢潚 / 绔圭豢 / 璧煶 / 澧ㄧ伆锛岄ケ鍜屽害姣旂紪杈戝櫒涓婚浣庝竴妗?*/
+  --syn-keyword: #a8434a;
+  --syn-title: #6b4a8a;
+  --syn-constant: #2f5d7a;
+  --syn-string: #4a6b3a;
+  --syn-builtin: #8a5a1e;
+  --syn-comment: #8a8071;
+  --syn-name: #2f6b4f;
+  --syn-bullet: #7a6320;
+}
+
+html.dark:not([data-theme]),
+html[data-theme="songyan"] {
+  --code-bg: color-mix(in srgb, var(--bg) 95%, var(--fg) 5%);
+  --code-fg: var(--fg);
+  --code-muted: var(--muted);
+  --code-border: color-mix(in srgb, var(--fg) 14%, transparent);
+  --code-gutter-bg: color-mix(in srgb, var(--code-bg) 96%, var(--fg) 4%);
+  --code-gutter-fg: color-mix(in srgb, var(--muted) 70%, transparent);
+  --syn-keyword: #f19a92;
+  --syn-title: #d2a8ff;
+  --syn-constant: #8fc5e8;
+  --syn-string: #a8d5b6;
+  --syn-builtin: #e8b07a;
+  --syn-comment: #8b949e;
+  --syn-name: #9ee2b0;
+  --syn-bullet: #e0c884;
+}
+
+html[data-theme="cyber"] {
+  --code-bg: color-mix(in srgb, var(--bg) 94%, var(--fg) 6%);
+  --code-fg: var(--fg);
+  --code-muted: var(--muted);
+  --code-border: color-mix(in srgb, var(--teal) 22%, transparent);
+  --code-gutter-bg: color-mix(in srgb, var(--code-bg) 96%, var(--fg) 4%);
+  --code-gutter-fg: color-mix(in srgb, var(--muted) 72%, transparent);
+  --syn-keyword: #ff9d95;
+  --syn-title: #b9a2ff;
+  --syn-constant: #7fd4e8;
+  --syn-string: #8ee0c0;
+  --syn-builtin: #ffc178;
+  --syn-comment: #7a9a8e;
+  --syn-name: #5eead4;
+  --syn-bullet: #c9d98a;
 }
 
 html,
@@ -178,7 +239,11 @@ body {
   margin-bottom: 0.6em;
   scroll-margin-top: 80px;
 }
-.prose-langhuan h1 { font-size: 1.85rem; }
+.prose-langhuan h1 {
+  font-size: 1.95rem;
+  font-weight: 700;
+  letter-spacing: -0.005em;
+}
 .prose-langhuan h2 {
   font-size: 1.4rem;
   padding-bottom: 0.35em;
@@ -194,16 +259,10 @@ body {
   height: 2px;
   background: var(--accent);
 }
+/* h3 鍙潬瀛楀彿鍜屾鍓嶈窛鍒嗗眰锛氫腑鏂囩瑪璁扮殑鑺傚闈犵暀鐧斤紝涓嶉潬绗﹀彿 */
 .prose-langhuan h3 {
   font-size: 1.15rem;
-  display: flex;
-  align-items: center;
-  gap: 0.45em;
-}
-.prose-langhuan h3::before {
-  content: "◆";
-  color: var(--accent);
-  font-size: 0.55em;
+  margin-top: 1.9em;
 }
 .prose-langhuan p { margin: 0.85em 0; }
 .prose-langhuan a {
@@ -211,7 +270,7 @@ body {
   text-decoration: underline;
   text-underline-offset: 3px;
 }
-.prose-langhuan ul { list-style: none; padding-left: 1.2em; }
+.prose-langhuan ul { list-style: none; padding-left: 1.25em; }
 .prose-langhuan ul > li { position: relative; margin: 0.35em 0; }
 .prose-langhuan ul > li::before {
   content: "";
@@ -223,7 +282,26 @@ body {
   border-radius: 999px;
   background: var(--accent);
 }
+/* 绗簩灞傝捣鎹㈡垚鏇村皬鐨勭┖蹇冪偣锛岀缉杩涘啀璁╁崐妗ｏ細閬垮厤鍜屼笂涓€灞傜殑瀹炲績鐐瑰彔鍦ㄤ竴璧?*/
+.prose-langhuan ul ul { padding-left: 1.45em; }
+.prose-langhuan ul ul > li::before {
+  width: 5px;
+  height: 5px;
+  top: 0.75em;
+  border-radius: 999px;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 70%, var(--muted));
+}
+.prose-langhuan ul ul ul > li::before {
+  width: 2px;
+  height: 2px;
+  top: 0.9em;
+  border-radius: 999px;
+  background: var(--muted);
+  box-shadow: none;
+}
 .prose-langhuan ol { padding-left: 1.4em; }
+.prose-langhuan ol > li { margin: 0.35em 0; }
 .prose-langhuan blockquote {
   margin: 1em 0;
   padding: 0.2em 0 0.2em 1em;
@@ -237,18 +315,26 @@ body {
   height: auto;
 }
 .prose-langhuan hr::before {
-  content: "· · ·";
+  content: "路 路 路";
   color: var(--muted);
   letter-spacing: 0.4em;
 }
+/* 琛ㄦ牸褰撱€屾彃椤点€嶏細澶栧３璐熻矗妯悜婊氬姩涓庡渾瑙掓弿杈癸紝琛ㄦ牸鑷繁鍙礋璐ｆ帓鐗?*/
+.lh-md-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  margin: 1.2em 0;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--card);
+}
 .prose-langhuan table {
   width: 100%;
+  min-width: max-content;
   border-collapse: separate;
   border-spacing: 0;
-  overflow: hidden;
-  border-radius: 14px;
-  border: 1px solid var(--border);
-  margin: 1.2em 0;
+  margin: 0;
   font-family: var(--font-sans), "Noto Sans SC", sans-serif;
   font-size: 0.92rem;
 }
@@ -257,6 +343,7 @@ body {
   padding: 0.65em 0.9em;
   border-bottom: 1px solid var(--border);
   text-align: left;
+  vertical-align: top;
 }
 .prose-langhuan th { background: var(--hover); font-weight: 600; }
 .prose-langhuan tr:last-child td { border-bottom: 0; }
@@ -280,9 +367,9 @@ body {
   margin: 1.2em 0;
   border-radius: 14px;
   overflow: hidden;
-  background: #1a1814;
-  color: #ece4d2;
-  border: 1px solid rgba(236, 228, 210, 0.08);
+  background: transparent;
+  color: var(--code-fg);
+  border: 0;
 }
 .prose-langhuan pre code {
   font-family: var(--font-mono), monospace;
@@ -331,7 +418,82 @@ body {
 .callout.note { border-color: color-mix(in srgb, var(--gold) 45%, var(--border)); background: color-mix(in srgb, var(--gold) 8%, var(--card)); }
 .callout.warn { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); background: color-mix(in srgb, var(--accent) 8%, var(--card)); }
 
-.hljs { background: transparent !important; }
+/* 鈥斺€?浠ｇ爜楂樹寒锛氫笉鍐嶅紩 highlight.js 鑷甫涓婚锛坓ithub-dark 浼氬湪瀹ｇ焊涓婄硦鎴愰粦鐮栵級锛?
+   鏀规垚涓婇潰閭ｅ --syn-* 鍙橀噺锛屾祬绾?/ 娣卞ⅷ涓ょ粍鍚勮嚜鎴愮珛銆?鈥斺€?*/
+.hljs {
+  color: var(--code-fg);
+  background: transparent !important;
+}
+.hljs-comment,
+.hljs-code,
+.hljs-formula {
+  color: var(--syn-comment);
+  font-style: normal;
+}
+.hljs-doctag,
+.hljs-keyword,
+.hljs-meta .hljs-keyword,
+.hljs-template-tag,
+.hljs-template-variable,
+.hljs-type,
+.hljs-variable.language_ {
+  color: var(--syn-keyword);
+}
+.hljs-title,
+.hljs-title.class_,
+.hljs-title.class_.inherited__,
+.hljs-title.function_ {
+  color: var(--syn-title);
+}
+.hljs-attr,
+.hljs-attribute,
+.hljs-literal,
+.hljs-meta,
+.hljs-number,
+.hljs-operator,
+.hljs-variable,
+.hljs-selector-attr,
+.hljs-selector-class,
+.hljs-selector-id {
+  color: var(--syn-constant);
+}
+.hljs-regexp,
+.hljs-string,
+.hljs-meta .hljs-string {
+  color: var(--syn-string);
+}
+.hljs-built_in,
+.hljs-symbol {
+  color: var(--syn-builtin);
+}
+.hljs-name,
+.hljs-quote,
+.hljs-selector-tag,
+.hljs-selector-pseudo {
+  color: var(--syn-name);
+}
+.hljs-subst { color: var(--code-fg); }
+.hljs-section { color: var(--syn-constant); font-weight: 600; }
+.hljs-bullet { color: var(--syn-bullet); }
+.hljs-emphasis { color: inherit; font-style: italic; }
+.hljs-strong { color: inherit; font-weight: 700; }
+.hljs-addition {
+  color: var(--syn-name);
+  background: color-mix(in srgb, var(--syn-name) 12%, transparent);
+}
+.hljs-deletion {
+  color: var(--syn-keyword);
+  background: color-mix(in srgb, var(--syn-keyword) 12%, transparent);
+}
+/* 鏍囩偣 / 鍙傛暟 / 鏍囩鍚嶄笉鍙︿笂鑹诧紝闈犵粨鏋勬湰韬璇?*/
+.hljs-char.escape_,
+.hljs-link,
+.hljs-params,
+.hljs-property,
+.hljs-punctuation,
+.hljs-tag {
+  color: inherit;
+}
 
 .skeleton {
   background: linear-gradient(90deg, var(--hover), transparent, var(--hover));
@@ -352,7 +514,7 @@ body {
 
 
 
-/* KaTeX — 纸·墨·朱砂 */
+/* KaTeX 鈥?绾嘎峰ⅷ路鏈辩爞 */
 .prose-langhuan .katex {
   color: var(--fg);
   font-size: 1.05em;
@@ -376,7 +538,7 @@ html.dark .prose-langhuan .katex {
   color: var(--accent) !important;
 }
 
-/* Preview → Source reveal flash (朱砂) */
+/* Preview 鈫?Source reveal flash (鏈辩爞) */
 @keyframes lh-cinnabar-flash {
   0% { opacity: 0; }
   15% { opacity: 1; }
@@ -401,7 +563,7 @@ html.dark .prose-langhuan .katex {
   display: none !important;
 }
 
-/* Preview visual (contenteditable) — caret only, no accent box */
+/* Preview visual (contenteditable) 鈥?caret only, no accent box */
 .prose-langhuan .lh-visual-editing,
 .lh-visual-editing {
   outline: none;
@@ -410,7 +572,7 @@ html.dark .prose-langhuan .katex {
   caret-color: var(--accent);
 }
 article[data-lh-visual-editing] {
-  /* marker only — click handler consults this */
+  /* marker only 鈥?click handler consults this */
 }
 
 
@@ -442,6 +604,55 @@ article[data-lh-visual-editing] {
 }
 
 
+/* 鈥斺€?浠ｇ爜鍧楋細澶栧３銆侀《鏍忋€佽鍙?鈥斺€?
+   搴曡壊 / 瀛楄壊 / 鎻忚竟鍏ㄩ儴璧?--code-*锛屾祬鑹蹭富棰樻槸绾镐笂鐨勬祬搴曟繁瀛楋紝鍙湁娣辫壊涓婚鎵嶆槸娣卞簳銆?*/
+.lh-codeblock {
+  background: var(--code-bg);
+  color: var(--code-fg);
+  border: 1px solid var(--code-border);
+  border-radius: 14px;
+  overflow: hidden;
+}
+.lh-codeblock pre,
+.lh-codeblock code {
+  color: inherit;
+}
+.lh-codeblock-chrome {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.75rem;
+  border-bottom: 1px solid var(--code-border);
+  background: color-mix(in srgb, var(--code-gutter-bg) 70%, transparent);
+  color: var(--code-muted);
+  font-size: 0.72rem;
+  line-height: 1.2;
+}
+.lh-codeblock-lang {
+  font-family: var(--font-mono), monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.02em;
+  color: var(--code-muted);
+  text-transform: none;
+}
+.lh-codeblock-copy {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: 7px;
+  color: var(--code-muted);
+  transition: background 160ms ease, color 160ms ease;
+}
+.lh-codeblock-copy:hover {
+  background: color-mix(in srgb, var(--code-fg) 8%, transparent);
+  color: var(--code-fg);
+}
+.lh-codeblock-copy[data-copied="1"] {
+  color: var(--syn-name);
+}
+
 /* Code block line gutter */
 .lh-codeblock-body {
   align-items: stretch;
@@ -455,9 +666,9 @@ article[data-lh-visual-editing] {
   font-family: var(--font-mono), monospace;
   font-size: 0.86rem;
   line-height: 1.65;
-  color: rgba(236, 228, 210, 0.35);
-  border-right: 1px solid rgba(236, 228, 210, 0.08);
-  background: rgba(0, 0, 0, 0.18);
+  color: var(--code-gutter-fg);
+  border-right: 1px solid var(--code-border);
+  background: var(--code-gutter-bg);
 }
 .lh-code-gutter-line {
   height: 1.65em;
@@ -466,11 +677,50 @@ article[data-lh-visual-editing] {
   padding-left: 0.9em !important;
 }
 
-/* Relative / broken images */
+/* Relative / broken images + 鎻掑浘 */
+.lh-md-figure {
+  margin: 1.5em 0;
+  text-align: center;
+}
+.lh-md-figure > .lh-md-img {
+  margin-inline: auto;
+}
 .lh-md-img {
+  display: block;
   max-width: 100%;
+  width: auto;
+  height: auto;
+  max-height: min(70vh, 720px);
+  object-fit: contain;
   border-radius: 12px;
   border: 1px solid var(--border);
+}
+.lh-md-figcaption {
+  margin-top: 0.55em;
+  font-family: var(--font-sans), "Noto Sans SC", sans-serif;
+  font-size: 0.78rem;
+  line-height: 1.6;
+  color: var(--muted);
+  text-align: center;
+  text-wrap: pretty;
+}
+/* Mermaid锛氬浘璺熺潃涓婚璧帮紝瀹藉浘妯悜婊氬姩鑰屼笉鏄拺鐮寸増蹇?*/
+.lh-mermaid-svg {
+  overflow-x: auto;
+  max-width: 100%;
+}
+.lh-mermaid-svg svg {
+  max-width: 100%;
+  height: auto;
+}
+.lh-mermaid-error {
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--code-border));
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--accent);
+  border-radius: 10px;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.82rem;
+  font-family: var(--font-sans), "Noto Sans SC", sans-serif;
 }
 .lh-broken-img {
   display: flex;
@@ -556,7 +806,7 @@ html.dark .lh-wiki-peek {
   cursor: pointer;
 }
 
-/* ── Resize gutters ── */
+/* 鈹€鈹€ Resize gutters 鈹€鈹€ */
 .lh-resize-gutter-hit {
   /* Expand hit target ~8px beyond the visible track (both axes) */
   inset: -8px;
@@ -578,7 +828,7 @@ html[data-lh-resizing="row"] * {
 }
 
 
-/* IDE-like HTML source editor (scoped; does not touch 纸墨 tokens) */
+/* IDE-like HTML source editor (scoped; does not touch 绾稿ⅷ tokens) */
 .lh-ide-editor {
   background: #1a1916;
   color: #d8d4cc;
@@ -643,7 +893,7 @@ html[data-lh-resizing="row"] * {
 }
 
 
-/* —— Tier 3: reading / annotations / CM6 / footnotes —— */
+/* 鈥斺€?Tier 3: reading / annotations / CM6 / footnotes 鈥斺€?*/
 .md-focus-mode main {
   background: var(--bg);
 }

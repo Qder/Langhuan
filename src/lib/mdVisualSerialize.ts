@@ -319,7 +319,7 @@ function serializeListItemInline(el: Element, originalBody: string): string {
     const e = node as Element;
     const tag = e.tagName.toLowerCase();
     if (tag === "input" || tag === "ul" || tag === "ol") return;
-    out += serializeInlineNode(e, originalBody, { wikiUsed: new Set(), mathUsed: new Set() }, true);
+    out += serializeInlineNode(e, originalBody, newInlineCtx(), true);
   };
   for (const c of Array.from(el.childNodes)) walk(c);
   const conserved = conserveMarkers(originalBody, out.trimStart());
@@ -339,7 +339,7 @@ function serializeParagraphFromDom(originalSlice: string, element: Element): str
   const core = nl && originalSlice.endsWith(nl)
     ? originalSlice.slice(0, -nl.length)
     : originalSlice.replace(/\n$/, "");
-  const ctx = { wikiUsed: new Set<number>(), mathUsed: new Set<number>() };
+  const ctx = newInlineCtx();
   let out = "";
   for (const c of Array.from(element.childNodes)) {
     out += serializeInlineNode(c, core || out, ctx, false);
@@ -360,7 +360,7 @@ function serializeParagraph(originalSlice: string, element: Element): string {
   // introduced <strong>/<code> even if originalSlice markers drifted).
   if (
     hasInlineSyntax(core) ||
-    element.querySelector?.("code, strong, b, em, i, a, del, s, .wiki-link, .katex")
+    element.querySelector?.("code, strong, b, em, i, a, del, s, .wiki-link, .katex, img, figure")
   ) {
     return serializeParagraphFromDom(originalSlice, element);
   }
@@ -388,7 +388,16 @@ function elementTextWithBreaks(el: Element): string {
   return parts.join("");
 }
 
-type InlineCtx = { wikiUsed: Set<number>; mathUsed: Set<number> };
+type InlineCtx = {
+  wikiUsed: Set<number>;
+  mathUsed: Set<number>;
+  /** 已还原过的图（按出现顺序对上源码里的 ![]()，图注不进源码）。 */
+  imgUsed: Set<number>;
+};
+
+function newInlineCtx(): InlineCtx {
+  return { wikiUsed: new Set<number>(), mathUsed: new Set<number>(), imgUsed: new Set<number>() };
+}
 
 function serializeInlineNode(
   node: Node,
@@ -444,6 +453,11 @@ function serializeInlineNode(
     return "~~" + serializeChildren(e, originalSlice, ctx) + "~~";
   }
 
+  // 图：源码里的 ![](...) 原样搬回来（预渲染时 src 可能被改写成 blob / URL，
+  // 不能反过来拼）。图注是 alt 的呈现，不写回正文。
+  if (tag === "img") return matchImageFromOriginal(originalSlice, ctx);
+  if (tag === "figcaption") return "";
+
   // Generic wrapper (span, etc.): descend
   if (childrenOnly) {
     return serializeChildren(e, originalSlice, ctx);
@@ -461,6 +475,21 @@ function serializeChildren(
     out += serializeInlineNode(c, originalSlice, ctx, false);
   }
   return out;
+}
+
+/**
+ * 把 DOM 里的 <img> 对回源码里的 ![](...)，按出现顺序取下一个还没用过的。
+ * 源码里没有对应（比如刚粘进来的图）就返回空串：宁可少写，也不编一个假路径。
+ */
+function matchImageFromOriginal(original: string, ctx: InlineCtx): string {
+  const re = /!\[[^\]]*\]\([^)]*\)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(original))) {
+    if (ctx.imgUsed.has(m.index)) continue;
+    ctx.imgUsed.add(m.index);
+    return m[0];
+  }
+  return "";
 }
 
 function matchWikiFromOriginal(
@@ -572,7 +601,7 @@ function serializeBlockquote(originalSlice: string, element: Element): string {
       .map((p) => {
         const sliceGuess = core; // inline against whole quote body
         if (hasInlineSyntax(core)) {
-          const ctx = { wikiUsed: new Set<number>(), mathUsed: new Set<number>() };
+          const ctx = newInlineCtx();
           let s = "";
           for (const c of Array.from(p.childNodes)) {
             s += serializeInlineNode(c, sliceGuess, ctx, false);

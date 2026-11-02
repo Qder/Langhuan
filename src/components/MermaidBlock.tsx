@@ -1,8 +1,10 @@
 "use client";
 
 import * as React from "react";
-import { Copy, Code2, Workflow } from "lucide-react";
+import { Copy, Code2 } from "lucide-react";
 import { flattenCodeText } from "@/lib/codeText";
+import { mermaidThemeVars, themeTokensFrom } from "@/lib/mermaidTheme";
+import { isThemeId, isDarkTheme } from "@/lib/theme";
 
 type MermaidBlockProps = {
   className?: string;
@@ -13,42 +15,34 @@ type MermaidBlockProps = {
 
 let mermaidInitPromise: Promise<typeof import("mermaid").default> | null = null;
 
+/** 只负责把 mermaid 加载进来（一次）；配色每次渲染前按当前主题重新 initialize。 */
 function loadMermaid() {
   if (!mermaidInitPromise) {
-    mermaidInitPromise = import("mermaid").then((mod) => {
-      const mermaid = mod.default;
-      mermaid.initialize({
-        startOnLoad: false,
-        securityLevel: "strict",
-        theme: "base",
-        themeVariables: {
-          darkMode: true,
-          background: "#1a1814",
-          primaryColor: "#2f5d57",
-          primaryTextColor: "#ece4d2",
-          primaryBorderColor: "#78b9ab",
-          secondaryColor: "#2b261f",
-          secondaryTextColor: "#ece4d2",
-          secondaryBorderColor: "#a87a2c",
-          tertiaryColor: "#241f1a",
-          tertiaryTextColor: "#ece4d2",
-          tertiaryBorderColor: "#b3382a",
-          lineColor: "#a87a2c",
-          textColor: "#ece4d2",
-          mainBkg: "#2f5d57",
-          nodeBorder: "#78b9ab",
-          clusterBkg: "#241f1a",
-          titleColor: "#ece4d2",
-          edgeLabelBackground: "#1a1814",
-          fontFamily:
-            '"Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif',
-        },
-        flowchart: { htmlLabels: false, curve: "basis" },
-      });
-      return mermaid;
-    });
+    mermaidInitPromise = import("mermaid").then((mod) => mod.default);
   }
   return mermaidInitPromise;
+}
+
+/** 读当前主题：`data-theme` + `class="dark"`，两者任一变化就重画。 */
+function readThemeKey(): string {
+  if (typeof document === "undefined") return "xuan|light";
+  const root = document.documentElement;
+  const theme = root.getAttribute("data-theme") || (root.classList.contains("dark") ? "songyan" : "xuan");
+  const dark = root.classList.contains("dark") || isDarkTheme(isThemeId(theme) ? theme : "xuan");
+  return `${theme}|${dark ? "dark" : "light"}`;
+}
+
+function useMermaidTheme() {
+  const [key, setKey] = React.useState(readThemeKey);
+  React.useEffect(() => {
+    const root = document.documentElement;
+    const sync = () => setKey(readThemeKey());
+    sync();
+    const observer = new MutationObserver(sync);
+    observer.observe(root, { attributes: true, attributeFilter: ["data-theme", "class"] });
+    return () => observer.disconnect();
+  }, []);
+  return key;
 }
 
 let diagramSeq = 0;
@@ -62,6 +56,7 @@ export function MermaidBlock({ className, children, srcStart, srcEnd }: MermaidB
   const [copied, setCopied] = React.useState(false);
   const reactId = React.useId().replace(/:/g, "");
   const renderGen = React.useRef(0);
+  const themeKey = useMermaidTheme();
 
   const attrs =
     typeof srcStart === "number" && typeof srcEnd === "number"
@@ -81,6 +76,18 @@ export function MermaidBlock({ className, children, srcStart, srcEnd }: MermaidB
         }
         const mermaid = await loadMermaid();
         if (cancelled || gen !== renderGen.current) return;
+        // 图跟当前主题走：纸色 / 墨色都从 CSS 变量读，深色主题才 darkMode
+        const tokens = themeTokensFrom((name) => {
+          if (typeof document === "undefined") return "";
+          return getComputedStyle(document.documentElement).getPropertyValue(name);
+        });
+        mermaid.initialize({
+          startOnLoad: false,
+          securityLevel: "strict",
+          theme: "base",
+          themeVariables: mermaidThemeVars(tokens, themeKey.endsWith("|dark")),
+          flowchart: { htmlLabels: false, curve: "basis" },
+        });
         diagramSeq += 1;
         const id = `lh-mermaid-${reactId}-${diagramSeq}`;
         const { svg: out } = await mermaid.render(id, source);
@@ -99,23 +106,15 @@ export function MermaidBlock({ className, children, srcStart, srcEnd }: MermaidB
     return () => {
       cancelled = true;
     };
-  }, [source, reactId]);
+  }, [source, reactId, themeKey]);
 
   return (
-    <div
-      className="lh-codeblock lh-mermaid not-prose my-5 overflow-hidden rounded-[14px] border border-[rgba(236,228,210,0.08)] bg-[#1a1814] text-[#ece4d2]"
-      {...attrs}
-    >
-      <div className="lh-codeblock-chrome flex items-center gap-2 px-3 py-2 border-b border-[rgba(236,228,210,0.08)] text-xs">
-        <span className="h-2.5 w-2.5 rounded-full bg-[#ff5f56]" />
-        <span className="h-2.5 w-2.5 rounded-full bg-[#ffbd2e]" />
-        <span className="h-2.5 w-2.5 rounded-full bg-[#27c93f]" />
-        <span className="ml-2 text-[var(--muted)] font-mono inline-flex items-center gap-1">
-          <Workflow className="h-3 w-3" /> mermaid
-        </span>
+    <div className="lh-codeblock lh-mermaid not-prose my-5" {...attrs}>
+      <div className="lh-codeblock-chrome">
+        <span className="lh-codeblock-lang">mermaid</span>
         <button
           type="button"
-          className="ml-auto inline-flex items-center gap-1 rounded-lg px-2 py-1 hover:bg-white/5"
+          className="lh-codeblock-copy"
           onClick={() => setShowSource((v) => !v)}
           aria-pressed={showSource}
         >
@@ -123,7 +122,8 @@ export function MermaidBlock({ className, children, srcStart, srcEnd }: MermaidB
         </button>
         <button
           type="button"
-          className="inline-flex items-center gap-1 rounded-lg px-2 py-1 hover:bg-white/5"
+          className="lh-codeblock-copy !ml-1"
+          data-copied={copied ? "1" : undefined}
           onClick={async () => {
             await navigator.clipboard.writeText(source);
             setCopied(true);
@@ -139,19 +139,17 @@ export function MermaidBlock({ className, children, srcStart, srcEnd }: MermaidB
           <code className={className ?? "language-mermaid"}>{source}</code>
         </pre>
       ) : pending ? (
-        <div className="px-4 py-8 text-center text-sm text-[var(--muted)]">图表渲染中…</div>
+        <div className="px-4 py-8 text-center text-sm text-[var(--code-muted)]">图表渲染中…</div>
       ) : error ? (
         <div className="space-y-3 p-4">
-          <div className="rounded-lg border border-[rgba(224,89,74,0.35)] bg-[rgba(179,56,42,0.15)] px-3 py-2 text-sm text-[#e0594a]">
-            Mermaid 语法有误，无法渲染：{error}
-          </div>
-          <pre className="!m-0 overflow-x-auto rounded-lg border border-[rgba(236,228,210,0.08)] bg-black/20 p-3 text-xs leading-relaxed">
+          <div className="lh-mermaid-error">Mermaid 语法有误，无法渲染：{error}</div>
+          <pre className="!m-0 overflow-x-auto rounded-lg border border-[var(--code-border)] bg-[color-mix(in_srgb,var(--code-fg)_6%,transparent)] p-3 text-xs leading-relaxed">
             <code>{source}</code>
           </pre>
         </div>
       ) : (
         <div
-          className="lh-mermaid-svg overflow-x-auto px-3 py-4 [&_svg]:mx-auto [&_svg]:max-w-full"
+          className="lh-mermaid-svg px-3 py-4 [&_svg]:mx-auto"
           dangerouslySetInnerHTML={{ __html: svg }}
         />
       )}
