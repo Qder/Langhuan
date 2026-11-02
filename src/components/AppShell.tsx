@@ -38,6 +38,7 @@ export function AppShell() {
   const activeId = useStore((s) => s.activeId);
   const setHydrated = useStore((s) => s.setHydrated);
   const setCommandOpen = useStore((s) => s.setCommandOpen);
+  const setSidebarOpen = useStore((s) => s.setSidebarOpen);
   const saveDoc = useStore((s) => s.saveDoc);
   const theme = useStore((s) => s.theme);
   const getActive = useStore((s) => s.getActive);
@@ -100,6 +101,30 @@ export function AppShell() {
   React.useEffect(() => {
     applyThemeToDocument(theme);
   }, [theme]);
+
+  // Tablet drawer: restore lightly from session (desktop docked ignores this)
+  React.useEffect(() => {
+    try {
+      if (sessionStorage.getItem("lh.sidebarOpen") === "1") {
+        setSidebarOpen(true);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [setSidebarOpen]);
+
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (!useStore.getState().sidebarOpen) return;
+      // Only meaningful below lg; harmless if docked chrome also listens.
+      if (window.matchMedia("(min-width: 1024px)").matches) return;
+      e.preventDefault();
+      setSidebarOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [setSidebarOpen]);
 
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -253,7 +278,7 @@ export function AppShell() {
   if (!hydrated) {
     return (
       <div className="h-dvh flex">
-        <div className="hidden md:block w-[280px] border-r border-[var(--border)] p-4 space-y-3">
+        <div className="hidden lg:block w-[280px] border-r border-[var(--border)] p-4 space-y-3">
           <div className="skeleton h-10" />
           <div className="skeleton h-9" />
           <div className="skeleton h-9" />

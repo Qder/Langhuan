@@ -135,6 +135,7 @@ export function TopBar() {
   const tagsPanelRef = React.useRef<HTMLDivElement>(null);
 
   const wide = useMediaQuery("(min-width: 1280px)");
+  const tabletUp = useMediaQuery("(min-width: 1024px)");
   const dirty = active ? isDirty(active.id) : false;
   const isHtml = active?.type === "html";
   const htmlPrefs =
@@ -293,15 +294,15 @@ export function TopBar() {
 
   return (
     <>
-      <header className="h-14 shrink-0 glass flex items-center gap-2 px-3 md:px-4 border-b border-[var(--border)]">
+      <header className="h-14 max-lg:h-14 shrink-0 glass flex items-center gap-2 px-3 md:px-4 border-b border-[var(--border)]">
         <Button
           variant="ghost"
           size="icon"
-          className="md:hidden"
+          className="lg:hidden max-lg:h-11 max-lg:w-11"
           aria-label="打开侧栏"
           onClick={() => setSidebarOpen(true)}
         >
-          <Menu className="h-4 w-4" />
+          <Menu className="h-5 w-5" />
         </Button>
 
         <div className="min-w-0 flex-1 flex items-center gap-2">
@@ -333,7 +334,7 @@ export function TopBar() {
                 role="tablist"
                 aria-label="视图切换"
               >
-                {modes.map((m) => (
+                {modes.filter((m) => tabletUp || m.id !== "split").map((m) => (
                   <button
                     key={m.id}
                     type="button"
@@ -341,7 +342,7 @@ export function TopBar() {
                     aria-selected={viewMode === m.id}
                     onClick={() => setViewMode(m.id)}
                     className={cn(
-                      "px-2.5 py-1 text-xs rounded-[10px] transition-colors font-ui",
+                      "px-2.5 py-1 max-lg:px-3 max-lg:py-1.5 text-xs rounded-[10px] transition-colors font-ui",
                       viewMode === m.id
                         ? "bg-[var(--accent)] text-white"
                         : "hover:bg-[var(--hover)]"

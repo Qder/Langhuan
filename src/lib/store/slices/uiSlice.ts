@@ -155,7 +155,16 @@ export const createUiSlice: StateCreator<
         get().setTheme(next);
         get().setStatus(`已切换到${themeLabel(next)}`);
       },
-  setSidebarOpen: (v) => set({ sidebarOpen: v }),
+  setSidebarOpen: (v) => {
+        set({ sidebarOpen: v });
+        try {
+          if (typeof sessionStorage !== "undefined") {
+            sessionStorage.setItem("lh.sidebarOpen", v ? "1" : "0");
+          }
+        } catch {
+          /* ignore */
+        }
+      },
   setCommandOpen: (v) => set({ commandOpen: v }),
   setSplitRatio: (r) => {
         const clamped = Math.min(0.8, Math.max(0.2, r));

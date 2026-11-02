@@ -463,7 +463,9 @@ export function Sidebar() {
   const openInSplit = useStore((s) => s.openInSplit);
 
   const compact = useMediaQuery("(max-height: 699px)");
-  const rowH = compact ? "h-7" : "h-8"; // 28 / 32
+  /** Drawer / tablet width: larger tap rows without changing desktop docked chrome. */
+  const narrow = useMediaQuery("(max-width: 1023px)");
+  const rowH = narrow ? "h-10" : compact ? "h-7" : "h-8"; // 40 / 28 / 32
 
   const visible = filteredDocuments(documents, tagFilters, statusFilter);
   const tags = collectTagCounts(documents);
@@ -898,7 +900,7 @@ export function Sidebar() {
               <Button
                 variant="ghost"
                 size="icon"
-                className={cn("shrink-0", compact ? "h-7 w-7" : "h-8 w-8")}
+                className={cn("shrink-0", narrow ? "h-10 w-10" : compact ? "h-7 w-7" : "h-8 w-8")}
                 aria-label={`主题：${themeLabel(theme)}`}
                 title={`主题：${themeLabel(theme)}`}
               >
@@ -945,7 +947,7 @@ export function Sidebar() {
           onClick={() => setCommandOpen(true)}
           className={cn(
             "flex w-full items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--card)] px-2.5 text-sm text-[var(--muted)] hover:bg-[var(--hover)] transition-colors",
-            compact ? "h-8" : "h-9"
+            narrow ? "h-11" : compact ? "h-8" : "h-9"
           )}
         >
           <Search className="h-4 w-4 shrink-0" />
@@ -955,12 +957,12 @@ export function Sidebar() {
           </kbd>
         </button>
 
-        <div className={cn("flex gap-2", compact ? "h-8" : "h-9")}>
+        <div className={cn("flex gap-2", narrow ? "h-11" : compact ? "h-8" : "h-9")}>
           <Dropdown
             trigger={
               <Button
                 variant="accent"
-                className={cn("flex-1 min-w-0", compact ? "h-8" : "h-9")}
+                className={cn("flex-1 min-w-0", narrow ? "h-11" : compact ? "h-8" : "h-9")}
                 aria-label="新建"
               >
                 新建 <ChevronDown className="h-3.5 w-3.5 opacity-80 shrink-0" />
@@ -992,7 +994,7 @@ export function Sidebar() {
             trigger={
               <Button
                 variant="secondary"
-                className={cn("flex-1 min-w-0", compact ? "h-8" : "h-9")}
+                className={cn("flex-1 min-w-0", narrow ? "h-11" : compact ? "h-8" : "h-9")}
                 aria-label="导入"
               >
                 导入 <ChevronDown className="h-3.5 w-3.5 opacity-80 shrink-0" />
@@ -1492,7 +1494,7 @@ export function Sidebar() {
 
   const rail = (
     <div
-      className="hidden md:flex h-full w-14 shrink-0 flex-col items-center gap-1 border-r border-[var(--border)] bg-[color-mix(in_srgb,var(--bg-elevated)_92%,transparent)] py-2"
+      className="hidden lg:flex h-full w-14 shrink-0 flex-col items-center gap-1 border-r border-[var(--border)] bg-[color-mix(in_srgb,var(--bg-elevated)_92%,transparent)] py-2"
     >
       <button
         type="button"
@@ -1552,11 +1554,11 @@ export function Sidebar() {
           {rail}
           {/* Left-edge hover strip to peek */}
           <div
-            className="pointer-events-auto fixed left-0 top-0 z-40 hidden h-dvh w-1.5 md:block"
+            className="pointer-events-auto fixed left-0 top-0 z-40 hidden h-dvh w-1.5 lg:block"
             onMouseEnter={() => setHtmlSidebarPeek(true)}
           />
           {htmlSidebarPeek && (
-            <div className="fixed inset-0 z-50 hidden md:flex">
+            <div className="fixed inset-0 z-50 hidden lg:flex">
               <div
                 className="h-full shadow-2xl animate-enter"
                 style={{ width: sidebarWidth }}
@@ -1574,13 +1576,13 @@ export function Sidebar() {
       ) : htmlImmersive ? null : (
         <>
           <div
-            className="hidden md:flex h-full shrink-0 overflow-hidden"
+            className="hidden lg:flex h-full shrink-0 overflow-hidden"
             style={{ width: sidebarWidth, minWidth: sidebarWidth, maxWidth: sidebarWidth }}
           >
             {panel}
           </div>
           <ResizeGutter
-            className="hidden md:flex"
+            className="hidden lg:flex"
             axis="horizontal"
             label="调整侧栏宽度"
             value={sidebarWidth}
@@ -1595,9 +1597,16 @@ export function Sidebar() {
       )}
 
       {sidebarOpen && !htmlImmersive && (
-        <div className="md:hidden fixed inset-0 z-50 flex">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setSidebarOpen(false)} />
-          <div className="relative z-10 h-full w-[min(86vw,320px)] animate-enter">{panel}</div>
+        <div className="lg:hidden fixed inset-0 z-50 flex">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setSidebarOpen(false)} aria-hidden />
+          <div
+            className="relative z-10 h-full w-[min(86vw,320px)] max-w-[360px] animate-enter shadow-2xl"
+            role="dialog"
+            aria-modal="true"
+            aria-label="侧栏"
+          >
+            {panel}
+          </div>
         </div>
       )}
       <ImportFolderDialog
