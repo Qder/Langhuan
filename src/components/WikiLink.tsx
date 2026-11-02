@@ -2,7 +2,9 @@
 
 import * as React from "react";
 import { resolveWikiTarget } from "@/lib/search";
+import { planWikiCreatePath } from "@/lib/wikilink";
 import { mdExcerpt, titleOf, cn } from "@/lib/utils";
+import { useStore } from "@/lib/store";
 import type { Document } from "@/lib/types";
 
 type PeekState = {
@@ -18,14 +20,19 @@ export function WikiLink({
   heading,
   docs,
   onOpen,
+  currentPath,
 }: {
   name: string;
   label: string;
   heading?: string;
   docs: Document[];
   onOpen: (id: string) => void;
+  /** Path of the document that contains this link (same-folder create). */
+  currentPath?: string;
 }) {
   const target = resolveWikiTarget(docs, name);
+  const createDoc = useStore((s) => s.createDoc);
+  const setStatus = useStore((s) => s.setStatus);
   const [peek, setPeek] = React.useState<PeekState | null>(null);
   const showTimer = React.useRef<number | null>(null);
   const hideTimer = React.useRef<number | null>(null);
@@ -75,6 +82,18 @@ export function WikiLink({
     };
   }, []);
 
+  const tryCreateMissing = () => {
+    const basePath = currentPath || "";
+    const plan = planWikiCreatePath(basePath, name);
+    if (!plan.ok) {
+      setStatus(plan.reason);
+      return;
+    }
+    const ok = window.confirm(`创建 ${plan.fileName}？`);
+    if (!ok) return;
+    createDoc({ type: "md", path: plan.path, open: true });
+  };
+
   const excerpt = target ? mdExcerpt(target.content, 160) : "";
 
   return (
@@ -84,7 +103,10 @@ export function WikiLink({
         type="button"
         className={cn("wiki-link", !target && "missing")}
         onClick={() => {
-          if (!target) return;
+          if (!target) {
+            tryCreateMissing();
+            return;
+          }
           onOpen(target.id);
           if (heading) {
             window.setTimeout(() => {
@@ -134,6 +156,16 @@ export function WikiLink({
             <>
               <div className="lh-wiki-peek-title">未找到</div>
               <div className="lh-wiki-peek-path">没有名为「{name}」的文档</div>
+              <button
+                type="button"
+                className="lh-wiki-peek-open"
+                onClick={() => {
+                  setPeek(null);
+                  tryCreateMissing();
+                }}
+              >
+                创建笔记
+              </button>
             </>
           )}
         </div>

@@ -200,7 +200,17 @@ function InsertBetweenPortal({
 }
 
 
-function WikiText({ text, docs, onOpen }: { text: string; docs: Document[]; onOpen: (id: string) => void }) {
+function WikiText({
+  text,
+  docs,
+  onOpen,
+  currentPath,
+}: {
+  text: string;
+  docs: Document[];
+  onOpen: (id: string) => void;
+  currentPath: string;
+}) {
   const parts = text.split(/(!?\[\[[^\]]+\]\])/g);
   return (
     <>
@@ -229,6 +239,7 @@ function WikiText({ text, docs, onOpen }: { text: string; docs: Document[]; onOp
             heading={parsed.heading}
             docs={docs}
             onOpen={onOpen}
+            currentPath={currentPath}
           />
         );
       })}
@@ -236,12 +247,18 @@ function WikiText({ text, docs, onOpen }: { text: string; docs: Document[]; onOp
   );
 }
 
-function walkChildren(children: React.ReactNode, docs: Document[], onOpen: (id: string) => void): React.ReactNode {
+function walkChildren(
+  children: React.ReactNode,
+  docs: Document[],
+  onOpen: (id: string) => void,
+  currentPath: string
+): React.ReactNode {
   return React.Children.map(children, (child) => {
-    if (typeof child === "string") return <WikiText text={child} docs={docs} onOpen={onOpen} />;
+    if (typeof child === "string")
+      return <WikiText text={child} docs={docs} onOpen={onOpen} currentPath={currentPath} />;
     if (React.isValidElement<{ children?: React.ReactNode }>(child) && child.props.children) {
       return React.cloneElement(child, {
-        children: walkChildren(child.props.children, docs, onOpen),
+        children: walkChildren(child.props.children, docs, onOpen, currentPath),
       });
     }
     return child;
@@ -400,7 +417,7 @@ const MarkdownBody = React.memo(function MarkdownBody({
   const components = React.useMemo(
     () => ({
       p: ({ node, children, ...props }: { node?: HastNode; children?: React.ReactNode } & Record<string, unknown>) => {
-        const body = walkChildren(children, documents, openDoc);
+        const body = walkChildren(children, documents, openDoc, docPath);
         // 一整段只有一张图、且写了 alt：当插页（图注走 figcaption），否则按普通段落
         const caption = soleImageCaption(children);
         if (caption) {
@@ -419,11 +436,11 @@ const MarkdownBody = React.memo(function MarkdownBody({
         return withSrc("p", node, props, body);
       },
       li: ({ node, children, ...props }: { node?: HastNode; children?: React.ReactNode } & Record<string, unknown>) =>
-        withSrc("li", node, props, walkChildren(children, documents, openDoc)),
+        withSrc("li", node, props, walkChildren(children, documents, openDoc, docPath)),
       td: ({ node, children, ...props }: { node?: HastNode; children?: React.ReactNode } & Record<string, unknown>) =>
-        withSrc("td", node, props, walkChildren(children, documents, openDoc)),
+        withSrc("td", node, props, walkChildren(children, documents, openDoc, docPath)),
       th: ({ node, children, ...props }: { node?: HastNode; children?: React.ReactNode } & Record<string, unknown>) =>
-        withSrc("th", node, props, walkChildren(children, documents, openDoc)),
+        withSrc("th", node, props, walkChildren(children, documents, openDoc, docPath)),
       tr: ({ node, children, ...props }: { node?: HastNode; children?: React.ReactNode } & Record<string, unknown>) =>
         withSrc("tr", node, props, children),
       // 表格当插页：外壳负责横向滚动，列多也不会把 740px 的版心撑破。
@@ -450,7 +467,7 @@ const MarkdownBody = React.memo(function MarkdownBody({
         }
         return (
           <blockquote {...(props as React.HTMLAttributes<HTMLQuoteElement>)} {...attrs}>
-            {walkChildren(children, documents, openDoc)}
+            {walkChildren(children, documents, openDoc, docPath)}
           </blockquote>
         );
       },
@@ -459,21 +476,21 @@ const MarkdownBody = React.memo(function MarkdownBody({
           "h1",
           node,
           { ...(props as object), id } as Record<string, unknown>,
-          walkChildren(children, documents, openDoc)
+          walkChildren(children, documents, openDoc, docPath)
         ),
       h2: ({ node, children, id, ...props }: { node?: HastNode; children?: React.ReactNode; id?: string } & Record<string, unknown>) =>
         withSrc(
           "h2",
           node,
           { ...(props as object), id } as Record<string, unknown>,
-          walkChildren(children, documents, openDoc)
+          walkChildren(children, documents, openDoc, docPath)
         ),
       h3: ({ node, children, id, ...props }: { node?: HastNode; children?: React.ReactNode; id?: string } & Record<string, unknown>) =>
         withSrc(
           "h3",
           node,
           { ...(props as object), id } as Record<string, unknown>,
-          walkChildren(children, documents, openDoc)
+          walkChildren(children, documents, openDoc, docPath)
         ),
       pre: ({ node, children }: { node?: HastNode; children?: React.ReactNode }) => {
         void node;

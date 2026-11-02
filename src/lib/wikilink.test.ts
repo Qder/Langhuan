@@ -7,6 +7,7 @@ import {
   rewriteWikiLinksOnRename,
   rewriteWikiLinksWithMap,
   wikiDisplayLabel,
+  planWikiCreatePath,
 } from "./wikilink";
 
 describe("parseWikiInner", () => {
@@ -89,5 +90,31 @@ describe("rewriteWikiLinksWithMap", () => {
     ]);
     expect(count).toBe(2);
     expect(content).toBe("[[A]] [[B]]");
+  });
+});
+
+
+describe("planWikiCreatePath", () => {
+  it("plans same-folder path for unresolved legal title", () => {
+    const plan = planWikiCreatePath("notes/a.md", "新笔记");
+    expect(plan).toEqual({ ok: true, path: "notes/新笔记.md", fileName: "新笔记.md" });
+  });
+
+  it("plans at library root when current doc has no folder", () => {
+    const plan = planWikiCreatePath("a.md", "缺页");
+    expect(plan).toEqual({ ok: true, path: "缺页.md", fileName: "缺页.md" });
+  });
+
+  it("rejects empty / slash / .. titles without a path", () => {
+    expect(planWikiCreatePath("notes/a.md", "  ").ok).toBe(false);
+    expect(planWikiCreatePath("notes/a.md", "").ok).toBe(false);
+    expect(planWikiCreatePath("notes/a.md", "a/b").ok).toBe(false);
+    expect(planWikiCreatePath("notes/a.md", "..").ok).toBe(false);
+    expect(planWikiCreatePath("notes/a.md", "x..y").ok).toBe(false);
+    for (const bad of ["", "  ", "a/b", "..", "x..y"]) {
+      const plan = planWikiCreatePath("notes/a.md", bad);
+      expect(plan.ok).toBe(false);
+      if (!plan.ok) expect(plan.reason.length).toBeGreaterThan(0);
+    }
   });
 });

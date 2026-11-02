@@ -1,5 +1,32 @@
 import type { Document } from "./types";
-import { basename, titleOf } from "./utils";
+import { basename, dirname, titleOf } from "./utils";
+
+
+export type WikiCreatePlan =
+  | { ok: true; path: string; fileName: string }
+  | { ok: false; reason: string };
+
+/**
+ * Plan a same-folder Markdown path for an unresolved wikilink title.
+ * Rejects empty titles and titles with `/`, `\`, or `..` (no write).
+ */
+export function planWikiCreatePath(
+  currentDocPath: string,
+  title: string
+): WikiCreatePlan {
+  const raw = String(title ?? "").trim();
+  if (!raw) return { ok: false, reason: "标题为空，无法创建笔记" };
+  if (/[/\\]/.test(raw) || raw.includes("..")) {
+    return { ok: false, reason: "标题含非法路径字符，无法创建笔记" };
+  }
+  const base = raw.replace(/\.md$/i, "");
+  if (!base) return { ok: false, reason: "标题为空，无法创建笔记" };
+  const fileName = `${base}.md`;
+  const dir = dirname(currentDocPath.replace(/\\/g, "/"));
+  const path = dir ? `${dir}/${fileName}` : fileName;
+  return { ok: true, path, fileName };
+}
+
 
 /** One wikilink or embed occurrence in source. */
 export type WikiRef = {
