@@ -15,9 +15,12 @@ export { getIdeFsCapability } from "./ideFs";
 export {
   parseIdeCitations,
   resolveIdeCitation,
+  planIdeCitationJump,
+  ideAncestorDirs,
   buildIdePendingReveal,
   clampIdeLine,
   type IdeCitation,
+  type IdeCitationJumpPlan,
   type IdePendingReveal,
 } from "./citations";
 export {

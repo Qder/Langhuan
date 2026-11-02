@@ -8,6 +8,7 @@ import { Button } from "../ui/button";
 import { useIdeStore } from "@/lib/ide/store";
 import {
   parseIdeCitations,
+  planIdeCitationJump,
   resolveIdeCitation,
   type IdeCitation,
 } from "@/lib/ide/citations";
@@ -153,9 +154,10 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
 
   const jumpCitation = React.useCallback(
     async (c: IdeCitation) => {
-      const resolved = resolveIdeCitation(c.path, children);
-      if (!resolved.ok) {
-        const list = resolved.candidates;
+      const plan = planIdeCitationJump(c.path, children);
+      const lineOpts = { line: c.line, endLine: c.endLine };
+
+      const failWith = (list: string[]) => {
         setCandidates(list);
         if (list.length === 0) {
           setStatus(`工程里找不到 ${c.path}`);
@@ -164,10 +166,41 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
             `工程里找不到 ${c.path}；同名候选：${list.join("、")}`
           );
         }
+      };
+
+      if (plan.kind === "miss") {
+        failWith([]);
         return;
       }
-      setCandidates([]);
-      await openFile(resolved.path, { line: c.line, endLine: c.endLine });
+
+      if (plan.kind === "candidates") {
+        failWith(plan.candidates);
+        return;
+      }
+
+      if (plan.kind === "open") {
+        setCandidates([]);
+        const ok = await openFile(plan.path, lineOpts);
+        if (!ok) failWith([]);
+        return;
+      }
+
+      // try-exact: open via readIdeFile even if explorer never listed the folder
+      const ok = await openFile(plan.path, { ...lineOpts, softFail: true });
+      if (ok) {
+        setCandidates([]);
+        return;
+      }
+
+      // Fall back to basename among already-scanned children
+      const resolved = resolveIdeCitation(c.path, children);
+      if (resolved.ok) {
+        setCandidates([]);
+        const ok2 = await openFile(resolved.path, lineOpts);
+        if (!ok2) failWith([]);
+        return;
+      }
+      failWith(resolved.candidates);
     },
     [children, openFile, setStatus]
   );

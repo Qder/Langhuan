@@ -1,5 +1,6 @@
 /**
- * IDE explain citations: parse [[path:line]], resolve against scanned tree.
+ * IDE explain citations: parse [[path:line]], resolve / jump-plan against tree.
+ * Exact relative paths may try openFile even when the explorer folder is collapsed.
  * Does not create files; notes-mode wikilinks are unrelated.
  */
 
@@ -221,6 +222,77 @@ export function resolveIdeCitation(
   }
 
   return { ok: false, candidates: [] };
+}
+
+/**
+ * Ancestor dirs of a project-relative file path (root "" omitted).
+ * `src/foo/A.java` → `["src", "src/foo"]`.
+ */
+export function ideAncestorDirs(filePath: string): string[] {
+  const want = normalizeIdeRelPath(filePath);
+  const parts = want.split("/").filter(Boolean);
+  if (parts.length <= 1) return [];
+  const dirs: string[] = [];
+  let acc = "";
+  for (let i = 0; i < parts.length - 1; i++) {
+    acc = acc ? `${acc}/${parts[i]}` : parts[i]!;
+    dirs.push(acc);
+  }
+  return dirs;
+}
+
+export type IdeCitationJumpPlan =
+  | { kind: "try-exact"; path: string }
+  | { kind: "open"; path: string }
+  | { kind: "candidates"; candidates: string[] }
+  | { kind: "miss"; path: string };
+
+/**
+ * Decide how to jump to a citation without requiring the explorer folder
+ * to be expanded. Paths with `/` that are not yet in the scanned tree
+ * become `try-exact` (openFile/readIdeFile confirms on disk).
+ */
+export function planIdeCitationJump(
+  path: string,
+  treeIndex: Record<string, IdeFsEntry[]>
+): IdeCitationJumpPlan {
+  const want = normalizeIdeRelPath(path);
+  if (!want || !isIdeCitationPath(want)) {
+    return { kind: "miss", path: want || path };
+  }
+
+  const files = listIdeTreeFiles(treeIndex);
+
+  const exact =
+    files.find((f) => f === want) ??
+    files.find((f) => f.toLowerCase() === want.toLowerCase());
+  if (exact) {
+    return { kind: "open", path: exact };
+  }
+
+  // Not scanned yet, but looks like a project-relative file → try read.
+  if (want.includes("/")) {
+    return { kind: "try-exact", path: want };
+  }
+
+  // Basename-only against already-scanned children.
+  const base = want.split("/").pop() || want;
+  const sameBase = files.filter((f) => (f.split("/").pop() || f) === base);
+  if (sameBase.length === 1) return { kind: "open", path: sameBase[0]! };
+  if (sameBase.length > 1) {
+    return { kind: "candidates", candidates: sameBase.slice(0, 5) };
+  }
+
+  const sameBaseCi = files.filter(
+    (f) => (f.split("/").pop() || f).toLowerCase() === base.toLowerCase()
+  );
+  if (sameBaseCi.length === 1) return { kind: "open", path: sameBaseCi[0]! };
+  if (sameBaseCi.length > 1) {
+    return { kind: "candidates", candidates: sameBaseCi.slice(0, 5) };
+  }
+
+  // Bare filename not in tree: still try at project root via read.
+  return { kind: "try-exact", path: want };
 }
 
 /** Clamp 1-based line into [1, lineCount]; empty doc → 1. */

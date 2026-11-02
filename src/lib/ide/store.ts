@@ -29,6 +29,7 @@ import {
 import { languageIdFromPath } from "./language";
 import {
   buildIdePendingReveal,
+  ideAncestorDirs,
   normalizeIdeRelPath,
   type IdePendingReveal,
 } from "./citations";
@@ -98,8 +99,8 @@ type IdeState = {
   toggleExpanded: (relDir: string) => void;
   openFile: (
     path: string,
-    opts?: { line?: number; endLine?: number }
-  ) => Promise<void>;
+    opts?: { line?: number; endLine?: number; softFail?: boolean }
+  ) => Promise<boolean>;
   clearPendingReveal: () => void;
   setDraft: (path: string, draft: string) => void;
   setSelection: (sel: (IdeExplainSelection & { path: string }) | null) => void;
@@ -328,12 +329,29 @@ export const useIdeStore = create<IdeState>()(
 
       openFile: async (path, opts) => {
         const session = get().session;
-        if (!session) return;
+        if (!session) return false;
         const norm = normalizeIdeRelPath(path);
         if (!isLikelyTextPath(norm)) {
-          set({ status: `暂不支持打开二进制或未知类型：${tabBasename(norm)}` });
-          return;
+          if (!opts?.softFail) {
+            set({ status: `暂不支持打开二进制或未知类型：${tabBasename(norm)}` });
+          }
+          return false;
         }
+
+        const revealInExplorer = (filePath: string) => {
+          const ancestors = ideAncestorDirs(filePath);
+          set((s) => {
+            const expanded: Record<string, boolean> = { ...s.expanded, "": true };
+            for (const d of ancestors) expanded[d] = true;
+            return { expanded };
+          });
+          void (async () => {
+            await get().ensureDirListed("");
+            for (const d of ancestors) {
+              await get().ensureDirListed(d);
+            }
+          })();
+        };
 
         const lineCountHint = (() => {
           const tab = get().tabs.find((t) => t.path === norm);
@@ -356,7 +374,8 @@ export const useIdeStore = create<IdeState>()(
                 ? `${tabBasename(norm)} · L${reveal.line}`
                 : `${tabBasename(norm)} · ${languageIdFromPath(norm)}`,
           });
-          return;
+          revealInExplorer(norm);
+          return true;
         }
         try {
           const content = await readIdeFile(session, norm);
@@ -379,10 +398,15 @@ export const useIdeStore = create<IdeState>()(
                 ? `${tabBasename(norm)} · L${reveal2.line}`
                 : `${tabBasename(norm)} · ${languageIdFromPath(norm)}`,
           }));
+          revealInExplorer(norm);
+          return true;
         } catch (e) {
-          set({
-            status: `打开失败：${e instanceof Error ? e.message : String(e)}`,
-          });
+          if (!opts?.softFail) {
+            set({
+              status: `打开失败：${e instanceof Error ? e.message : String(e)}`,
+            });
+          }
+          return false;
         }
       },
 

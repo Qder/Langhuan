@@ -3,8 +3,10 @@ import type { IdeFsEntry } from "./ideFs";
 import {
   buildIdePendingReveal,
   clampIdeLine,
+  ideAncestorDirs,
   isIdeCitationPath,
   parseIdeCitations,
+  planIdeCitationJump,
   resolveIdeCitation,
 } from "./citations";
 
@@ -135,5 +137,57 @@ describe("pendingReveal clamp", () => {
       endLine: 5,
     });
     expect(buildIdePendingReveal("src/A.java", undefined, undefined, 20)).toBeNull();
+  });
+});
+
+describe("planIdeCitationJump", () => {
+  it("unexpanded tree: exact path is try-exact, not miss", () => {
+    // Only root listed; src/ never expanded → no files in index
+    const t: Record<string, IdeFsEntry[]> = {
+      "": [{ name: "src", path: "src", kind: "directory" }],
+    };
+    expect(planIdeCitationJump("src/A.java", t)).toEqual({
+      kind: "try-exact",
+      path: "src/A.java",
+    });
+    expect(planIdeCitationJump("./src/A.java", t)).toEqual({
+      kind: "try-exact",
+      path: "src/A.java",
+    });
+  });
+
+  it("exact path already scanned → open", () => {
+    const t = tree(["src/A.java"]);
+    expect(planIdeCitationJump("src/A.java", t)).toEqual({
+      kind: "open",
+      path: "src/A.java",
+    });
+  });
+
+  it("two Main.java basename → candidates", () => {
+    const t = tree(["a/Main.java", "b/Main.java"]);
+    const r = planIdeCitationJump("Main.java", t);
+    expect(r).toEqual({
+      kind: "candidates",
+      candidates: expect.arrayContaining(["a/Main.java", "b/Main.java"]),
+    });
+    if (r.kind === "candidates") {
+      expect(r.candidates).toHaveLength(2);
+    }
+  });
+
+  it("java.util.List is miss (not a path)", () => {
+    const t = tree(["src/A.java"]);
+    expect(planIdeCitationJump("java.util.List", t)).toEqual({
+      kind: "miss",
+      path: "java.util.List",
+    });
+  });
+});
+
+describe("ideAncestorDirs", () => {
+  it("lists parent dirs excluding root and file", () => {
+    expect(ideAncestorDirs("src/foo/A.java")).toEqual(["src", "src/foo"]);
+    expect(ideAncestorDirs("README.md")).toEqual([]);
   });
 });
