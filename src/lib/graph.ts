@@ -11,6 +11,7 @@ export type GraphNode = {
   type: Document["type"];
   inbound: number;
   orphan: boolean;
+  tags: string[];
 };
 
 export type GraphEdge = {
@@ -28,6 +29,81 @@ export const FORCE_LAYOUT_LIMIT = 300;
 
 export function shouldUseListLayout(nodeCount: number): boolean {
   return nodeCount > FORCE_LAYOUT_LIMIT;
+}
+
+/** Undirected hops from center along wikilink edges (1 or 2). */
+export function collectNeighborhoodIds(
+  edges: GraphEdge[],
+  centerId: string,
+  hops: number
+): Set<string> {
+  const adj = new Map<string, Set<string>>();
+  for (const e of edges) {
+    if (!adj.has(e.from)) adj.set(e.from, new Set());
+    if (!adj.has(e.to)) adj.set(e.to, new Set());
+    adj.get(e.from)!.add(e.to);
+    adj.get(e.to)!.add(e.from);
+  }
+  const seen = new Set<string>([centerId]);
+  let frontier = [centerId];
+  const maxHops = Math.max(0, Math.floor(hops));
+  for (let h = 0; h < maxHops; h++) {
+    const next: string[] = [];
+    for (const id of frontier) {
+      for (const n of adj.get(id) || []) {
+        if (seen.has(n)) continue;
+        seen.add(n);
+        next.push(n);
+      }
+    }
+    frontier = next;
+    if (frontier.length === 0) break;
+  }
+  return seen;
+}
+
+export function subgraphForIds(graph: KnowledgeGraph, ids: Set<string>): KnowledgeGraph {
+  const nodes = graph.nodes.filter((n) => ids.has(n.id));
+  const edges = graph.edges.filter((e) => ids.has(e.from) && ids.has(e.to));
+  return { nodes, edges };
+}
+
+/** Centered neighborhood view: center + in/out neighbors within N hops. */
+export function neighborhoodGraph(
+  graph: KnowledgeGraph,
+  centerId: string,
+  hops: 1 | 2
+): KnowledgeGraph {
+  if (!graph.nodes.some((n) => n.id === centerId)) {
+    return { nodes: [], edges: [] };
+  }
+  return subgraphForIds(graph, collectNeighborhoodIds(graph.edges, centerId, hops));
+}
+
+export type GraphViewFilter = {
+  orphansOnly?: boolean;
+  /** Path prefix, case-insensitive (e.g. "notes/"). */
+  pathPrefix?: string;
+  /** Exact tag match, case-insensitive. */
+  tag?: string;
+};
+
+export function applyGraphFilters(
+  nodes: GraphNode[],
+  filter: GraphViewFilter
+): GraphNode[] {
+  const prefix = (filter.pathPrefix || "").trim().toLowerCase();
+  const tag = (filter.tag || "").trim().toLowerCase();
+  return nodes.filter((n) => {
+    if (filter.orphansOnly && !n.orphan) return false;
+    if (prefix && !n.path.toLowerCase().startsWith(prefix)) return false;
+    if (tag && !n.tags.some((t) => t.toLowerCase() === tag)) return false;
+    return true;
+  });
+}
+
+export function filterEdgesToNodes(edges: GraphEdge[], nodeIds: Set<string>): GraphEdge[] {
+  return edges.filter((e) => nodeIds.has(e.from) && nodeIds.has(e.to));
 }
 
 export function buildKnowledgeGraph(docs: Document[]): KnowledgeGraph {
@@ -57,13 +133,15 @@ export function buildKnowledgeGraph(docs: Document[]): KnowledgeGraph {
 
   const nodes: GraphNode[] = docs.map((d) => {
     const inCount = inbound.get(d.id) || 0;
+    const meta = getDocMeta(d);
     return {
       id: d.id,
-      title: getDocMeta(d).title || titleOf(d.path),
+      title: meta.title || titleOf(d.path),
       path: d.path,
       type: d.type,
       inbound: inCount,
       orphan: d.type === "md" && !linked.has(d.id),
+      tags: meta.tags,
     };
   });
 

@@ -5,8 +5,11 @@ import { Dialog } from "./ui/dialog";
 import { Button } from "./ui/button";
 import { useStore } from "@/lib/store";
 import {
+  applyGraphFilters,
   buildKnowledgeGraph,
+  filterEdgesToNodes,
   initSimNodes,
+  neighborhoodGraph,
   shouldUseListLayout,
   tickForce,
   type GraphEdge,
@@ -14,6 +17,8 @@ import {
   type SimNode,
 } from "@/lib/graph";
 import { cn } from "@/lib/utils";
+
+type GraphScope = "all" | "neighborhood";
 
 export function KnowledgeGraphDialog() {
   const open = useStore((s) => s.graphDialogOpen);
@@ -24,18 +29,58 @@ export function KnowledgeGraphDialog() {
   const setLinkHealthOpen = useStore((s) => s.setLinkHealthOpen);
 
   const graph = React.useMemo(() => buildKnowledgeGraph(documents), [documents]);
+  const [scope, setScope] = React.useState<GraphScope>("all");
+  const [hops, setHops] = React.useState<1 | 2>(1);
   const [filterOrphans, setFilterOrphans] = React.useState(false);
+  const [tagFilter, setTagFilter] = React.useState("");
+  const [pathPrefix, setPathPrefix] = React.useState("");
   const [query, setQuery] = React.useState("");
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
-
-  const useList = shouldUseListLayout(graph.nodes.length);
 
   React.useEffect(() => {
     if (!open) return;
     setSelectedId(activeId);
     setQuery("");
     setFilterOrphans(false);
+    setTagFilter("");
+    setPathPrefix("");
+    setScope("all");
+    setHops(1);
   }, [open, activeId]);
+
+  const scoped = React.useMemo(() => {
+    if (scope !== "neighborhood") return graph;
+    if (!activeId) return { nodes: [] as GraphNode[], edges: [] as GraphEdge[] };
+    return neighborhoodGraph(graph, activeId, hops);
+  }, [graph, scope, activeId, hops]);
+
+  const filteredNodes = React.useMemo(() => {
+    let nodes = applyGraphFilters(scoped.nodes, {
+      orphansOnly: filterOrphans,
+      pathPrefix,
+      tag: tagFilter,
+    });
+    const q = query.trim().toLowerCase();
+    if (q) {
+      nodes = nodes.filter(
+        (n) =>
+          n.title.toLowerCase().includes(q) || n.path.toLowerCase().includes(q)
+      );
+    }
+    return nodes;
+  }, [scoped.nodes, filterOrphans, pathPrefix, tagFilter, query]);
+
+  const filteredIds = React.useMemo(
+    () => new Set(filteredNodes.map((n) => n.id)),
+    [filteredNodes]
+  );
+
+  const filteredEdges = React.useMemo(
+    () => filterEdgesToNodes(scoped.edges, filteredIds),
+    [scoped.edges, filteredIds]
+  );
+
+  const useList = shouldUseListLayout(filteredNodes.length) || Boolean(query.trim());
 
   const currentId = selectedId || activeId;
 
@@ -54,22 +99,12 @@ export function KnowledgeGraphDialog() {
     [graph.nodes]
   );
 
-  const filteredNodes = React.useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return graph.nodes.filter((n) => {
-      if (filterOrphans && !n.orphan) return false;
-      if (!q) return true;
-      return (
-        n.title.toLowerCase().includes(q) ||
-        n.path.toLowerCase().includes(q)
-      );
-    });
-  }, [graph.nodes, filterOrphans, query]);
-
   const openNode = (id: string) => {
     openDoc(id);
     setOpen(false);
   };
+
+  const needsCenter = scope === "neighborhood" && !activeId;
 
   return (
     <Dialog
@@ -84,9 +119,11 @@ export function KnowledgeGraphDialog() {
             知识图谱
           </h2>
           <p className="text-xs text-[var(--muted)] mt-0.5">
-            {graph.nodes.length} 节点 · {graph.edges.length} 边 · 孤立{" "}
+            {filteredNodes.length} 节点 · {filteredEdges.length} 边
+            {scope === "neighborhood" ? ` · 邻域 ${hops} 跳` : ""}
+            {" · 孤立 "}
             {graph.nodes.filter((n) => n.orphan).length}
-            {useList ? " · 节点较多，使用列表导航" : ""}
+            {useList && filteredNodes.length > 0 ? " · 列表导航" : ""}
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -104,11 +141,63 @@ export function KnowledgeGraphDialog() {
       </div>
 
       <div className="flex flex-wrap items-center gap-2 border-b border-[var(--border)] px-4 py-2">
+        <div className="inline-flex rounded-lg border border-[var(--border)] p-0.5 text-xs">
+          <button
+            type="button"
+            className={cn(
+              "rounded-md px-2 py-1",
+              scope === "all" && "bg-[var(--hover)] font-medium"
+            )}
+            onClick={() => setScope("all")}
+          >
+            全库
+          </button>
+          <button
+            type="button"
+            className={cn(
+              "rounded-md px-2 py-1",
+              scope === "neighborhood" && "bg-[var(--hover)] font-medium"
+            )}
+            onClick={() => setScope("neighborhood")}
+          >
+            邻域
+          </button>
+        </div>
+        {scope === "neighborhood" && (
+          <div className="inline-flex rounded-lg border border-[var(--border)] p-0.5 text-xs">
+            <button
+              type="button"
+              className={cn("rounded-md px-2 py-1", hops === 1 && "bg-[var(--hover)] font-medium")}
+              onClick={() => setHops(1)}
+            >
+              1 跳
+            </button>
+            <button
+              type="button"
+              className={cn("rounded-md px-2 py-1", hops === 2 && "bg-[var(--hover)] font-medium")}
+              onClick={() => setHops(2)}
+            >
+              2 跳
+            </button>
+          </div>
+        )}
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="搜索标题或路径…"
-          className="h-8 min-w-[12rem] flex-1 rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] px-2 text-sm"
+          className="h-8 min-w-[10rem] flex-1 rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] px-2 text-sm"
+        />
+        <input
+          value={tagFilter}
+          onChange={(e) => setTagFilter(e.target.value)}
+          placeholder="标签过滤…"
+          className="h-8 w-28 rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] px-2 text-sm"
+        />
+        <input
+          value={pathPrefix}
+          onChange={(e) => setPathPrefix(e.target.value)}
+          placeholder="路径前缀…"
+          className="h-8 w-28 rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] px-2 text-sm"
         />
         <label className="inline-flex items-center gap-1.5 text-xs text-[var(--muted)]">
           <input
@@ -122,7 +211,11 @@ export function KnowledgeGraphDialog() {
 
       <div className="grid grid-cols-1 md:grid-cols-[1fr_220px] min-h-[min(60vh,480px)]">
         <div className="min-h-0 border-b md:border-b-0 md:border-r border-[var(--border)]">
-          {useList || query || filterOrphans ? (
+          {needsCenter ? (
+            <EmptyCanvas message="邻域视图需要先打开一篇文档作为中心。" />
+          ) : filteredNodes.length === 0 ? (
+            <EmptyCanvas message="没有匹配的节点。试试放宽标签、路径或孤立过滤。" />
+          ) : useList ? (
             <GraphNodeList
               nodes={filteredNodes}
               currentId={currentId}
@@ -131,8 +224,8 @@ export function KnowledgeGraphDialog() {
             />
           ) : (
             <GraphForceView
-              nodes={graph.nodes}
-              edges={graph.edges}
+              nodes={filteredNodes}
+              edges={filteredEdges}
               currentId={currentId}
               onSelect={setSelectedId}
               onOpen={openNode}
@@ -181,6 +274,14 @@ export function KnowledgeGraphDialog() {
         </aside>
       </div>
     </Dialog>
+  );
+}
+
+function EmptyCanvas({ message }: { message: string }) {
+  return (
+    <div className="flex h-[min(56vh,440px)] items-center justify-center px-6 text-center text-sm text-[var(--muted)]">
+      {message}
+    </div>
   );
 }
 
