@@ -20,6 +20,7 @@ import { WikiLink } from "./WikiLink";
 import { WikiEmbed } from "./WikiEmbed";
 import { findUnlinkedMentions, parseWikiInner, wikiDisplayLabel } from "@/lib/wikilink";
 import { DocAside, hasDocAsideContent } from "./DocAside";
+import { PreviewHoverStrip } from "./PreviewHoverStrip";
 import { getDocMeta } from "@/lib/docMeta";
 import { useStore } from "@/lib/store";
 import { findBacklinks } from "@/lib/search";
@@ -2275,8 +2276,9 @@ export function MarkdownReader({ doc }: { doc: Document }) {
     <div className="h-full flex min-h-0">
       <div
         id={viewMode === "mixed" ? undefined : "reader-scroll"}
-        className="flex-1 overflow-y-auto scroll-thin"
+        className="relative flex-1 overflow-y-auto scroll-thin"
       >
+        <PreviewHoverStrip />
         <div
           className={cn(
             "mx-auto flex w-full justify-center px-4 md:px-8 py-8",

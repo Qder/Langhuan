@@ -28,6 +28,7 @@ import type { HtmlLocatePayload, LocateResult } from "@/lib/locate";
 import type { RawCssHit } from "@/lib/locate/cssLocate";
 import type { BridgeElementNode } from "@/lib/locate/types";
 import { ElementInspector } from "./ElementInspector";
+import { PreviewHoverStrip } from "./PreviewHoverStrip";
 import { prepareHtmlPreview } from "@/lib/fixHtmlPreview";
 import {
   computeHtmlPreviewFrameLayout,
@@ -874,6 +875,7 @@ export function HtmlReader({ doc }: { doc: Document }) {
           className="relative min-h-0 min-w-0 flex-1 overflow-hidden"
           style={{ background: pageBg === "transparent" ? "var(--bg)" : pageBg }}
         >
+        <PreviewHoverStrip />
         {/* Skeleton */}
         {!loaded && (
           <div className="absolute inset-0 z-10 p-6 space-y-4 pointer-events-none">

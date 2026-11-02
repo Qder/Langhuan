@@ -901,3 +901,65 @@ describe("整条链路：demo 项目 srcDoc → 点卡片 → 4 条规则带行�
     expect(ancestors.some((a) => a.tag === "html")).toBe(false);
   });
 });
+
+
+describe("bridge jsdom: hover → lh-hover (no locate)", () => {
+  function onlyHover(messages: Msg[]) {
+    return messages.filter((m) => m.type === "lh-hover");
+  }
+
+  it("pointerover on data-lh node posts lh-hover with range", () => {
+    const { messages, doc, win } = loadBridge(
+      `<p data-lh="10-25" id="p1">Hello paragraph</p>`
+    );
+    messages.length = 0;
+    const el = doc.getElementById("p1")!;
+    el.dispatchEvent(
+      new win.PointerEvent("pointerover", {
+        bubbles: true,
+        cancelable: true,
+        clientX: 10,
+        clientY: 10,
+      })
+    );
+    const hover = onlyHover(messages);
+    expect(hover).toHaveLength(1);
+    expect(hover[0]).toMatchObject({
+      type: "lh-hover",
+      range: { start: 10, end: 25 },
+      degrade: false,
+    });
+    expect(messages.some((m) => m.type === "lh-locate")).toBe(false);
+  });
+
+  it("pointerout leaving the document posts lh-hover with null range", () => {
+    const { messages, doc, win } = loadBridge(
+      `<p data-lh="10-25" id="p1">Hello paragraph</p>`
+    );
+    const el = doc.getElementById("p1")!;
+    el.dispatchEvent(
+      new win.PointerEvent("pointerover", {
+        bubbles: true,
+        cancelable: true,
+        clientX: 10,
+        clientY: 10,
+      })
+    );
+    messages.length = 0;
+    el.dispatchEvent(
+      new win.PointerEvent("pointerout", {
+        bubbles: true,
+        cancelable: true,
+        relatedTarget: null,
+      })
+    );
+    const hover = onlyHover(messages);
+    expect(hover).toHaveLength(1);
+    expect(hover[0]).toMatchObject({
+      type: "lh-hover",
+      range: null,
+      degrade: false,
+    });
+    expect(messages.some((m) => m.type === "lh-locate")).toBe(false);
+  });
+});
