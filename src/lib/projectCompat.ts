@@ -3,7 +3,7 @@
  *
  * 为什么要有它：预览的沙箱只有 `allow-scripts allow-popups allow-forms`，没有 allow-same-origin，
  * srcDoc 也没有真实网址可作基准。所以「样式/脚本失效」很多时候不是定位功能坏了，而是这一层
- * 预览机制撑不住（ES 模块、@import、CDN、动态 import…）。与其让用户以为工具坏了，
+ * 预览机制撑不住（ES 模块、CDN、动态 import、缺资源…）。与其让用户以为工具坏了，
  * 不如在预览顶部提前说清楚：哪一项、在哪个文件、第几行、现在会有什么影响。
  *
  * 本期只做「检测 + 如实说明」，不做 ESM bundler、不改运行架构、也不抓取 CDN 快照。
@@ -34,7 +34,7 @@ export type CompatKind =
   | "network-dependency"
   /** 本地找不到的 css / js / 图片 / 字体 */
   | "missing-resource"
-  /** 找得到、但没能进预览（@import 未展平、资源过大、类型不认识） */
+  /** 找得到、但没能进预览（资源过大、类型不认识） */
   | "inline-degraded";
 
 export type CompatImpact =
@@ -187,13 +187,22 @@ export function analyzeProjectCompat(input: CompatInput): CompatReport {
     });
   };
 
+  /** 已扫过的 CSS 路径，防止 @import 环把分析打成死循环。 */
+  const scannedCss = new Set<string>();
+
   /** CSS 文本里的 @import 与 url()。`lineOf` 把 CSS 内的偏移换算成行号。 */
   const scanCss = (
     file: string,
     css: string,
     refBase: string,
-    lineOf: (offsetInCss: number) => number
+    lineOf: (offsetInCss: number) => number,
+    selfPath?: string
   ) => {
+    if (selfPath) {
+      const key = normalizeProjectRel(selfPath);
+      if (scannedCss.has(key)) return;
+      scannedCss.add(key);
+    }
     const { urls, importRefs } = scanCssUrls(css);
     for (const imp of importRefs) {
       const ref = decodeCssUrl(imp.raw).trim();
@@ -213,18 +222,15 @@ export function analyzeProjectCompat(input: CompatInput): CompatReport {
           line,
           target: path,
           impact: "预览会失真",
-          message: `@import 引用了 ${path}，但项目里没有这个文件 —— 这部分样式在预览里不会生效。`,
+          message: `@import 找不到 ${path} —— 这部分样式在预览里不会生效（原 @import 会保留）。`,
         });
         continue;
       }
-      add({
-        kind: "inline-degraded",
-        file,
-        line,
-        target: path,
-        impact: "预览会失真",
-        message: `@import 不会被展开：它要按被导入文件自己的目录去找资源，本期还没做展平，所以 ${path} 里的样式在预览里不生效（源码不受影响）。`,
-      });
+      // 本地 @import 会在预览里按被导入文件自己的目录展平；继续扫被导入文件里的 url/@import
+      const child = input.readText(path);
+      if (child !== null) {
+        scanCss(display(path), child, refBaseOf(path), (o) => lineAtOffset(child, o), path);
+      }
     }
 
     for (const u of urls) {
@@ -370,7 +376,7 @@ export function analyzeProjectCompat(input: CompatInput): CompatReport {
         }
         const css = input.readText(path);
         if (css !== null) {
-          scanCss(display(path), css, refBaseOf(path), (o) => lineAtOffset(css, o));
+          scanCss(display(path), css, refBaseOf(path), (o) => lineAtOffset(css, o), path);
         }
         break;
       }

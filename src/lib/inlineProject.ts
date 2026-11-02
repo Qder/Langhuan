@@ -73,7 +73,7 @@ export type InlineResult = {
   assets: string[];
   /** 因为「这一页总量超上限」而放弃内联的资源（兼容性报告要用它说明为什么少图）。 */
   dropped: string[];
-  /** 给人看的降级说明：缺文件、超限、不认识的类型、@import 未展平。 */
+  /** 给人看的降级说明：缺文件、超限、不认识的类型、@import 找不到/外站/循环。 */
   warnings: string[];
 };
 
@@ -582,22 +582,14 @@ function assetText(
   return url;
 }
 
-/** 改写一段 CSS 文本里的 url()（返回替换点，按原文字符区间给出）。 */
+/** 改写一段 CSS 文本里的 url()（返回替换点，按原文字符区间给出）。不含 @import 展平。 */
 function cssUrlEdits(
   ctx: InlineCtx,
   css: string,
   ownerDir: string,
   ownerLabel: string
 ): { start: number; end: number; text: string }[] {
-  const { urls, imports } = scanCssUrls(css);
-  if (imports.length) {
-    const uniq = [...new Set(imports)];
-    const msg = `@import 未展平：${ownerLabel} → ${uniq.join("、")}（其中的 url() 仍按被导入文件所在目录解析，下一期处理）`;
-    if (!ctx.seenWarn.has(msg)) {
-      ctx.seenWarn.add(msg);
-      ctx.warnings.push(msg);
-    }
-  }
+  const { urls } = scanCssUrls(css);
   const out: { start: number; end: number; text: string }[] = [];
   for (const ref of urls) {
     const text = assetText(ctx, decodeCssUrl(ref.raw), ownerDir, ownerLabel, false);
@@ -608,8 +600,12 @@ function cssUrlEdits(
   return out;
 }
 
-/** 把 CSS 文本里的 url() 就地换成 data URL（整份文件场景，直接返回新文本）。 */
-function rewriteCss(ctx: InlineCtx, css: string, ownerDir: string, ownerLabel: string): string {
+function applyCssUrlEdits(
+  ctx: InlineCtx,
+  css: string,
+  ownerDir: string,
+  ownerLabel: string
+): string {
   const edits = cssUrlEdits(ctx, css, ownerDir, ownerLabel);
   if (!edits.length) return css;
   let out = css;
@@ -617,6 +613,104 @@ function rewriteCss(ctx: InlineCtx, css: string, ownerDir: string, ownerLabel: s
     out = out.slice(0, e.start) + e.text + out.slice(e.end);
   }
   return out;
+}
+
+function warnOnce(ctx: InlineCtx, msg: string) {
+  if (ctx.seenWarn.has(msg)) return;
+  ctx.seenWarn.add(msg);
+  ctx.warnings.push(msg);
+}
+
+/**
+ * 按「被导入 CSS 自己的目录」递归展平 @import，再改写 url()。
+ * 环 / 缺文件 / 外站：保留原 @import 语句并写入 warnings，不静默丢。
+ */
+function rewriteCss(
+  ctx: InlineCtx,
+  css: string,
+  ownerDir: string,
+  ownerLabel: string,
+  stack: Set<string> = new Set()
+): string {
+  const ownerKey = ownerLabel || ownerDir || "";
+  const nextStack = new Set(stack);
+  if (ownerKey) nextStack.add(ownerKey);
+
+  const { importRefs } = scanCssUrls(css);
+  if (!importRefs.length) {
+    return applyCssUrlEdits(ctx, css, ownerDir, ownerLabel);
+  }
+
+  type Seg = { text: string; dir: string; label: string; rewriteUrls: boolean };
+  const segs: Seg[] = [];
+  let cursor = 0;
+  for (const imp of importRefs) {
+    if (imp.statementStart > cursor) {
+      segs.push({
+        text: css.slice(cursor, imp.statementStart),
+        dir: ownerDir,
+        label: ownerLabel,
+        rewriteUrls: true,
+      });
+    }
+    const stmt = css.slice(imp.statementStart, imp.statementEnd);
+    const rawRef = decodeCssUrl(imp.raw).trim();
+    if (!rawRef) {
+      segs.push({ text: stmt, dir: ownerDir, label: ownerLabel, rewriteUrls: false });
+      cursor = imp.statementEnd;
+      continue;
+    }
+    const resolved = resolveProjectRef(rawRef, ownerDir, ctx.baseExternal);
+    if (resolved.kind === "external") {
+      warnOnce(
+        ctx,
+        `@import 外站未展平：${ownerLabel} → ${resolved.url}（不抓取 CDN，保留原句）`
+      );
+      segs.push({ text: stmt, dir: ownerDir, label: ownerLabel, rewriteUrls: false });
+      cursor = imp.statementEnd;
+      continue;
+    }
+    if (resolved.kind !== "internal" || !resolved.path) {
+      segs.push({ text: stmt, dir: ownerDir, label: ownerLabel, rewriteUrls: false });
+      cursor = imp.statementEnd;
+      continue;
+    }
+    const path = resolved.path;
+    if (nextStack.has(path)) {
+      warnOnce(ctx, `@import 循环：${ownerLabel} → ${path}（保留原句）`);
+      segs.push({ text: stmt, dir: ownerDir, label: ownerLabel, rewriteUrls: false });
+      cursor = imp.statementEnd;
+      continue;
+    }
+    const child = ctx.opts.readFile(path);
+    if (child === null || child === undefined) {
+      warnOnce(ctx, `@import 找不到：${ownerLabel} → ${path}（保留原句）`);
+      segs.push({ text: stmt, dir: ownerDir, label: ownerLabel, rewriteUrls: false });
+      cursor = imp.statementEnd;
+      continue;
+    }
+    // 子文件先按自己的目录展平 + 改写 url，再拼进父文件
+    let body = rewriteCss(ctx, child, dirOfProjectPath(path), path, nextStack);
+    if (imp.media) {
+      body = `@media ${imp.media} {\n${body}\n}\n`;
+    }
+    segs.push({ text: body, dir: dirOfProjectPath(path), label: path, rewriteUrls: false });
+    cursor = imp.statementEnd;
+  }
+  if (cursor < css.length) {
+    segs.push({
+      text: css.slice(cursor),
+      dir: ownerDir,
+      label: ownerLabel,
+      rewriteUrls: true,
+    });
+  }
+
+  return segs
+    .map((seg) =>
+      seg.rewriteUrls ? applyCssUrlEdits(ctx, seg.text, seg.dir, seg.label) : seg.text
+    )
+    .join("");
 }
 
 /** 把 `<link rel=stylesheet>` / `<script src>` 换成内联标签，并内联 HTML / CSS 里的资源引用。 */
@@ -767,16 +861,20 @@ export function inlineProjectHtml(html: string, opts: InlineOptions): InlineResu
         }
       }
     }
-    // 页面内 <style> 块：base 是文档目录（与浏览器一致）
+    // 页面内 <style> 块：base 是文档目录（与浏览器一致）；先展平 @import 再改 url()
     if (hit.name === "style" && !hit.selfClosing) {
       const close = findCloseTag(html, "style", hit.end + 1);
       if (close < 0) continue;
       const from = hit.end + 1;
       const css = html.slice(from, close);
-      if (!/url\s*\(/i.test(css)) continue;
-      for (const e of cssUrlEdits(ctx, css, base.baseDir, docLabel)) {
-        edits.push({ start: from + e.start, end: from + e.end, text: e.text });
-      }
+      if (!/url\s*\(/i.test(css) && !/@import\b/i.test(css)) continue;
+      const rewritten = rewriteCss(ctx, css, base.baseDir, docLabel);
+      if (rewritten === css) continue;
+      edits.push({
+        start: from,
+        end: close,
+        text: escapeRawText(rewritten, "style"),
+      });
     }
   }
 

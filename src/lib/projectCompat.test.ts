@@ -208,7 +208,7 @@ import(\`./pages/\${page}.js\`);
     expect(report.issues[0].message).toContain("语法错误");
   });
 
-  it("CSS 里的 @import 与 url()：本地缺失 / 外站 / 未展平分别归口", () => {
+  it("CSS 里的 @import 与 url()：本地可展平不报；缺失 / 外站分别归口", () => {
     const report = analyze(
       `<link rel="stylesheet" href="css/site.css">`,
       {
@@ -224,17 +224,22 @@ import(\`./pages/\${page}.js\`);
     expect(kinds(report)).toEqual([
       "network-dependency",
       "missing-resource",
-      "inline-degraded",
     ]);
-    const degraded = report.issues.find((i) => i.kind === "inline-degraded");
-    expect(degraded?.target).toBe("css/theme/base.css");
-    expect(degraded?.line).toBe(1);
-    expect(degraded?.message).toContain("@import");
+    expect(report.issues.find((i) => i.target === "css/theme/base.css")).toBeUndefined();
     const missing = report.issues.find((i) => i.kind === "missing-resource");
     expect(missing?.target).toBe("img/hero.png");
     expect(missing?.line).toBe(3);
     // 字体 / 图标的 url() 也在同一份 CSS 里，但它们都存在 → 不报
     expect(report.issues.filter((i) => i.target === "img/logo.svg")).toHaveLength(0);
+  });
+
+  it("@import 指向不存在的本地文件：报告含「找不到」", () => {
+    const report = analyze(`<link rel="stylesheet" href="css/site.css">`, {
+      "css/site.css": `@import "./theme/nope.css";\n`,
+    });
+    expect(kinds(report)).toEqual(["missing-resource"]);
+    expect(report.issues[0].message).toContain("找不到");
+    expect(report.issues[0].target).toBe("css/theme/nope.css");
   });
 
   it("资源太大 / 全页超上限：报「没能进预览」，并给出原因", () => {

@@ -1,0 +1,22 @@
+@font-face {
+  font-family: "Import Demo";
+  src: url("../../fonts/DejaVuSansDisplay.ttf") format("truetype");
+  font-display: swap;
+}
+
+body {
+  margin: 0;
+  padding: 32px 16px;
+  font-family: "Import Demo", system-ui, sans-serif;
+  color: #1f2328;
+  background: #f6f8fa url("../../img/hero%20背景.png") top center / 100% auto no-repeat;
+}
+
+.from-import {
+  margin-top: 16px;
+  padding: 10px 12px;
+  border-left: 3px solid #8250df;
+  border-radius: 4px;
+  background: #f6f0ff;
+  color: #6639ba;
+}

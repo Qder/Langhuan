@@ -121,27 +121,38 @@ export type CssUrlRef = {
   quote: '"' | "'" | "";
 };
 
+export type CssImportRef = {
+  /** url() / 字符串里的原始载荷（未 decode） */
+  raw: string;
+  /** 载荷在 CSS 里的起点（兼容性报告要算行号） */
+  start: number;
+  /** 整条 @import …; 的起止（含结尾分号，若有） */
+  statementStart: number;
+  statementEnd: number;
+  /** 载荷之后、分号之前的 media / layer 尾巴（trim 后；没有则 ""） */
+  media: string;
+};
+
 export type CssScanResult = {
   /** 可改写的 url() 载荷（已排除 @import 与注释 / 字符串里的假 url） */
   urls: CssUrlRef[];
-  /** @import 的引用（本期不展平，单独列出来） */
+  /** @import 的引用字符串（兼容旧调用方） */
   imports: string[];
-  /** 同上，但带载荷在 CSS 里的起点（兼容性报告要算行号） */
-  importRefs: { raw: string; start: number }[];
+  /** 同上，带语句区间，供展平与兼容性报告使用 */
+  importRefs: CssImportRef[];
 };
 
 /**
- * 扫出 CSS 里所有 url() 载荷。
+ * 扫出 CSS 里所有 url() 载荷，以及带语句区间的 @import。
  *
  * - 跳过注释与字符串（`content: "url(x)"` 不算）。
- * - 跳过 `@import url(...)`：展平 @import 会改变被导入文件里 url() 的基准目录，本期不做，
- *   留到下一期统一处理（见 docs/status/STATUS-asset-inline.md）。
+ * - `@import` 不计入可改写 urls（展平由调用方在扫描 url() 之前处理）。
  * - 支持引号 / 无引号两种写法，反斜杠转义不会提前结束。
  */
 export function scanCssUrls(css: string): CssScanResult {
   const urls: CssUrlRef[] = [];
   const imports: string[] = [];
-  const importRefs: { raw: string; start: number }[] = [];
+  const importRefs: CssImportRef[] = [];
   const n = css.length;
   let i = 0;
 
@@ -190,6 +201,53 @@ export function scanCssUrls(css: string): CssScanResult {
     return css.slice(at + 1, k).toLowerCase();
   };
 
+  /** 从载荷结束后读到分号（或文件尾），跳过注释 / 字符串 / 括号。 */
+  const readImportTail = (
+    from: number
+  ): { media: string; statementEnd: number } => {
+    let p = from;
+    let depth = 0;
+    while (p < n) {
+      const c = css[p];
+      if (c === "/" && css[p + 1] === "*") {
+        const close = css.indexOf("*/", p + 2);
+        p = close < 0 ? n : close + 2;
+        continue;
+      }
+      if (c === '"' || c === "'") {
+        let k = p + 1;
+        while (k < n) {
+          if (css[k] === "\\") {
+            k += 2;
+            continue;
+          }
+          if (css[k] === c) break;
+          k++;
+        }
+        p = k < n ? k + 1 : n;
+        continue;
+      }
+      if (c === "(") {
+        depth++;
+        p++;
+        continue;
+      }
+      if (c === ")") {
+        if (depth > 0) depth--;
+        p++;
+        continue;
+      }
+      if (c === ";" && depth === 0) {
+        return { media: css.slice(from, p).trim(), statementEnd: p + 1 };
+      }
+      if ((c === "{" || c === "}") && depth === 0) {
+        return { media: css.slice(from, p).trim(), statementEnd: p };
+      }
+      p++;
+    }
+    return { media: css.slice(from, p).trim(), statementEnd: p };
+  };
+
   while (i < n) {
     const ch = css[i];
     if (ch === "/" && css[i + 1] === "*") {
@@ -213,29 +271,38 @@ export function scanCssUrls(css: string): CssScanResult {
     if (ch === "@") {
       const name = atRuleName(i);
       if (name === "import") {
-        // @import url("x.css") | @import "x.css"
+        const statementStart = i;
         const rest = css.slice(i);
         const m = /^@import\s+url\s*\(/i.exec(rest);
         let payload: string | null = null;
         let payloadStart = i;
+        let afterPayload = i;
         if (m) {
           const parsed = readUrlPayload(i + m[0].length);
           if (parsed) {
             payload = css.slice(parsed.start, parsed.end);
             payloadStart = parsed.start;
-            i = parsed.next;
+            afterPayload = parsed.next;
           }
         } else {
           const q = /^@import\s+(["'])([\s\S]*?)\1/i.exec(rest);
           if (q) {
             payload = q[2];
             payloadStart = i + q[0].length - q[2].length - 1;
-            i += q[0].length;
+            afterPayload = i + q[0].length;
           }
         }
         if (payload !== null) {
+          const { media, statementEnd } = readImportTail(afterPayload);
           imports.push(payload);
-          importRefs.push({ raw: payload, start: payloadStart });
+          importRefs.push({
+            raw: payload,
+            start: payloadStart,
+            statementStart,
+            statementEnd,
+            media,
+          });
+          i = statementEnd;
           continue;
         }
       }

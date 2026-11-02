@@ -25,7 +25,7 @@
 | 其它合法 `url(...)` | 同样处理（不区分属性，凡是 CSS 里的 url() 都按同一规则） |
 | 页面内联 `<style>` 里的 `url()` | 按文档目录解析（与浏览器一致） |
 
-明确**不在**本期：JS 运行时拼出来的 URL、ESM `import`、Service Worker、`@import` 展平、`<link rel=icon>`。
+明确**不在**本期：JS 运行时拼出来的 URL、ESM `import`、Service Worker、`<link rel=icon>`。（`@import` 展平已做，见下。）
 
 `http(s)` / `//` / `data:` / `blob:` / `#` 一律原样保留。MIME 至少覆盖
 `png` `jpg/jpeg` `gif` `webp` `svg` `ico` `avif` `woff` `woff2` `ttf` `otf`（外加 `bmp`）。
@@ -76,7 +76,7 @@
 | `assets` | 这一页引用到的资源路径（去重，含没内联成功的），供调用方预取 |
 | `warnings` | 给人看的一句话：`缺少资源：img/a.png（引用自 index.html），保留原引用` |
 
-`warnings` 的四种来源：缺文件、单文件超限、本页总量超限、不认识的类型；外加 `@import` 未展平的提示。
+`warnings` 的来源：缺文件、单文件超限、本页总量超限、不认识的类型；外加 `@import` 找不到 / 外站 / 循环。
 这些**不会**被静默吞掉：它们后来被 [STATUS-project-compat.md](./STATUS-project-compat.md) 的兼容性
 报告结构化重述，在预览顶部的一条横条里按类汇总（点开是逐条 `文件:行` + 原因）。
 `warnings` 字符串本身保留（测试仍覆盖），另有 `InlineResult.dropped` 专门给出「整页超上限后放弃内联」的资源。
@@ -113,13 +113,11 @@ HtmlReader
    （实测 DPR=1 下 `<img srcset="<data 1x>, <data 2x>">` 渲染的是 2x；换回普通 URL 就正常选 1x）。
    影响仅限「预览用了更高分辨率那张」，显示正确、内存略高。我们仍然逐候选内联、保留描述符
    （要求如此），这个选择行为不归我们管。
-2. **`@import` 不展平**：`@import url("theme/base.css")` 里那些 `url()` 的基准目录是
-   **被导入文件**所在目录，本期不展开，所以也不改写（改写反而会把相对路径写错）。
-   遇到就出一条 warning：`@import 未展平：css/site.css → theme/base.css（…下一期处理）`。
-   **下一期方案**：在扫描 `url()` 之前先做一遍「@import 图」的拓扑展开 —— 递归读入被导入的 CSS
-   （同样按各自目录解析 url），按导入顺序拼进同一个 `<style>`，并保留一份「哪几行来自哪个文件」的
-   行号映射（现在的 `data-lh-inline` 是单文件标识，需要升级成「段 → 文件 + 起始行」的表，
-   样式面板再据此把行号换回原文件）。循环导入要按已访问集合剪掉，跨域 `@import` 保持外链。
+2. **`@import` 已展平**：扫描 `url()` 之前，按被导入文件自己的目录递归展开本地 `@import`，
+   再改写其中的 `url()`。环 / 缺文件 / 外站 import **保留原句**并写入 warnings / 兼容性报告
+  （缺文件文案含「找不到」；外站不抓 CDN）。注释与字符串里的 `@import` 不动。
+   `data-lh-inline` 仍是单文件标识；「段 → 文件 + 起始行」的行号映射仍是后续升级。
+   试玩：`examples/import展平验收/`。
 3. **`<link rel=icon>` / `manifest` / `src` 在 `<script type=module>`**：不在本期，仍是原样。
 4. **桌面版（Tauri）**：`fetchProjectAsset` 走 `library_read_file`（Rust 侧返回 base64），
    路径与 MIME 规则一致；Rust 侧尚未扫描项目，所以桌面版暂时没有项目预览这条路径。

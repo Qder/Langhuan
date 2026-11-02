@@ -323,13 +323,45 @@ describe("CSS 里的 url()", () => {
     expect(out.warnings).toEqual([]);
   });
 
-  it("@import 不展平，但单独列出下一期要处理的地方", () => {
+  it("@import 展平：被导入文件的规则与按自身目录解析的 url() 进入预览", () => {
     const { run } = setup({
-      text: { "css/style.css": `@import url("theme/base.css");\n.a{color:red}` },
+      text: {
+        "css/style.css": `@import url("./theme/base.css");\n.a{color:red}`,
+        "css/theme/base.css": `.from-import{color:purple}\n.hero{background:url(../../img/bg.png)}`,
+      },
+      assets: { "img/bg.png": assetOf("BG") },
     });
     const out = run(`<link rel="stylesheet" href="css/style.css">`);
-    expect(out.html).toContain('@import url("theme/base.css")');
-    expect(out.warnings.some((w) => w.includes("@import 未展平"))).toBe(true);
+    expect(out.html).not.toContain('@import url("./theme/base.css")');
+    expect(out.html).toContain(".from-import{color:purple}");
+    expect(out.html).toContain('url("data:image/png;base64,');
+    expect(out.html).not.toContain("url(../../img/bg.png)");
+    expect(out.warnings.filter((w) => w.includes("@import"))).toEqual([]);
+  });
+
+  it("@import 缺文件：保留原句，警告含「找不到」", () => {
+    const { run } = setup({
+      text: { "css/style.css": `@import "./theme/missing.css";\n.a{color:red}` },
+    });
+    const out = run(`<link rel="stylesheet" href="css/style.css">`);
+    expect(out.html).toContain('@import "./theme/missing.css"');
+    expect(out.warnings.some((w) => w.includes("找不到") && w.includes("missing.css"))).toBe(true);
+  });
+
+  it("@import 循环与外站：保留原句并告警，不静默丢", () => {
+    const { run } = setup({
+      text: {
+        "css/a.css": `@import "./b.css";\n.a{color:red}`,
+        "css/b.css": `@import "./a.css";\n.b{color:blue}`,
+        "css/ext.css": `@import url("https://cdn.example.com/x.css");\n.e{color:green}`,
+      },
+    });
+    const loop = run(`<link rel="stylesheet" href="css/a.css">`);
+    expect(loop.html).toContain("@import");
+    expect(loop.warnings.some((w) => w.includes("循环"))).toBe(true);
+    const ext = run(`<link rel="stylesheet" href="css/ext.css">`);
+    expect(ext.html).toContain("https://cdn.example.com/x.css");
+    expect(ext.warnings.some((w) => w.includes("外站"))).toBe(true);
   });
 });
 
