@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildMdPlainMap } from "./mdPlainMap";
-import { locateInMarkdown, isTrivialSelection } from "./mdLocate";
+import { locateInMarkdown, isTrivialSelection, locateMdTextRunInRange } from "./mdLocate";
 import { frontmatterOffset, lineAtOffset } from "./frontmatter";
 import { locateInHtml, buildHtmlVisibleMap } from "./htmlLocate";
 import { normalizeNewlines } from "../utils";
@@ -278,5 +278,72 @@ const QUIZ = [
     expect(visible).toContain("沙箱里的小交互");
     expect(visible).not.toContain("color:red");
     expect(visible).not.toContain("let n");
+  });
+});
+
+describe("locateMdTextRunInRange", () => {
+  const para = `这是 **加粗词** 与 [链接文字](https://example.com) 还有汉字段落。`;
+  const source = `---\ntitle: t\n---\n\n${para}\n`;
+  const start = source.indexOf(para);
+  const end = start + para.length;
+  const { plain } = buildMdPlainMap(para);
+
+  it("maps click inside bold to bold body chars, not whole paragraph", () => {
+    const idx = plain.indexOf("加粗词");
+    expect(idx).toBeGreaterThanOrEqual(0);
+    // click middle char 粗
+    const result = locateMdTextRunInRange({
+      source,
+      container: { start, end },
+      plainOffset: idx + 1,
+    });
+    expect(result.precision).toBe("exact");
+    const hit = source.slice(result.start, result.end);
+    expect(hit).toContain("加粗词");
+    expect(hit).not.toContain("这是");
+    expect(hit.length).toBeLessThan(para.length);
+    // source selection is the bare chars inside **, not the whole block
+    expect(hit.replace(/\*/g, "")).toBe("加粗词");
+  });
+
+  it("maps Latin word under caret", () => {
+    const slice = `Hello **world** end`;
+    const src = `# t\n\n${slice}\n`;
+    const s0 = src.indexOf(slice);
+    const { plain: p2 } = buildMdPlainMap(slice);
+    const wi = p2.indexOf("world");
+    const result = locateMdTextRunInRange({
+      source: src,
+      container: { start: s0, end: s0 + slice.length },
+      plainOffset: wi + 1,
+    });
+    expect(result.precision).toBe("exact");
+    expect(src.slice(result.start, result.end)).toBe("world");
+  });
+
+  it("blank offset falls back to none (block-level for caller)", () => {
+    const space = plain.indexOf(" ");
+    expect(space).toBeGreaterThanOrEqual(0);
+    const result = locateMdTextRunInRange({
+      source,
+      container: { start, end },
+      plainOffset: space,
+    });
+    expect(result.precision).toBe("none");
+  });
+
+  it("caps long CJK run at 24", () => {
+    const long = "汉".repeat(40);
+    const slice = `前 ${long} 后`;
+    const src = slice + "\n";
+    const { plain: p3 } = buildMdPlainMap(slice);
+    const mid = p3.indexOf("汉") + 20;
+    const result = locateMdTextRunInRange({
+      source: src,
+      container: { start: 0, end: slice.length },
+      plainOffset: mid,
+    });
+    expect(result.precision).toBe("exact");
+    expect(src.slice(result.start, result.end).length).toBe(24);
   });
 });

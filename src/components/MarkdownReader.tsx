@@ -42,6 +42,7 @@ import {
   getPreviewSelectionInfo,
   isTrivialSelection,
   locateInMarkdown,
+  locateMdTextRunInRange,
   previewTopToSourceOffsetSorted,
   sourceOffsetToPreviewTopSorted,
   buildSortedAnchorArrays,
@@ -1750,7 +1751,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
         return;
       }
 
-      // split / source-adjacent: locate as before
+      // split / source-adjacent: word-level when possible, else block
       const el = t.closest<HTMLElement>("[data-src-start]");
       if (!el) return;
       const start = Number(el.getAttribute("data-src-start"));
@@ -1761,15 +1762,34 @@ export function MarkdownReader({ doc }: { doc: Document }) {
           content.slice(0, start).split("\n").length
       );
       const isCodeLine = el.tagName === "SPAN" && el.hasAttribute("data-src-line");
-      const result: LocateResult = {
-        start,
-        end,
-        precision: isCodeLine ? "exact" : "block",
-        line,
-        message: isCodeLine
-          ? `已定位到第 ${line} 行`
-          : `已定位到所在段落（第 ${line} 行）`,
-      };
+      let result: LocateResult;
+      if (isCodeLine) {
+        result = {
+          start,
+          end,
+          precision: "exact",
+          line,
+          message: `已定位到第 ${line} 行`,
+        };
+      } else {
+        const caret = plainOffsetInElement(el, e.clientX, e.clientY);
+        const word = locateMdTextRunInRange({
+          source: content,
+          container: { start, end },
+          plainOffset: caret?.approxOffset,
+        });
+        if (word.precision !== "none" && word.end > word.start) {
+          result = word;
+        } else {
+          result = {
+            start,
+            end,
+            precision: "block",
+            line,
+            message: `已定位到所在段落（第 ${line} 行）`,
+          };
+        }
+      }
       const select = !!(e.metaKey || e.ctrlKey || e.detail >= 2);
       applyLocateResult(result, { select, focus: select, highlight: true });
       el.classList.add("lh-preview-flash");

@@ -1,5 +1,7 @@
 import { buildMdPlainMap, collapseWs } from "./mdPlainMap";
+import { DEFAULT_MAX_RUN, pickTextRunBounds } from "./textRun";
 import { lineAtOffset } from "./frontmatter";
+import { normalizeNewlines } from "../utils";
 import type { LocateResult, MdBlockRange } from "./types";
 
 const PUNCT_ONLY = /^[\s\p{P}\p{S}]*$/u;
@@ -232,4 +234,58 @@ function fuzzyFind(source: string, text: string): { start: number; end: number }
   const idx = source.indexOf(text);
   if (idx >= 0) return { start: idx, end: idx + text.length };
   return null;
+}
+
+
+/**
+ * Word-level locate inside a Markdown source slice (data-src-start/end).
+ * `plainOffset` is the caret offset in the rendered block's textContent /
+ * buildMdPlainMap plain string (same shape as HTML word locate).
+ * Click on whitespace → precision "none" so callers fall back to block-level.
+ */
+export function locateMdTextRunInRange(opts: {
+  source: string;
+  container: { start: number; end: number };
+  plainOffset: number | null | undefined;
+  maxRun?: number;
+}): LocateResult {
+  const source = normalizeNewlines(opts.source);
+  const { start: c0, end: c1 } = opts.container;
+  if (c1 <= c0 || opts.plainOffset == null || !Number.isFinite(opts.plainOffset)) {
+    return { start: 0, end: 0, precision: "none", message: "" };
+  }
+  const slice = source.slice(c0, c1);
+  const { plain, map } = buildMdPlainMap(slice);
+  if (!plain || map.length < 2) {
+    return { start: 0, end: 0, precision: "none", message: "" };
+  }
+
+  const i = Math.max(0, Math.min(Math.floor(opts.plainOffset), plain.length));
+  // Blank / trailing caret → block-level fallback (do not snap to adjacent word).
+  if (i >= plain.length || /\s/.test(plain[i]!)) {
+    return { start: 0, end: 0, precision: "none", message: "" };
+  }
+
+  const bounds = pickTextRunBounds(plain, i, opts.maxRun ?? DEFAULT_MAX_RUN);
+  if (!bounds) {
+    return { start: 0, end: 0, precision: "none", message: "" };
+  }
+
+  const start = c0 + map[bounds.start]!;
+  // Exclusive end of last plain char (avoid swallowing MD markers after the run).
+  const last = bounds.end - 1;
+  const end = c0 + map[last]! + 1;
+  const line = lineAtOffset(source, start);
+  const quoted = plain.slice(bounds.start, bounds.end);
+  const msg =
+    quoted.length <= 24
+      ? `已定位到「${quoted}」（第 ${line} 行）`
+      : `已定位到第 ${line} 行附近的词`;
+  return {
+    start,
+    end: Math.max(end, start + 1),
+    precision: "exact",
+    line,
+    message: msg,
+  };
 }
