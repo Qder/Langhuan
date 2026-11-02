@@ -60,6 +60,7 @@ import { ResizeGutter } from "./ui/ResizeGutter";
 import { PreviewContextMenu, type ContextMenuItem } from "./locate/PreviewContextMenu";
 import { useMediaQuery } from "@/lib/useMediaQuery";
 import { ProjectFileDialog } from "./ProjectFileDialog";
+import { TrashPreviewDialog } from "./TrashPreviewDialog";
 import { isProjectTextPath, type ProjectPickedFile } from "@/lib/importProject";
 import { blobToBase64 } from "@/lib/storage/contentApi";
 
@@ -484,6 +485,7 @@ export function Sidebar() {
   const projects = useStore((s) => s.projects);
   const importProject = useStore((s) => s.importProject);
   const [projectFileView, setProjectFileView] = React.useState<string | null>(null);
+  const [trashPreviewId, setTrashPreviewId] = React.useState<string | null>(null);
   /** 项目里不是文档的文件（css/js…）在树里也要出现，才算「一个完整的项目」。 */
   const projectFiles = React.useMemo(() => {
     // 用全部文档路径过滤：搜索过滤时文档只是暂时不显示，不能退化成「项目文件」行
@@ -1387,13 +1389,20 @@ export function Sidebar() {
                     key={t.doc.id}
                     className="rounded-xl border border-[var(--border)] px-2 py-1.5 space-y-1"
                   >
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <Trash2 className="h-3.5 w-3.5 shrink-0 text-[var(--muted)]" />
-                      <span className="truncate text-sm min-w-0 flex-1">{titleOf(t.doc.path)}</span>
-                    </div>
-                    <div className="text-[10px] text-[var(--muted)] truncate pl-5">
-                      {basename(t.doc.path)} · {relativeTime(t.deletedAt)}
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setTrashPreviewId(t.doc.id)}
+                      className="flex w-full flex-col gap-0.5 rounded-lg px-0.5 py-0.5 text-left hover:bg-[var(--hover)]"
+                      title="预览正文"
+                    >
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <Trash2 className="h-3.5 w-3.5 shrink-0 text-[var(--muted)]" />
+                        <span className="truncate text-sm min-w-0 flex-1">{titleOf(t.doc.path)}</span>
+                      </div>
+                      <div className="text-[10px] text-[var(--muted)] truncate pl-5">
+                        {basename(t.doc.path)} · {relativeTime(t.deletedAt)}
+                      </div>
+                    </button>
                     <div className="flex gap-1 pl-5">
                       <button
                         type="button"
@@ -1626,6 +1635,20 @@ export function Sidebar() {
         files={pendingImport?.docs ?? null}
         assets={pendingImport?.assets ?? null}
         onClose={() => setPendingImport(null)}
+      />
+            <TrashPreviewDialog
+        item={trashPreviewId ? trash.find((t) => t.doc.id === trashPreviewId) ?? null : null}
+        onClose={() => setTrashPreviewId(null)}
+        onRestore={(id) => restoreFromTrash(id)}
+        onPurge={(id) => {
+          const t = trash.find((x) => x.doc.id === id);
+          setTrashPreviewId(null);
+          setDeleteConfirm({
+            kind: "purge",
+            id,
+            title: t ? titleOf(t.doc.path) : id,
+          });
+        }}
       />
       <ProjectFileDialog
         path={projectFileView}
