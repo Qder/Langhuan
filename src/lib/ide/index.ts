@@ -12,3 +12,16 @@ export {
 } from "./dirtyClose";
 export { useIdeStore } from "./store";
 export { getIdeFsCapability } from "./ideFs";
+export {
+  parseIdeCitations,
+  resolveIdeCitation,
+  buildIdePendingReveal,
+  clampIdeLine,
+  type IdeCitation,
+  type IdePendingReveal,
+} from "./citations";
+export {
+  buildExplainFilePayloads,
+  buildMockExplainMarkdown,
+  IDE_EXPLAIN_SYSTEM_PROMPT,
+} from "./explain";

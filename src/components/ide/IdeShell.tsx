@@ -8,6 +8,7 @@ import { IdeTabBar } from "./IdeTabBar";
 import { IdeEditor } from "./IdeEditor";
 import { IdeWelcome } from "./IdeWelcome";
 import { IdeDirtyCloseDialog } from "./IdeDirtyCloseDialog";
+import { IdeExplainPanel } from "./IdeExplainPanel";
 import { useMediaQuery } from "@/lib/useMediaQuery";
 import { cn } from "@/lib/utils";
 
@@ -16,7 +17,11 @@ export function IdeShell() {
   const activePath = useIdeStore((s) => s.activePath);
   const explorerOpen = useIdeStore((s) => s.explorerOpen);
   const setExplorerOpen = useIdeStore((s) => s.setExplorerOpen);
+  const explainOpen = useIdeStore((s) => s.explainOpen);
+  const setExplainOpen = useIdeStore((s) => s.setExplainOpen);
+  const toggleExplainOpen = useIdeStore((s) => s.toggleExplainOpen);
   const anyDirty = useIdeStore((s) => s.anyDirty);
+  const status = useIdeStore((s) => s.status);
   const isLg = useMediaQuery("(min-width: 1024px)");
 
   React.useEffect(() => {
@@ -29,7 +34,7 @@ export function IdeShell() {
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, [anyDirty]);
 
-  // Esc closes tablet explorer drawer
+  // Esc closes tablet explorer drawer (explain panel has its own close)
   React.useEffect(() => {
     if (isLg || !explorerOpen || !session) return;
     const onKey = (e: KeyboardEvent) => {
@@ -39,6 +44,19 @@ export function IdeShell() {
     return () => window.removeEventListener("keydown", onKey);
   }, [isLg, explorerOpen, session, setExplorerOpen]);
 
+  // Mod+L toggles explain panel
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      if (e.key.toLowerCase() !== "l") return;
+      // Avoid stealing browser location bar if any — still match IDE habit.
+      e.preventDefault();
+      toggleExplainOpen();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [toggleExplainOpen]);
+
   const showDrawer = !!session && explorerOpen && !isLg;
   const showDocked = !!session && explorerOpen && isLg;
 
@@ -46,6 +64,8 @@ export function IdeShell() {
     <div className="h-dvh flex flex-col overflow-hidden text-[var(--fg)] relative">
       <IdeTopBar
         onToggleExplorer={() => setExplorerOpen(!explorerOpen)}
+        onToggleExplain={() => setExplainOpen(!explainOpen)}
+        explainOpen={explainOpen}
       />
       <div className="flex-1 min-h-0 flex relative">
         {showDocked && <IdeExplorer />}
@@ -79,12 +99,21 @@ export function IdeShell() {
                     从左侧资源管理器打开一个文件开始编辑。
                     <br />
                     修改后 ⌘/Ctrl+S 写回磁盘；关闭未保存标签会提示。
+                    <br />
+                    ⌘/Ctrl+L 打开讲解面板。
                   </div>
                 )}
               </div>
             </>
           )}
         </div>
+
+        {explainOpen && isLg && (
+          <IdeExplainPanel onClose={() => setExplainOpen(false)} />
+        )}
+        {explainOpen && !isLg && (
+          <IdeExplainPanel onClose={() => setExplainOpen(false)} />
+        )}
       </div>
       <IdeDirtyCloseDialog />
       <div
@@ -92,7 +121,9 @@ export function IdeShell() {
           "h-7 shrink-0 flex items-center px-3 text-[11px] font-ui border-t border-[var(--chrome-border)] bg-[var(--chrome)] text-[var(--muted)]"
         )}
       >
-        IDE · 工程与笔记库隔离 · Java 优先
+        <span className="truncate">
+          {status || "IDE · 工程与笔记库隔离 · ⌘/Ctrl+L 讲解"}
+        </span>
       </div>
     </div>
   );

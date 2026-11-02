@@ -27,6 +27,18 @@ import {
   type DirtyCloseChoice,
 } from "./dirtyClose";
 import { languageIdFromPath } from "./language";
+import {
+  buildIdePendingReveal,
+  normalizeIdeRelPath,
+  type IdePendingReveal,
+} from "./citations";
+import {
+  appendExplainMessage,
+  citationsFromMarkdown,
+  IDE_EXPLAIN_HISTORY_MAX,
+  type IdeExplainMessage,
+  type IdeExplainSelection,
+} from "./explain";
 
 export type IdeTab = {
   path: string;
@@ -40,6 +52,13 @@ export type IdePendingClose = {
   path: string;
   /** After resolve, optionally switch mode / close project. */
   after?: "none" | "closeProject" | "switchNotes";
+};
+
+export type IdeExplainSettings = {
+  /** Optional OpenAI-compatible key; stays in IDE IDB only. */
+  apiKey: string;
+  baseUrl: string;
+  model: string;
 };
 
 type IdeState = {
@@ -56,6 +75,15 @@ type IdeState = {
   explorerOpen: boolean;
   loadingTree: boolean;
 
+  /** After openFile: IdeEditor scrolls+highlights then clears. */
+  pendingReveal: IdePendingReveal | null;
+  /** Current editor selection for explain context. */
+  selection: (IdeExplainSelection & { path: string }) | null;
+  explainOpen: boolean;
+  /** Explain chat keyed by project session.id */
+  explainBySession: Record<string, IdeExplainMessage[]>;
+  explainSettings: IdeExplainSettings;
+
   setExplorerOpen: (v: boolean) => void;
   setStatus: (msg: string | null) => void;
   openFolder: () => Promise<boolean>;
@@ -64,14 +92,26 @@ type IdeState = {
   removeRecent: (id: string) => Promise<void>;
   ensureDirListed: (relDir: string) => Promise<void>;
   toggleExpanded: (relDir: string) => void;
-  openFile: (path: string) => Promise<void>;
+  openFile: (
+    path: string,
+    opts?: { line?: number; endLine?: number }
+  ) => Promise<void>;
+  clearPendingReveal: () => void;
   setDraft: (path: string, draft: string) => void;
+  setSelection: (sel: (IdeExplainSelection & { path: string }) | null) => void;
   saveFile: (path?: string | null) => Promise<boolean>;
   requestCloseTab: (path: string, after?: IdePendingClose["after"]) => void;
   resolvePendingClose: (choice: DirtyCloseChoice) => Promise<void>;
   isDirty: (path: string) => boolean;
   anyDirty: () => boolean;
   requestSwitchToNotes: () => boolean;
+
+  setExplainOpen: (v: boolean) => void;
+  toggleExplainOpen: () => void;
+  clearExplainHistory: () => void;
+  pushExplainMessage: (msg: IdeExplainMessage) => void;
+  updateLastAssistant: (content: string, extra?: { mock?: boolean }) => void;
+  setExplainSettings: (patch: Partial<IdeExplainSettings>) => void;
 };
 
 const IDE_STORE_KEY = "langhuan-ide-store";
@@ -99,6 +139,8 @@ function rememberSession(
     activePath: null,
     children: {},
     expanded: { "": true },
+    pendingReveal: null,
+    selection: null,
     status: `已打开工程「${session.name}」`,
   });
 }
@@ -116,9 +158,72 @@ export const useIdeStore = create<IdeState>()(
       pendingClose: null,
       explorerOpen: true,
       loadingTree: false,
+      pendingReveal: null,
+      selection: null,
+      explainOpen: false,
+      explainBySession: {},
+      explainSettings: {
+        apiKey: "",
+        baseUrl: "",
+        model: "",
+      },
 
       setExplorerOpen: (v) => set({ explorerOpen: v }),
       setStatus: (msg) => set({ status: msg }),
+      clearPendingReveal: () => set({ pendingReveal: null }),
+      setSelection: (sel) => set({ selection: sel }),
+      setExplainOpen: (v) => set({ explainOpen: v }),
+      toggleExplainOpen: () => set((s) => ({ explainOpen: !s.explainOpen })),
+      setExplainSettings: (patch) =>
+        set((s) => ({
+          explainSettings: { ...s.explainSettings, ...patch },
+        })),
+
+      clearExplainHistory: () => {
+        const id = get().session?.id;
+        if (!id) return;
+        set((s) => {
+          const next = { ...s.explainBySession };
+          delete next[id];
+          return { explainBySession: next };
+        });
+      },
+
+      pushExplainMessage: (msg) => {
+        const id = get().session?.id;
+        if (!id) return;
+        set((s) => {
+          const prev = s.explainBySession[id] || [];
+          return {
+            explainBySession: {
+              ...s.explainBySession,
+              [id]: appendExplainMessage(prev, msg, IDE_EXPLAIN_HISTORY_MAX),
+            },
+          };
+        });
+      },
+
+      updateLastAssistant: (content, extra) => {
+        const id = get().session?.id;
+        if (!id) return;
+        set((s) => {
+          const prev = [...(s.explainBySession[id] || [])];
+          for (let i = prev.length - 1; i >= 0; i--) {
+            if (prev[i]!.role === "assistant") {
+              prev[i] = {
+                ...prev[i]!,
+                content,
+                citations: citationsFromMarkdown(content),
+                mock: extra?.mock ?? prev[i]!.mock,
+              };
+              break;
+            }
+          }
+          return {
+            explainBySession: { ...s.explainBySession, [id]: prev },
+          };
+        });
+      },
 
       openFolder: async () => {
         const cap = getIdeFsCapability();
@@ -179,6 +284,8 @@ export const useIdeStore = create<IdeState>()(
           children: {},
           expanded: { "": true },
           pendingClose: null,
+          pendingReveal: null,
+          selection: null,
           status: "已关闭工程",
         });
         return true;
@@ -215,29 +322,58 @@ export const useIdeStore = create<IdeState>()(
         if (next) void get().ensureDirListed(relDir);
       },
 
-      openFile: async (path) => {
+      openFile: async (path, opts) => {
         const session = get().session;
         if (!session) return;
-        if (!isLikelyTextPath(path)) {
-          set({ status: `暂不支持打开二进制或未知类型：${tabBasename(path)}` });
+        const norm = normalizeIdeRelPath(path);
+        if (!isLikelyTextPath(norm)) {
+          set({ status: `暂不支持打开二进制或未知类型：${tabBasename(norm)}` });
           return;
         }
-        const existing = get().tabs.find((t) => t.path === path);
+
+        const lineCountHint = (() => {
+          const tab = get().tabs.find((t) => t.path === norm);
+          if (!tab) return undefined;
+          return Math.max(1, tab.draft.split("\n").length);
+        })();
+
+        const reveal =
+          opts?.line != null
+            ? buildIdePendingReveal(norm, opts.line, opts.endLine, lineCountHint)
+            : null;
+
+        const existing = get().tabs.find((t) => t.path === norm);
         if (existing) {
-          set({ activePath: path });
+          set({
+            activePath: norm,
+            pendingReveal: reveal,
+            status:
+              reveal != null
+                ? `${tabBasename(norm)} · L${reveal.line}`
+                : `${tabBasename(norm)} · ${languageIdFromPath(norm)}`,
+          });
           return;
         }
         try {
-          const content = await readIdeFile(session, path);
+          const content = await readIdeFile(session, norm);
           const tab: IdeTab = {
-            path,
+            path: norm,
             savedContent: content,
             draft: content,
           };
+          const docLines = Math.max(1, content.split("\n").length);
+          const reveal2 =
+            opts?.line != null
+              ? buildIdePendingReveal(norm, opts.line, opts.endLine, docLines)
+              : null;
           set((s) => ({
             tabs: [...s.tabs, tab],
-            activePath: path,
-            status: `${tabBasename(path)} · ${languageIdFromPath(path)}`,
+            activePath: norm,
+            pendingReveal: reveal2,
+            status:
+              reveal2 != null
+                ? `${tabBasename(norm)} · L${reveal2.line}`
+                : `${tabBasename(norm)} · ${languageIdFromPath(norm)}`,
           }));
         } catch (e) {
           set({
@@ -290,7 +426,13 @@ export const useIdeStore = create<IdeState>()(
               tabs[0]?.path ??
               null;
           }
-          return { tabs, activePath, pendingClose: null };
+          return {
+            tabs,
+            activePath,
+            pendingClose: null,
+            pendingReveal:
+              s.pendingReveal?.path === path ? null : s.pendingReveal,
+          };
         });
         if (after === "closeProject") get().closeProject({ force: true });
         if (after === "switchNotes") {
@@ -321,7 +463,13 @@ export const useIdeStore = create<IdeState>()(
               tabs[0]?.path ??
               null;
           }
-          return { tabs, activePath, pendingClose: null };
+          return {
+            tabs,
+            activePath,
+            pendingClose: null,
+            pendingReveal:
+              s.pendingReveal?.path === pending.path ? null : s.pendingReveal,
+          };
         });
 
         if (pending.after === "closeProject") {
@@ -361,10 +509,18 @@ export const useIdeStore = create<IdeState>()(
       partialize: (s) => ({
         recent: s.recent.slice(0, IDE_RECENT_MAX),
         explorerOpen: s.explorerOpen,
+        explainOpen: s.explainOpen,
+        explainBySession: s.explainBySession,
+        explainSettings: {
+          // Persist key in IDE store only (local tool); never mirror into notes store.
+          apiKey: s.explainSettings.apiKey,
+          baseUrl: s.explainSettings.baseUrl,
+          model: s.explainSettings.model,
+        },
       }),
-      version: 1,
+      version: 2,
     }
   )
 );
 
-export type { IdeRecentProjectMeta };
+export type { IdeRecentProjectMeta, IdePendingReveal, IdeExplainMessage };

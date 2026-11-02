@@ -8,6 +8,7 @@ import {
   Save,
   BookOpen,
   X,
+  Sparkles,
 } from "lucide-react";
 import { Button } from "../ui/button";
 import { useIdeStore } from "@/lib/ide/store";
@@ -17,8 +18,12 @@ import { cn } from "@/lib/utils";
 
 export function IdeTopBar({
   onToggleExplorer,
+  onToggleExplain,
+  explainOpen,
 }: {
   onToggleExplorer: () => void;
+  onToggleExplain: () => void;
+  explainOpen: boolean;
 }) {
   const session = useIdeStore((s) => s.session);
   const activePath = useIdeStore((s) => s.activePath);
@@ -105,6 +110,17 @@ export function IdeTopBar({
           <span className="hidden sm:inline">关闭工程</span>
         </Button>
       )}
+
+      <Button
+        variant={explainOpen ? "secondary" : "ghost"}
+        size="sm"
+        className="gap-1.5"
+        onClick={onToggleExplain}
+        title="讲解 (⌘/Ctrl+L)"
+      >
+        <Sparkles className="h-3.5 w-3.5" />
+        <span className="hidden sm:inline">讲解</span>
+      </Button>
 
       <Button
         variant="outline"
