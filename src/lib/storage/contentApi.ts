@@ -12,6 +12,10 @@ import {
 } from "../quiz";
 import { FS_INDEX_DIR, FS_QUIZ_FILE } from "./constants";
 
+/** Unified copy when Tauri lacks HTML project import / CSS·JS index (option A). */
+export const DESKTOP_UNSUPPORTED_PROJECTS =
+  "桌面版不支持 HTML 项目导入与资源索引，请用浏览器";
+
 export type LibrarySnapshot = {
   documents: Document[];
   assets: AssetMeta[];
@@ -26,6 +30,11 @@ export type LibrarySnapshot = {
   jsIndexes: JsFileIndex[];
   ok: boolean;
   source: "content";
+  /**
+   * Tauri：projects / cssIndexes / jsIndexes 为空表示「桌面未实现」，
+   * 不是一次成功的空扫描。浏览器路径不设此字段。
+   */
+  desktopProjectsUnsupported?: boolean;
 };
 
 /** Detect Tauri 2 webview (do not throw if API package missing in browser). */
@@ -96,9 +105,16 @@ export async function resolveLibraryFileUrl(path: string): Promise<string> {
 export async function fetchLibrary(): Promise<LibrarySnapshot> {
   if (isTauriRuntime()) {
     const snap = await tauriInvoke<
-      Omit<LibrarySnapshot, "projects" | "projectTexts" | "cssIndexes" | "jsIndexes">
+      Omit<
+        LibrarySnapshot,
+        | "projects"
+        | "projectTexts"
+        | "cssIndexes"
+        | "jsIndexes"
+        | "desktopProjectsUnsupported"
+      >
     >("library_scan");
-    // 桌面版暂不扫描项目（Rust 侧未实现）——项目导入在浏览器版可用
+    // 桌面版不扫描 / 不假装扫描成功：空列表 + 明确标记（导入仍走 putLibraryRawFile throw）
     return {
       ...snap,
       ok: true,
@@ -107,6 +123,7 @@ export async function fetchLibrary(): Promise<LibrarySnapshot> {
       projectTexts: {},
       cssIndexes: [],
       jsIndexes: [],
+      desktopProjectsUnsupported: true,
     };
   }
   const res = await fetch("/api/library", { cache: "no-store" });
@@ -169,7 +186,7 @@ export async function putLibraryRawFile(input: {
   base64?: string;
 }): Promise<string> {
   if (isTauriRuntime()) {
-    throw new Error("桌面版暂不支持项目导入，请在浏览器中使用");
+    throw new Error(DESKTOP_UNSUPPORTED_PROJECTS);
   }
   const res = await fetch("/api/library/file", {
     method: "PUT",
@@ -191,7 +208,8 @@ export async function putLibraryRawFile(input: {
 
 /**
  * 建/刷新一个 CSS 文件的索引（服务端用 postcss 解析源文件并落盘）。
- * 返回 null 表示不可用（桌面版 / 文件不存在 / 服务端拒绝）。
+ * 返回 null 表示不可用（桌面版不支持资源索引 / 文件不存在 / 服务端拒绝）。
+ * 桌面请用浏览器：桌面版不支持 HTML 项目导入与资源索引，请用浏览器
  */
 export async function buildLibraryCssIndex(file: string): Promise<CssFileIndex | null> {
   if (isTauriRuntime()) return null;
@@ -211,7 +229,8 @@ export async function buildLibraryCssIndex(file: string): Promise<CssFileIndex |
 
 /**
  * 建/刷新一个 .js 文件的符号索引（服务端用 acorn 解析并落盘）。
- * 返回 null 表示不可用（桌面版 / 文件不存在 / 服务端拒绝）。
+ * 返回 null 表示不可用（桌面版不支持资源索引 / 文件不存在 / 服务端拒绝）。
+ * 桌面请用浏览器：桌面版不支持 HTML 项目导入与资源索引，请用浏览器
  */
 export async function buildLibraryJsIndex(file: string): Promise<JsFileIndex | null> {
   if (isTauriRuntime()) return null;

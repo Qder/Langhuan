@@ -27,7 +27,7 @@ npm start
 
 - `npm run tauri:dev`：**开发壳**（WebView 连本机 Next，Rust 读写 `content/`）。需本机 Rust +（Windows）WebView2。
 - `npm run tauri:build`：目前可编过 Rust，但安装包内前端仍是**占位页**，**不能**当作正式桌面应用使用。
-- **桌面版不支持 HTML 项目导入与资源索引，请用浏览器。**
+- **桌面版不支持 HTML 项目导入与资源索引，请用浏览器**
 
 详见 [STATUS-tauri.md](./docs/status/STATUS-tauri.md)。
 
