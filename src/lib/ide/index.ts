@@ -25,3 +25,8 @@ export {
   buildMockExplainMarkdown,
   IDE_EXPLAIN_SYSTEM_PROMPT,
 } from "./explain";
+export {
+  compactFolderChain,
+  childrenLookupFromMap,
+  type CompactFolderChain,
+} from "./compactFolders";

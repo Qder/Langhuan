@@ -4,6 +4,10 @@ import * as React from "react";
 import { ChevronDown, ChevronRight, FileCode2, Folder, FolderOpen } from "lucide-react";
 import { useIdeStore } from "@/lib/ide/store";
 import type { IdeFsEntry } from "@/lib/ide/ideFs";
+import {
+  childrenLookupFromMap,
+  compactFolderChain,
+} from "@/lib/ide/compactFolders";
 import { cn } from "@/lib/utils";
 
 /** Stable empty list for zustand selectors (avoid `|| []` new ref → getSnapshot loop). */
@@ -16,20 +20,41 @@ function TreeRow({
   entry: IdeFsEntry;
   depth: number;
 }) {
-  const expanded = useIdeStore((s) => !!s.expanded[entry.path]);
-  const children = useIdeStore((s) => s.children[entry.path]);
+  const childrenMap = useIdeStore((s) => s.children);
   const activePath = useIdeStore((s) => s.activePath);
   const toggleExpanded = useIdeStore((s) => s.toggleExpanded);
   const openFile = useIdeStore((s) => s.openFile);
   const ensureDirListed = useIdeStore((s) => s.ensureDirListed);
 
-  React.useEffect(() => {
-    if (entry.kind === "directory" && expanded && !children) {
-      void ensureDirListed(entry.path);
-    }
-  }, [entry.kind, entry.path, expanded, children, ensureDirListed]);
+  const chain = React.useMemo(() => {
+    if (entry.kind !== "directory") return null;
+    return compactFolderChain(entry, childrenLookupFromMap(childrenMap));
+  }, [entry, childrenMap]);
 
-  if (entry.kind === "directory") {
+  const leafPath = chain?.leafPath ?? entry.path;
+  const expanded = useIdeStore((s) => !!s.expanded[leafPath]);
+  const leafChildren = useIdeStore((s) => s.children[leafPath]);
+
+  React.useEffect(() => {
+    if (entry.kind !== "directory") return;
+    if (chain?.needsList) {
+      void ensureDirListed(chain.needsList);
+      return;
+    }
+    if (expanded && !leafChildren) {
+      void ensureDirListed(leafPath);
+    }
+  }, [
+    entry.kind,
+    chain?.needsList,
+    expanded,
+    leafChildren,
+    leafPath,
+    ensureDirListed,
+  ]);
+
+  if (entry.kind === "directory" && chain) {
+    const label = chain.label;
     return (
       <div>
         <button
@@ -39,7 +64,8 @@ function TreeRow({
             "text-[var(--fg)]"
           )}
           style={{ paddingLeft: 8 + depth * 12 }}
-          onClick={() => toggleExpanded(entry.path)}
+          onClick={() => toggleExpanded(leafPath)}
+          title={leafPath}
         >
           {expanded ? (
             <ChevronDown className="h-3.5 w-3.5 shrink-0 text-[var(--muted)]" />
@@ -51,11 +77,11 @@ function TreeRow({
           ) : (
             <Folder className="h-3.5 w-3.5 shrink-0 text-[var(--muted)]" />
           )}
-          <span className="truncate">{entry.name}</span>
+          <span className="truncate">{label}</span>
         </button>
-        {expanded && children && (
+        {expanded && leafChildren && (
           <div>
-            {children.map((c) => (
+            {leafChildren.map((c) => (
               <TreeRow key={c.path} entry={c} depth={depth + 1} />
             ))}
           </div>
