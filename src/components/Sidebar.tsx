@@ -34,7 +34,7 @@ import { Button } from "./ui/button";
 import { Dialog } from "./ui/dialog";
 import { Dropdown, DropdownItem } from "./ui/dropdown";
 import { useStore, filteredDocuments } from "@/lib/store";
-import { THEME_IDS, THEME_HINTS, THEME_LABELS, isDarkTheme, themeLabel } from "@/lib/theme";
+import { THEME_IDS, THEME_HINTS, THEME_LABELS, THEME_SWATCHES, isDarkTheme, themeLabel } from "@/lib/theme";
 import { collectTagCounts } from "@/lib/tags";
 import { reviewBadgeCount } from "@/lib/quiz";
 import { dirname, titleOf, cn, relativeTime, basename } from "@/lib/utils";
@@ -919,17 +919,7 @@ export function Sidebar() {
                     "inline-block h-2.5 w-2.5 rounded-full border border-[var(--border)]",
                     isDarkTheme(id) ? "bg-[#1a1d26]" : "bg-[#faf8f3]"
                   )}
-                  style={
-                    id === "bamboo"
-                      ? { background: "#2f6b4f" }
-                      : id === "xuan"
-                        ? { background: "#3a5080" }
-                        : id === "songyan"
-                          ? { background: "#a8b0bc" }
-                          : id === "jiang"
-                            ? { background: "#8b3a4a" }
-                            : { background: "#2dd4bf" }
-                  }
+                  style={{ background: THEME_SWATCHES[id] }}
                 />
                 <span className="flex min-w-0 flex-1 flex-col">
                   <span className="truncate">{THEME_LABELS[id]}</span>

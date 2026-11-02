@@ -1,7 +1,17 @@
 import type { ThemeMode } from "./types";
 
 /** Stable theme ids (UI shows Chinese labels). */
-export const THEME_IDS = ["bamboo", "xuan", "songyan", "jiang", "cyber"] as const;
+export const THEME_IDS = [
+  "bamboo",
+  "xuan",
+  "songyan",
+  "jiang",
+  "cyber",
+  "phycat",
+  "phycat-mint",
+  "phycat-sky",
+  "phycat-abyss",
+] as const;
 
 export type ThemeId = (typeof THEME_IDS)[number];
 
@@ -11,6 +21,10 @@ export const THEME_LABELS: Record<ThemeId, string> = {
   songyan: "松烟月白",
   jiang: "绛帐缃帙",
   cyber: "赛博藏经",
+  phycat: "绯猫樱华",
+  "phycat-mint": "绯猫薄荷",
+  "phycat-sky": "绯猫晴空",
+  "phycat-abyss": "绯猫深渊",
 };
 
 /** Short blurbs for picker / status. */
@@ -20,11 +34,32 @@ export const THEME_HINTS: Record<ThemeId, string> = {
   songyan: "深炭 · 月白 · 银灰",
   jiang: "暖米黄 · 绛紫 · 缃黄",
   cyber: "深底 · 青绿终端色",
+  phycat: "樱粉 · Phycat sakura",
+  "phycat-mint": "薄荷绿 · Phycat mint",
+  "phycat-sky": "晴空蓝 · Phycat sky",
+  "phycat-abyss": "午夜青 · Phycat abyss",
 };
 
-const DARK_THEMES: ReadonlySet<ThemeId> = new Set(["songyan", "cyber"]);
+/** Palette swatch for the sidebar theme menu. */
+export const THEME_SWATCHES: Record<ThemeId, string> = {
+  bamboo: "#2f6b4f",
+  xuan: "#3a5080",
+  songyan: "#a8b0bc",
+  jiang: "#8b3a4a",
+  cyber: "#2dd4bf",
+  phycat: "#ff7096",
+  "phycat-mint": "#3db8bf",
+  "phycat-sky": "#3498db",
+  "phycat-abyss": "#00f3ff",
+};
 
-/** Legacy binary ids → new five-theme ids. */
+const DARK_THEMES: ReadonlySet<ThemeId> = new Set([
+  "songyan",
+  "cyber",
+  "phycat-abyss",
+]);
+
+/** Legacy binary ids → new theme ids. */
 const LEGACY_MAP: Record<string, ThemeId> = {
   paper: "xuan",
   ink: "songyan",

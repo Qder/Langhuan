@@ -1,5 +1,5 @@
 /**
- * 五套主题下代码块的可读性。
+ * 各套主题下代码块的可读性。
  *
  * 样式表里的 `--code-*` / `--syn-*` 是混色推导出来的，眼睛看着「还行」不代表对比度够。
  * 这里把 globals.css 里的主题块按层叠顺序拼出每套主题的实际取值，算 WCAG 对比度：
@@ -11,7 +11,7 @@ import { mixColor, parseColor, type Rgba } from "./mermaidTheme";
 
 const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
 
-const THEMES = ["xuan", "bamboo", "jiang", "songyan", "cyber"] as const;
+const THEMES = ["xuan", "bamboo", "jiang", "songyan", "cyber", "phycat", "phycat-mint", "phycat-sky", "phycat-abyss"] as const;
 
 /** 一条主题块：选择器列表 + 其中的自定义属性。 */
 type Block = { selectors: string[]; vars: Map<string, string> };

@@ -32,7 +32,16 @@ export type PendingNav =
 export type ViewMode = "preview" | "split" | "source" | "mixed";
 
 /** Reading themes — UI labels in THEME_LABELS (theme.ts). Legacy paper/ink migrate on load. */
-export type ThemeMode = "bamboo" | "xuan" | "songyan" | "jiang" | "cyber";
+export type ThemeMode =
+  | "bamboo"
+  | "xuan"
+  | "songyan"
+  | "jiang"
+  | "cyber"
+  | "phycat"
+  | "phycat-mint"
+  | "phycat-sky"
+  | "phycat-abyss";
 
 export type StatusFeedback = {
   message: string;

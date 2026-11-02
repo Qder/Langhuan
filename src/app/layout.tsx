@@ -58,11 +58,11 @@ const themeScript = `
     }
     var map = { paper: 'xuan', ink: 'songyan' };
     if (map[theme]) theme = map[theme];
-    var ids = { bamboo:1, xuan:1, songyan:1, jiang:1, cyber:1 };
+    var ids = { bamboo:1, xuan:1, songyan:1, jiang:1, cyber:1, phycat:1, 'phycat-mint':1, 'phycat-sky':1, 'phycat-abyss':1 };
     if (!ids[theme]) theme = 'xuan';
     var root = document.documentElement;
     root.setAttribute('data-theme', theme);
-    if (theme === 'songyan' || theme === 'cyber') root.classList.add('dark');
+    if (theme === 'songyan' || theme === 'cyber' || theme === 'phycat-abyss') root.classList.add('dark');
     else root.classList.remove('dark');
   } catch (e) {}
 })();

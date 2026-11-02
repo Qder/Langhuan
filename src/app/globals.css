@@ -1,6 +1,10 @@
+/* Phycat prose (Typora adapt) — only html[data-theme^=phycat] */
+@import "../styles/phycat/prose.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
 
 /* 鈥斺€?Theme tokens via html[data-theme] (浜斿闃呰涓婚) 鈥斺€?*/
 /* Default / 瀹ｇ焊闈涢潚 (legacy paper) */
@@ -95,10 +99,116 @@ html[data-theme="cyber"] {
    鎵€浠ュ湪浠讳綍涓婚涓嬮兘銆岃窡绾歌蛋銆嶏紝鑰屼笉鏄彟璐翠竴鍧楀埆鐨勭毊銆?
    璇硶鑹叉槸鍞竴娌℃硶浠?--fg/--accent 娲剧敓鍑烘潵鐨勪笢瑗匡紙瑕?8 涓彲鍖哄垎鑹茬浉锛夛紝
    鍥犳鎸夈€屾祬绾?/ 娣卞ⅷ銆嶄袱缁勫悇缁欎竴濂楋紝缁勫唴鏄浐瀹氬€笺€?*/
+
+/* —— Phycat family (adapted from typora-theme-phycat, MIT) —— */
+/* Default sakura */
+html[data-theme="phycat"] {
+  --bg: #fff7f9;
+  --bg-elevated: #fffbfd;
+  --fg: #3a2a30;
+  --muted: #8a6a72;
+  --accent: #ff7096;
+  --teal: #e91e63;
+  --gold: #ffb7cd;
+  --border: rgba(58, 42, 48, 0.12);
+  --hover: rgba(255, 112, 150, 0.08);
+  --card: rgba(255, 251, 253, 0.94);
+  --menu: #fffbfd;
+  --shadow: 0 10px 30px rgba(255, 112, 150, 0.12);
+  --paper-noise: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
+  --phycat-element: #ff7096;
+  --phycat-element-deep: #e91e63;
+  --phycat-element-shallow: #ffb7cd;
+  --phycat-element-so-shallow: #ffe3ec;
+  --phycat-element-soo-shallow: #fff0f5;
+  --phycat-h2-fg: #fff;
+  --phycat-h2-bg: linear-gradient(to right, #ffb7cd, #ff7096, #ffb7cd);
+  --phycat-linecode: #c2185b;
+  --phycat-linecode-bg: #fce4ec;
+}
+
+html[data-theme="phycat-mint"] {
+  --bg: #f3fbfb;
+  --bg-elevated: #f8fefe;
+  --fg: #1e3a3c;
+  --muted: #5a7a7c;
+  --accent: #3db8bf;
+  --teal: #089ba3;
+  --gold: #7aeaf0;
+  --border: rgba(30, 58, 60, 0.12);
+  --hover: rgba(61, 184, 191, 0.08);
+  --card: rgba(248, 254, 254, 0.94);
+  --menu: #f8fefe;
+  --shadow: 0 10px 30px rgba(61, 184, 191, 0.12);
+  --paper-noise: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
+  --phycat-element: #3db8bf;
+  --phycat-element-deep: #089ba3;
+  --phycat-element-shallow: #7aeaf0;
+  --phycat-element-so-shallow: #d6f7f9;
+  --phycat-element-soo-shallow: #eefbfc;
+  --phycat-h2-fg: #fff;
+  --phycat-h2-bg: linear-gradient(to right, #7aeaf0, #3db8bf, #7aeaf0);
+  --phycat-linecode: #089ba3;
+  --phycat-linecode-bg: #e6f9fa;
+}
+
+html[data-theme="phycat-sky"] {
+  --bg: #f4faff;
+  --bg-elevated: #fafcff;
+  --fg: #1e2a3a;
+  --muted: #5a6e82;
+  --accent: #3498db;
+  --teal: #2980b9;
+  --gold: #85c1e9;
+  --border: rgba(30, 42, 58, 0.12);
+  --hover: rgba(52, 152, 219, 0.08);
+  --card: rgba(250, 252, 255, 0.94);
+  --menu: #fafcff;
+  --shadow: 0 10px 30px rgba(52, 152, 219, 0.12);
+  --paper-noise: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
+  --phycat-element: #3498db;
+  --phycat-element-deep: #2980b9;
+  --phycat-element-shallow: #aed6f1;
+  --phycat-element-so-shallow: #eaf2f8;
+  --phycat-element-soo-shallow: #f4faff;
+  --phycat-h2-fg: #fff;
+  --phycat-h2-bg: linear-gradient(to right, #85c1e9, #3498db, #85c1e9);
+  --phycat-linecode: #1a5276;
+  --phycat-linecode-bg: #ebf5fb;
+}
+
+html[data-theme="phycat-abyss"] {
+  --bg: #0f111a;
+  --bg-elevated: #161a28;
+  --fg: #d6deeb;
+  --muted: #7e8c9f;
+  --accent: #00f3ff;
+  --teal: #2979ff;
+  --gold: #d500f9;
+  --border: rgba(214, 222, 235, 0.12);
+  --hover: rgba(0, 243, 255, 0.08);
+  --card: rgba(22, 26, 40, 0.94);
+  --menu: #161a28;
+  --shadow: 0 12px 36px rgba(0, 0, 0, 0.45);
+  --paper-noise: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.06'/%3E%3C/svg%3E");
+  --phycat-element: #00f3ff;
+  --phycat-element-deep: #7fd4ff;
+  --phycat-element-shallow: #2979ff;
+  --phycat-element-so-shallow: rgba(0, 243, 255, 0.12);
+  --phycat-element-soo-shallow: rgba(0, 243, 255, 0.06);
+  --phycat-h2-fg: #0f111a;
+  --phycat-h2-bg: linear-gradient(to right, #00f3ff, #2979ff, #00f3ff);
+  --phycat-linecode: #7fd4ff;
+  --phycat-linecode-bg: rgba(0, 243, 255, 0.12);
+}
+
 :root,
 html[data-theme="xuan"],
 html[data-theme="bamboo"],
-html[data-theme="jiang"] {
+html[data-theme="jiang"],
+html[data-theme="phycat"],
+html[data-theme="phycat-mint"],
+html[data-theme="phycat-sky"] {
   --code-bg: color-mix(in srgb, var(--bg-elevated) 94%, var(--fg) 6%);
   --code-fg: var(--fg);
   --code-muted: var(--muted);
@@ -150,6 +260,24 @@ html[data-theme="cyber"] {
   --syn-name: #5eead4;
   --syn-bullet: #c9d98a;
 }
+
+html[data-theme="phycat-abyss"] {
+  --code-bg: color-mix(in srgb, var(--bg) 94%, var(--fg) 6%);
+  --code-fg: var(--fg);
+  --code-muted: var(--muted);
+  --code-border: color-mix(in srgb, var(--accent) 22%, transparent);
+  --code-gutter-bg: color-mix(in srgb, var(--code-bg) 96%, var(--fg) 4%);
+  --code-gutter-fg: color-mix(in srgb, var(--muted) 60%, var(--fg) 40%);
+  --syn-keyword: #c792ea;
+  --syn-title: #82aaff;
+  --syn-constant: #f78c6c;
+  --syn-string: #ecc48d;
+  --syn-builtin: #addb67;
+  --syn-comment: #637777;
+  --syn-name: #7fdbca;
+  --syn-bullet: #80cbc4;
+}
+
 
 html,
 body {

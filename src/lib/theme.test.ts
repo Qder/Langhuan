@@ -15,7 +15,7 @@ describe("normalizeTheme", () => {
     expect(normalizeTheme("ink")).toBe("songyan");
   });
 
-  it("keeps five theme ids", () => {
+  it("keeps registered theme ids", () => {
     for (const id of THEME_IDS) {
       expect(normalizeTheme(id)).toBe(id);
     }
@@ -29,32 +29,38 @@ describe("normalizeTheme", () => {
 });
 
 describe("isDarkTheme", () => {
-  it("marks songyan and cyber dark; others light", () => {
+  it("marks songyan, cyber, phycat-abyss dark; others light", () => {
     expect(isDarkTheme("songyan")).toBe(true);
     expect(isDarkTheme("cyber")).toBe(true);
+    expect(isDarkTheme("phycat-abyss")).toBe(true);
     expect(isDarkTheme("ink")).toBe(true); // legacy
     expect(isDarkTheme("bamboo")).toBe(false);
     expect(isDarkTheme("xuan")).toBe(false);
     expect(isDarkTheme("jiang")).toBe(false);
+    expect(isDarkTheme("phycat")).toBe(false);
+    expect(isDarkTheme("phycat-mint")).toBe(false);
+    expect(isDarkTheme("phycat-sky")).toBe(false);
     expect(isDarkTheme("paper")).toBe(false);
   });
 });
 
 describe("nextTheme / labels", () => {
-  it("cycles through all five", () => {
+  it("cycles through all registered themes", () => {
     let t: string = "bamboo";
     const seen = new Set<string>();
     for (let i = 0; i < THEME_IDS.length; i++) {
       seen.add(t);
       t = nextTheme(t);
     }
-    expect(seen.size).toBe(5);
+    expect(seen.size).toBe(THEME_IDS.length);
     expect(t).toBe("bamboo");
   });
 
   it("has Chinese labels for every id", () => {
     expect(themeLabel("xuan")).toBe("宣纸靛青");
     expect(THEME_LABELS.cyber).toBe("赛博藏经");
+    expect(THEME_LABELS.phycat).toBe("绯猫樱华");
+    expect(THEME_LABELS["phycat-abyss"]).toBe("绯猫深渊");
   });
 });
 

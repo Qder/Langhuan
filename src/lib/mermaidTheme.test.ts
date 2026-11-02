@@ -125,12 +125,14 @@ describe("mermaidThemeVars", () => {
 });
 
 describe("themeIsDark", () => {
-  it("songyan / cyber 是深色，其余浅色", () => {
+  it("songyan / cyber / phycat-abyss 是深色，其余浅色", () => {
     expect(themeIsDark("songyan")).toBe(true);
     expect(themeIsDark("cyber")).toBe(true);
+    expect(themeIsDark("phycat-abyss")).toBe(true);
     expect(themeIsDark("xuan")).toBe(false);
     expect(themeIsDark("bamboo")).toBe(false);
     expect(themeIsDark("jiang")).toBe(false);
+    expect(themeIsDark("phycat")).toBe(false);
   });
 
   it("旧主题 id 会先归一化（ink → songyan）", () => {
