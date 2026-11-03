@@ -83,6 +83,8 @@ type IdeState = {
 
   /** After openFile: IdeEditor scrolls+highlights then clears. */
   pendingReveal: IdePendingReveal | null;
+  /** After open/jump: explorer scrolls row into view then clears. */
+  pendingExplorerReveal: { path: string; nonce: number } | null;
   /** Current editor selection for explain context. */
   selection: (IdeExplainSelection & { path: string }) | null;
   explainOpen: boolean;
@@ -110,6 +112,7 @@ type IdeState = {
     opts?: { line?: number; endLine?: number; softFail?: boolean }
   ) => Promise<boolean>;
   clearPendingReveal: () => void;
+  clearPendingExplorerReveal: () => void;
   setDraft: (path: string, draft: string) => void;
   setSelection: (sel: (IdeExplainSelection & { path: string }) | null) => void;
   saveFile: (path?: string | null) => Promise<boolean>;
@@ -155,6 +158,7 @@ function rememberSession(
     children: {},
     expanded: { "": true },
     pendingReveal: null,
+    pendingExplorerReveal: null,
     selection: null,
     pendingExplainRequest: null,
     status: `已打开工程「${session.name}」`,
@@ -175,6 +179,7 @@ export const useIdeStore = create<IdeState>()(
       explorerOpen: true,
       loadingTree: false,
       pendingReveal: null,
+      pendingExplorerReveal: null,
       selection: null,
       explainOpen: false,
       explainBySession: {},
@@ -188,6 +193,7 @@ export const useIdeStore = create<IdeState>()(
       setExplorerOpen: (v) => set({ explorerOpen: v }),
       setStatus: (msg) => set({ status: msg }),
       clearPendingReveal: () => set({ pendingReveal: null }),
+      clearPendingExplorerReveal: () => set({ pendingExplorerReveal: null }),
       setSelection: (sel) => set({ selection: sel }),
       setExplainOpen: (v) => set({ explainOpen: v }),
       toggleExplainOpen: () => set((s) => ({ explainOpen: !s.explainOpen })),
@@ -371,7 +377,14 @@ export const useIdeStore = create<IdeState>()(
           set((s) => {
             const expanded: Record<string, boolean> = { ...s.expanded, "": true };
             for (const d of ancestors) expanded[d] = true;
-            return { expanded };
+            return {
+              expanded,
+              explorerOpen: true,
+              pendingExplorerReveal: {
+                path: filePath,
+                nonce: (s.pendingExplorerReveal?.nonce ?? 0) + 1,
+              },
+            };
           });
           void (async () => {
             await get().ensureDirListed("");

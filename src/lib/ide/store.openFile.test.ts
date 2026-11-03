@@ -64,4 +64,30 @@ describe("openFile pendingReveal + explorer reveal", () => {
     expect(expanded[""]).toBe(true);
     expect(expanded["src"]).toBe(true);
   });
+
+  it("deep path expands ancestors and sets pendingExplorerReveal", async () => {
+    useIdeStore.setState({
+      tabs: [
+        {
+          path: "src/a/b/Foo.java",
+          savedContent: "class Foo {}",
+          draft: "class Foo {}",
+        },
+      ],
+      activePath: null,
+      expanded: { "": true },
+      children: { "": [{ name: "src", path: "src", kind: "directory" }] },
+      pendingExplorerReveal: null,
+      explorerOpen: false,
+    });
+    const ok = await useIdeStore.getState().openFile("src/a/b/Foo.java");
+    expect(ok).toBe(true);
+    const st = useIdeStore.getState();
+    expect(st.expanded["src"]).toBe(true);
+    expect(st.expanded["src/a"]).toBe(true);
+    expect(st.expanded["src/a/b"]).toBe(true);
+    expect(st.explorerOpen).toBe(true);
+    expect(st.pendingExplorerReveal?.path).toBe("src/a/b/Foo.java");
+    expect(typeof st.pendingExplorerReveal?.nonce).toBe("number");
+  });
 });

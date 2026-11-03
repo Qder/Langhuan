@@ -59,3 +59,11 @@ export {
   isIdeExplainToggleHotkey,
   isTypingTarget,
 } from "./explainHotkey";
+
+export {
+  EXPLORER_REVEAL_HIGHLIGHT_MS,
+  EXPLORER_REVEAL_GIVE_UP_MS,
+  explorerRevealStillWaiting,
+  explorerRowSelector,
+} from "./explorerReveal";
+

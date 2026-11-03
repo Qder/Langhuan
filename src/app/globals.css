@@ -723,6 +723,15 @@ html.dark .prose-langhuan .katex {
   transition: background 1.2s ease-out, outline-color 1.2s ease-out;
 }
 
+/* IDE explorer: brief highlight after chip / openFile reveal */
+@keyframes lh-ide-explorer-flash {
+  0% { background: color-mix(in srgb, var(--accent) 38%, transparent); }
+  100% { background: transparent; }
+}
+.lh-ide-explorer-flash {
+  animation: lh-ide-explorer-flash 1.5s ease-out forwards;
+}
+
 /* Hide React-owned preview node while isolated CE / source slot is mounted.
    Must beat Tailwind [hidden] (no !important) and list-item / prose display. */
 .lh-inline-edit-hidden,
