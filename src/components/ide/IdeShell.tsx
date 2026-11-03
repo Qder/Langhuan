@@ -13,6 +13,12 @@ import { IdeQuickOpen } from "./IdeQuickOpen";
 import { IdeGotoLine } from "./IdeGotoLine";
 import { useMediaQuery } from "@/lib/useMediaQuery";
 import { isIdeExplainToggleHotkey } from "@/lib/ide/explainHotkey";
+import {
+  formatDocument,
+  isFormatDocumentHotkey,
+} from "@/lib/ide/formatDocument";
+import { IDE_FIND_EVENT, IDE_GOTO_DEF_EVENT } from "@/lib/ide/ideEvents";
+import { claimShortcut } from "@/lib/shortcuts";
 import { cn } from "@/lib/utils";
 
 export function IdeShell() {
@@ -26,6 +32,9 @@ export function IdeShell() {
   const anyDirty = useIdeStore((s) => s.anyDirty);
   const status = useIdeStore((s) => s.status);
   const setStatus = useIdeStore((s) => s.setStatus);
+  const saveFile = useIdeStore((s) => s.saveFile);
+  const requestCloseTab = useIdeStore((s) => s.requestCloseTab);
+  const setDraft = useIdeStore((s) => s.setDraft);
   const isLg = useMediaQuery("(min-width: 1024px)");
   const [quickOpen, setQuickOpen] = React.useState(false);
   const [gotoLineOpen, setGotoLineOpen] = React.useState(false);
@@ -50,47 +59,127 @@ export function IdeShell() {
     return () => window.removeEventListener("keydown", onKey);
   }, [isLg, explorerOpen, session, setExplorerOpen]);
 
-  // Mod+Shift+L toggles explain panel (bare Mod+L left for browser address bar)
+  // Central IDE shortcut claim (capture) so browser never steals Mod+F/P/S/W/B/G etc.
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!isIdeExplainToggleHotkey(e)) return;
-      // Bare Mod+L is intentionally not handled (browser address bar).
-      e.preventDefault();
-      toggleExplainOpen();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [toggleExplainOpen]);
+      if (e.defaultPrevented) return;
 
-  // Mod+P quick open (IDE-only shell; notes ⌘K stays in notes AppShell)
-  React.useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return;
-      if (e.key.toLowerCase() !== "p") return;
-      // Palette is the intent for Mod+P (including when focus is in an input).
-      e.preventDefault();
-      if (!session) setStatus("先打开文件夹");
-      setQuickOpen(true);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [session, setStatus]);
-
-  // Mod+G go to line
-  React.useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return;
-      if (e.key.toLowerCase() !== "g") return;
-      e.preventDefault();
-      if (!activePath) {
-        setStatus("请先打开一个文件");
+      if (isIdeExplainToggleHotkey(e)) {
+        claimShortcut(e);
+        toggleExplainOpen();
         return;
       }
-      setGotoLineOpen(true);
+
+      if (isFormatDocumentHotkey(e)) {
+        claimShortcut(e);
+        const path = useIdeStore.getState().activePath;
+        if (!path) {
+          setStatus("请先打开一个文件");
+          return;
+        }
+        const tab = useIdeStore.getState().tabs.find((t) => t.path === path);
+        const draft = tab?.draft ?? "";
+        const result = formatDocument(path, draft);
+        if (!result.ok) {
+          setStatus(`格式化失败：${result.reason}`);
+          return;
+        }
+        if (!result.changed) {
+          setStatus("已是规范格式");
+          return;
+        }
+        setDraft(path, result.text);
+        setStatus("已格式化文档");
+        return;
+      }
+
+      // F12 → go to definition (IdeEditor resolves word at cursor)
+      if (e.key === "F12" && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+        claimShortcut(e);
+        if (!activePath) {
+          setStatus("请先打开一个文件");
+          return;
+        }
+        window.dispatchEvent(new CustomEvent(IDE_GOTO_DEF_EVENT));
+        return;
+      }
+
+      const mod = e.metaKey || e.ctrlKey;
+      if (!mod) return;
+      const key = e.key.toLowerCase();
+
+      // Mod+P quick open
+      if (key === "p" && !e.shiftKey && !e.altKey) {
+        claimShortcut(e);
+        if (!session) setStatus("先打开文件夹");
+        setQuickOpen(true);
+        return;
+      }
+
+      // Mod+G go to line
+      if (key === "g" && !e.shiftKey && !e.altKey) {
+        claimShortcut(e);
+        if (!activePath) {
+          setStatus("请先打开一个文件");
+          return;
+        }
+        setGotoLineOpen(true);
+        return;
+      }
+
+      // Mod+F find in editor (CM search panel) — claim so browser find never opens
+      if (key === "f" && !e.shiftKey && !e.altKey) {
+        claimShortcut(e);
+        if (!activePath) {
+          setStatus("请先打开一个文件");
+          return;
+        }
+        window.dispatchEvent(new CustomEvent(IDE_FIND_EVENT));
+        return;
+      }
+
+      // Mod+S save
+      if (key === "s" && !e.shiftKey && !e.altKey) {
+        claimShortcut(e);
+        if (!activePath) {
+          setStatus("请先打开一个文件");
+          return;
+        }
+        void saveFile(activePath);
+        return;
+      }
+
+      // Mod+W close tab
+      if (key === "w" && !e.shiftKey && !e.altKey) {
+        claimShortcut(e);
+        if (!activePath) return;
+        requestCloseTab(activePath);
+        return;
+      }
+
+      // Mod+B toggle explorer
+      if (key === "b" && !e.shiftKey && !e.altKey) {
+        claimShortcut(e);
+        if (!session) {
+          setStatus("先打开文件夹");
+          return;
+        }
+        setExplorerOpen(!useIdeStore.getState().explorerOpen);
+        return;
+      }
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [activePath, setStatus]);
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [
+    session,
+    activePath,
+    setStatus,
+    toggleExplainOpen,
+    setDraft,
+    saveFile,
+    requestCloseTab,
+    setExplorerOpen,
+  ]);
 
   const showDrawer = !!session && explorerOpen && !isLg;
   const showDocked = !!session && explorerOpen && isLg;
@@ -135,7 +224,8 @@ export function IdeShell() {
                     <br />
                     修改后 ⌘/Ctrl+S 写回磁盘；关闭未保存标签会提示。
                     <br />
-                    ⌘/Ctrl+P 快速打开；⌘/Ctrl+G 转到行；⌘/Ctrl+Shift+L 打开讲解面板。
+                    ⌘/Ctrl+P 快速打开；⌘/Ctrl+G 转到行；F12 转到定义；Shift+Alt+F
+                    格式化；⌘/Ctrl+Shift+L 讲解。
                   </div>
                 )}
               </div>
@@ -159,7 +249,8 @@ export function IdeShell() {
         )}
       >
         <span className="truncate">
-          {status || "IDE · 工程与笔记库隔离 · ⌘/Ctrl+Shift+L 讲解"}
+          {status ||
+            "IDE · ⌘/Ctrl+P 打开 · F12 定义 · Shift+Alt+F 格式化 · ⌘/Ctrl+Shift+L 讲解"}
         </span>
       </div>
     </div>

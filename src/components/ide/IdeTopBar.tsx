@@ -81,7 +81,7 @@ export function IdeTopBar({
         className="gap-1.5"
         disabled={!activePath || !dirty}
         onClick={() => void saveFile(activePath)}
-        title="保存 (⌘/Ctrl+S)"
+        title="保存 (⌘/Ctrl+S) · 格式化 Shift+Alt+F · 转到定义 F12"
       >
         <Save className="h-3.5 w-3.5" />
         <span className="hidden sm:inline">保存</span>

@@ -33,7 +33,7 @@ import { openCreateDocDialog } from "@/lib/createDocDialogBus";
 import { RegisterSW } from "./pwa/RegisterSW";
 import { IdeShell } from "./ide/IdeShell";
 import { AUTOSAVE_DEBOUNCE_MS } from "@/lib/storage/constants";
-import { matchShortcut, normalizeShortcuts } from "@/lib/shortcuts";
+import { claimShortcut, matchShortcut, normalizeShortcuts } from "@/lib/shortcuts";
 import { shouldHandlePreviewUndoShortcut } from "@/lib/previewUndo";
 
 export function AppShell() {
@@ -133,6 +133,7 @@ export function AppShell() {
 
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return;
       const target = e.target as HTMLElement | null;
       const typing =
         !!target &&
@@ -142,26 +143,27 @@ export function AppShell() {
           target.isContentEditable);
 
       if (matchShortcut(e, shortcuts.commandPalette)) {
-        e.preventDefault();
+        claimShortcut(e);
         setCommandOpen(true);
         return;
       }
       // In-file find (Ctrl/Cmd+F). Library search stays on ⌘K.
+      // Capture + claim so Chrome/Edge find bar never opens.
       if (matchShortcut(e, shortcuts.search)) {
-        e.preventDefault();
+        claimShortcut(e);
         if (getActive()) setFindInFileOpen(true);
         else setStatus("请先打开一篇文档");
         return;
       }
       if (matchShortcut(e, shortcuts.save)) {
-        e.preventDefault();
+        claimShortcut(e);
         saveDoc();
         return;
       }
       if (matchShortcut(e, shortcuts.toggleSource)) {
         const active = getActive();
         if (!active) return;
-        e.preventDefault();
+        claimShortcut(e);
         const next = viewMode === "source" ? "preview" : "source";
         setViewMode(next);
         setHtmlImmersive(false);
@@ -169,34 +171,34 @@ export function AppShell() {
         return;
       }
       if (matchShortcut(e, shortcuts.newMd) && !typing) {
-        e.preventDefault();
+        claimShortcut(e);
         openCreateDocDialog({ type: "md" });
         return;
       }
       if (matchShortcut(e, shortcuts.dailyNote) && !typing) {
-        e.preventDefault();
+        claimShortcut(e);
         openDailyNote();
         return;
       }
       if (matchShortcut(e, shortcuts.toggleDocSplit) && !typing) {
-        e.preventDefault();
+        claimShortcut(e);
         toggleDocSplit();
         return;
       }
       if (matchShortcut(e, shortcuts.closeTab) && !typing) {
         const id = useStore.getState().activeId;
         if (!id) return;
-        e.preventDefault();
+        claimShortcut(e);
         closeTab(id);
         return;
       }
       if (matchShortcut(e, shortcuts.exportActive) && !typing) {
-        e.preventDefault();
+        claimShortcut(e);
         setExportDialogOpen(true);
         return;
       }
       if (matchShortcut(e, shortcuts.findReplace) && !typing) {
-        e.preventDefault();
+        claimShortcut(e);
         setFindReplaceOpen(true);
         return;
       }
@@ -207,7 +209,7 @@ export function AppShell() {
         shouldHandlePreviewUndoShortcut(e.target, typing)
       ) {
         if (undoPreviewEdit()) {
-          e.preventDefault();
+          claimShortcut(e);
         }
         return;
       }
@@ -217,7 +219,7 @@ export function AppShell() {
         shouldHandlePreviewUndoShortcut(e.target, typing)
       ) {
         if (redoPreviewEdit()) {
-          e.preventDefault();
+          claimShortcut(e);
         }
         return;
       }
@@ -225,13 +227,13 @@ export function AppShell() {
       const active = getActive();
       if (active?.type === "html" && !typing) {
         if (e.key === "Escape" && htmlImmersive) {
-          e.preventDefault();
+          claimShortcut(e);
           setHtmlImmersive(false);
           setStatus("已退出沉浸模式");
           return;
         }
         if (matchShortcut(e, shortcuts.focusMode)) {
-          e.preventDefault();
+          claimShortcut(e);
           const next = !htmlImmersive;
           setHtmlImmersive(next);
           setStatus(next ? "已进入沉浸模式" : "已退出沉浸模式");
@@ -239,21 +241,21 @@ export function AppShell() {
       }
       if (active?.type === "md" && !typing) {
         if (e.key === "Escape" && mdFocusMode) {
-          e.preventDefault();
+          claimShortcut(e);
           setMdFocusMode(false);
           setStatus("已退出专注模式");
           return;
         }
         if (matchShortcut(e, shortcuts.focusMode)) {
-          e.preventDefault();
+          claimShortcut(e);
           const next = !mdFocusMode;
           setMdFocusMode(next);
           setStatus(next ? "已进入专注模式" : "已退出专注模式");
         }
       }
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
   }, [
     setCommandOpen,
     saveDoc,

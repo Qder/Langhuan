@@ -9,9 +9,9 @@ import {
   highlightActiveLineGutter,
   drawSelection,
 } from "@codemirror/view";
-import { EditorState, Compartment } from "@codemirror/state";
+import { EditorState, Compartment, Prec } from "@codemirror/state";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
-import { searchKeymap, highlightSelectionMatches } from "@codemirror/search";
+import { searchKeymap, highlightSelectionMatches, openSearchPanel } from "@codemirror/search";
 import {
   bracketMatching,
   foldGutter,
@@ -32,6 +32,7 @@ import {
   planGotoDefinition,
   wordAtOffset,
 } from "@/lib/ide/gotoDefinition";
+import { IDE_FIND_EVENT, IDE_GOTO_DEF_EVENT } from "@/lib/ide/ideEvents";
 import { listIdeDir, readIdeFile } from "@/lib/ide/ideFs";
 import { isDarkTheme } from "@/lib/theme";
 import { useStore } from "@/lib/store";
@@ -81,15 +82,35 @@ export function IdeEditor({ path }: { path: string }) {
     const host = hostRef.current;
     if (!host) return;
 
-    const saveKey = keymap.of([
-      {
-        key: "Mod-s",
-        run: () => {
-          void saveFile(path);
-          return true;
+    const ideKeys = Prec.highest(
+      keymap.of([
+        {
+          key: "Mod-s",
+          run: () => {
+            void saveFile(path);
+            return true;
+          },
         },
-      },
-    ]);
+        {
+          key: "F12",
+          run: (view) => {
+            const sel = view.state.selection.main;
+            let word: string | null = null;
+            if (!sel.empty) {
+              const t = view.state.doc.sliceString(sel.from, sel.to).trim();
+              word =
+                wordAtOffset(t, 0) ??
+                (t.match(/^[A-Za-z_][A-Za-z0-9_]*$/) ? t : null);
+            } else {
+              const line = view.state.doc.lineAt(sel.head);
+              word = wordAtOffset(line.text, sel.head - line.from);
+            }
+            gotoDefRef.current(word);
+            return true;
+          },
+        },
+      ])
+    );
 
     const state = EditorState.create({
       doc: draft,
@@ -105,7 +126,7 @@ export function IdeEditor({ path }: { path: string }) {
         highlightSelectionMatches(),
         syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
         keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap, ...foldKeymap, indentWithTab]),
-        saveKey,
+        ideKeys,
         ...locateHighlightExtensions(),
         langComp.current.of([]),
         themeComp.current.of(
@@ -175,7 +196,8 @@ export function IdeEditor({ path }: { path: string }) {
             return true;
           },
           click: (event, view) => {
-            if (!event.altKey) return false;
+            // VS Code: Ctrl/Cmd+Click; also keep Alt+Click.
+            if (!(event.altKey || event.metaKey || event.ctrlKey)) return false;
             event.preventDefault();
             const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
             if (pos == null) return true;
@@ -377,6 +399,41 @@ export function IdeEditor({ path }: { path: string }) {
     };
   }, [runGotoDefinition]);
 
+  // Shell claims Mod+F / F12 in capture; editor opens CM find or resolves word.
+  React.useEffect(() => {
+    const onFind = () => {
+      const view = viewRef.current;
+      if (!view) return;
+      view.focus();
+      openSearchPanel(view);
+    };
+    const onGoto = () => {
+      const view = viewRef.current;
+      if (!view) {
+        setStatus("请先打开一个文件");
+        return;
+      }
+      view.focus();
+      const sel = view.state.selection.main;
+      let word: string | null = null;
+      if (!sel.empty) {
+        const t = view.state.doc.sliceString(sel.from, sel.to).trim();
+        word =
+          wordAtOffset(t, 0) ??
+          (t.match(/^[A-Za-z_][A-Za-z0-9_]*$/) ? t : null);
+      } else {
+        const line = view.state.doc.lineAt(sel.head);
+        word = wordAtOffset(line.text, sel.head - line.from);
+      }
+      void runGotoDefinition(word);
+    };
+    window.addEventListener(IDE_FIND_EVENT, onFind);
+    window.addEventListener(IDE_GOTO_DEF_EVENT, onGoto);
+    return () => {
+      window.removeEventListener(IDE_FIND_EVENT, onFind);
+      window.removeEventListener(IDE_GOTO_DEF_EVENT, onGoto);
+    };
+  }, [runGotoDefinition, setStatus]);
 
   const copySelection = () => {
     const view = viewRef.current;
@@ -414,7 +471,7 @@ export function IdeEditor({ path }: { path: string }) {
             )}
             onClick={() => void runGotoDefinition(ctxMenu.word)}
           >
-            转到定义
+            转到定义 (F12)
           </button>
           <button
             type="button"

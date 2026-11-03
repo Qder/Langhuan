@@ -67,3 +67,10 @@ export {
   explorerRowSelector,
 } from "./explorerReveal";
 
+
+export {
+  formatDocument,
+  isFormatDocumentHotkey,
+  type FormatDocumentResult,
+} from "./formatDocument";
+export { IDE_FIND_EVENT, IDE_GOTO_DEF_EVENT } from "./ideEvents";

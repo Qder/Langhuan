@@ -121,6 +121,19 @@ export function matchShortcut(e: KeyboardEvent, binding: string): boolean {
   return pressed === key;
 }
 
+/**
+ * Claim an in-app shortcut so the browser (find bar, save page, etc.) does not
+ * also handle it. Call after deciding to handle the key.
+ */
+export function claimShortcut(e: KeyboardEvent): void {
+  e.preventDefault();
+  e.stopPropagation();
+  // Stop other window/document listeners in the same phase from double-handling.
+  if (typeof e.stopImmediatePropagation === "function") {
+    e.stopImmediatePropagation();
+  }
+}
+
 export function downloadBlob(blob: Blob, filename: string) {
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  claimShortcut,
   DEFAULT_SHORTCUTS,
   formatShortcut,
   matchShortcut,
@@ -72,5 +73,24 @@ describe("shortcuts", () => {
   it("search label is in-file find", async () => {
     const { SHORTCUT_LABELS } = await import("./shortcuts");
     expect(SHORTCUT_LABELS.search).toBe("文件内查找");
+  });
+
+  it("claimShortcut prevents default and stops propagation", () => {
+    let prevented = false;
+    let stopped = false;
+    let immediate = false;
+    const e = {
+      preventDefault: () => {
+        prevented = true;
+      },
+      stopPropagation: () => {
+        stopped = true;
+      },
+      stopImmediatePropagation: () => {
+        immediate = true;
+      },
+    } as unknown as KeyboardEvent;
+    claimShortcut(e);
+    expect(prevented && stopped && immediate).toBe(true);
   });
 });
