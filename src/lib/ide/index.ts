@@ -46,3 +46,4 @@ export {
   filterQuickOpenPaths,
   planQuickOpenCandidates,
 } from "./quickOpen";
+export { parseGotoLine, type GotoLineResult } from "./gotoLine";

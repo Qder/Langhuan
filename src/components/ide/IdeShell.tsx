@@ -10,6 +10,7 @@ import { IdeWelcome } from "./IdeWelcome";
 import { IdeDirtyCloseDialog } from "./IdeDirtyCloseDialog";
 import { IdeExplainPanel } from "./IdeExplainPanel";
 import { IdeQuickOpen } from "./IdeQuickOpen";
+import { IdeGotoLine } from "./IdeGotoLine";
 import { useMediaQuery } from "@/lib/useMediaQuery";
 import { cn } from "@/lib/utils";
 
@@ -26,6 +27,7 @@ export function IdeShell() {
   const setStatus = useIdeStore((s) => s.setStatus);
   const isLg = useMediaQuery("(min-width: 1024px)");
   const [quickOpen, setQuickOpen] = React.useState(false);
+  const [gotoLineOpen, setGotoLineOpen] = React.useState(false);
 
   React.useEffect(() => {
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -74,6 +76,22 @@ export function IdeShell() {
     return () => window.removeEventListener("keydown", onKey);
   }, [session, setStatus]);
 
+  // Mod+G go to line
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return;
+      if (e.key.toLowerCase() !== "g") return;
+      e.preventDefault();
+      if (!activePath) {
+        setStatus("请先打开一个文件");
+        return;
+      }
+      setGotoLineOpen(true);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [activePath, setStatus]);
+
   const showDrawer = !!session && explorerOpen && !isLg;
   const showDocked = !!session && explorerOpen && isLg;
 
@@ -117,7 +135,7 @@ export function IdeShell() {
                     <br />
                     修改后 ⌘/Ctrl+S 写回磁盘；关闭未保存标签会提示。
                     <br />
-                    ⌘/Ctrl+P 快速打开；⌘/Ctrl+L 打开讲解面板。
+                    ⌘/Ctrl+P 快速打开；⌘/Ctrl+G 转到行；⌘/Ctrl+L 打开讲解面板。
                   </div>
                 )}
               </div>
@@ -133,6 +151,7 @@ export function IdeShell() {
         )}
       </div>
       <IdeQuickOpen open={quickOpen} onClose={() => setQuickOpen(false)} />
+      <IdeGotoLine open={gotoLineOpen} onClose={() => setGotoLineOpen(false)} />
       <IdeDirtyCloseDialog />
       <div
         className={cn(
