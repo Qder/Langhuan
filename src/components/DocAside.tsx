@@ -2,7 +2,13 @@
 
 import * as React from "react";
 import { ChevronDown, Highlighter, Link2, Trash2 } from "lucide-react";
-import type { OutlineHeading } from "@/lib/outline";
+import {
+  OUTLINE_SPY_THRESHOLD_PX,
+  applyOutlineJump,
+  findOutlineHeadingEl,
+  planOutlineJump,
+  type OutlineHeading,
+} from "@/lib/outline";
 import type { Document } from "@/lib/types";
 import { cn, dirname, titleOf } from "@/lib/utils";
 import { useStore } from "@/lib/store";
@@ -21,7 +27,7 @@ export type DocAsideProps = {
   className?: string;
   /** Active document for 未链接的提及 / 批注 / 附件 */
   doc?: Document | null;
-  /** Called when user clicks an outline item (after scroll-into-view). */
+  /** Called when user clicks an outline item (after reader-scroll jump). */
   onNavigateHeading?: (id: string) => void;
 };
 
@@ -53,11 +59,13 @@ function TocTree({
   activeHeading,
   depth = 0,
   onNavigateHeading,
+  onMissingHeading,
 }: {
   nodes: TocNode[];
   activeHeading: string;
   depth?: number;
   onNavigateHeading?: (id: string) => void;
+  onMissingHeading?: (id: string) => void;
 }) {
   const [collapsed, setCollapsed] = React.useState<Record<string, boolean>>({});
   return (
@@ -95,10 +103,23 @@ function TocTree({
                 aria-current={isActive ? "true" : undefined}
                 onClick={(e) => {
                   e.preventDefault();
-                  onNavigateHeading?.(n.heading.id);
-                  document
-                    .getElementById(n.heading.id)
-                    ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                  const id = n.heading.id;
+                  onNavigateHeading?.(id);
+                  const root = document.getElementById("reader-scroll");
+                  const heading = findOutlineHeadingEl(id, root);
+                  const plan = planOutlineJump(
+                    root,
+                    heading,
+                    OUTLINE_SPY_THRESHOLD_PX
+                  );
+                  if (!plan.ok || !root) {
+                    onMissingHeading?.(id);
+                    return;
+                  }
+                  applyOutlineJump(root, plan, {
+                    smooth: true,
+                    headingEl: heading,
+                  });
                 }}
                 className={cn(
                   "min-w-0 flex-1 truncate rounded-lg px-1.5 py-1 hover:bg-[var(--hover)] transition-colors",
@@ -117,6 +138,7 @@ function TocTree({
                 activeHeading={activeHeading}
                 depth={depth + 1}
                 onNavigateHeading={onNavigateHeading}
+                onMissingHeading={onMissingHeading}
               />
             )}
           </div>
@@ -260,6 +282,7 @@ export function DocAside({
             nodes={tocTree}
             activeHeading={activeHeading}
             onNavigateHeading={onNavigateHeading}
+            onMissingHeading={(id) => setStatus(`找不到标题：${id}`)}
           />
         </nav>
       )}

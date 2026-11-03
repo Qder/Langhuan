@@ -4,6 +4,9 @@ import {
   outlineHeadingText,
   resolveActiveHeadingId,
   headingViewportTops,
+  scrollOffsetForHeading,
+  planOutlineJump,
+  OUTLINE_SPY_THRESHOLD_PX,
 } from "./outline";
 
 describe("extractOutline", () => {
@@ -75,3 +78,51 @@ describe("headingViewportTops", () => {
   });
 });
 
+describe("scrollOffsetForHeading / planOutlineJump", () => {
+  it("subtracts spy threshold and clamps at 0", () => {
+    expect(scrollOffsetForHeading(500, 120)).toBe(380);
+    expect(scrollOffsetForHeading(50, OUTLINE_SPY_THRESHOLD_PX)).toBe(0);
+  });
+
+  it("plans scrollTop from heading content offset inside reader-scroll", () => {
+    const rect = (top: number): DOMRect =>
+      ({
+        top,
+        left: 0,
+        right: 0,
+        bottom: top,
+        width: 0,
+        height: 0,
+        x: 0,
+        y: top,
+        toJSON() {
+          return {};
+        },
+      }) as DOMRect;
+    const root = {
+      scrollTop: 200,
+      getBoundingClientRect: () => rect(100),
+    } as unknown as HTMLElement;
+    const heading = {
+      id: "常用等值式",
+      getBoundingClientRect: () => rect(400),
+    } as unknown as HTMLElement;
+    // contentTop = 400 - 100 + 200 = 500 → scrollTop = 500 - 120 = 380
+    expect(planOutlineJump(root, heading, 120)).toEqual({
+      ok: true,
+      scrollTop: 380,
+      headingId: "常用等值式",
+    });
+  });
+
+  it("fails cleanly when root or heading missing", () => {
+    expect(planOutlineJump(null, {} as HTMLElement)).toEqual({
+      ok: false,
+      reason: "no-root",
+    });
+    expect(planOutlineJump({} as HTMLElement, null)).toEqual({
+      ok: false,
+      reason: "no-heading",
+    });
+  });
+});
