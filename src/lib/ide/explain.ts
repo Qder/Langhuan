@@ -45,6 +45,7 @@ export type IdeExplainMessage = {
 
 export const IDE_EXPLAIN_SYSTEM_PROMPT = `你是本工程的讲解助教，只解释知识点，不改代码、不输出 git patch、不编造工程里没有的路径。
 每个关键结论请用 [[相对路径:行号]] 或 [[相对路径:起始行-结束行]] 标出源码位置（路径用工程相对路径，含目录）。
+代码围栏请写成 \`\`\`语言 相对路径:起始行-结束行 ，围栏正文必须是源码原文（可被点选定位）。
 引用必须来自用户消息里的「工程已扫描文件路径」清单，或当前附带的 files 正文；禁止编造清单与 files 之外的路径。
 用简洁中文回答。`;
 
@@ -226,11 +227,15 @@ export function buildMockExplainMarkdown(opts: {
     .map((p) => normalizeIdeRelPath(p))
     .find((p) => p && p !== primaryNorm);
 
+  const snippetLines = lines.slice(rel, Math.min(rel + 3, lines.length)).join("\n");
   const parts = [
     `这是针对「${q}」的本地示例讲解（未配置 API）。`,
     `文件 [[${path}:${line}]]（\`${leaf}\`）是当前上下文的入口；可以从这一带的定义读起。`,
     `若这段逻辑跨了几行，请看 [[${path}:${line}-${endLine}]]：先分清输入、状态和出口，再对照调用方。`,
-    `点上面的路径芯片会打开工程里的真实文件并滚到对应行；编造路径不会静默乱开。`,
+    snippetLines.trim()
+      ? `下面这段是源码原文，没有标路径；点代码块也会按正文定位：\n\n\`\`\`\n${snippetLines}\n\`\`\``
+      : "",
+    `点上面的路径芯片或代码块会打开工程里的真实文件并滚到对应行；编造路径不会静默乱开。`,
     `配置 \`OPENAI_API_KEY\`（或 IDE 设置里的 Key）后，这里会换成模型流式答复，引用格式不变。`,
   ];
   if (second) {
@@ -238,7 +243,7 @@ export function buildMockExplainMarkdown(opts: {
       `清单里还有 [[${second}:1]]，可对照阅读（示例讲解顺带引用第二个已扫描文件）。`
     );
   }
-  return parts.join("\n\n");
+  return parts.filter(Boolean).join("\n\n");
 }
 
 

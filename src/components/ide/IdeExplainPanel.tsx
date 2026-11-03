@@ -19,8 +19,16 @@ import {
   collectFileIndexWithOptionalBfs,
   listNearbyImports,
   truncateNeighborExplainContent,
+  type IdeExplainFilePayload,
   type IdeExplainMessage,
 } from "@/lib/ide/explain";
+import {
+  locateSnippetInFiles,
+  mergeSnippetCorpus,
+  parseExplainFences,
+  type ExplainFence,
+} from "@/lib/ide/snippetLocate";
+import { flattenCodeText } from "@/lib/codeText";
 import { listIdeDir, readIdeFile } from "@/lib/ide/ideFs";
 import { useMediaQuery } from "@/lib/useMediaQuery";
 import { cn } from "@/lib/utils";
@@ -41,7 +49,17 @@ function segmentExplain(md: string): Array<
   | { type: "text"; value: string }
   | { type: "cite"; citation: IdeCitation }
 > {
-  const cites = parseIdeCitations(md);
+  const cites = parseIdeCitations(md).filter((c) => {
+    const raw = c.raw;
+    // Fence-info paths stay in the markdown so the code block still parses;
+    // they remain clickable in the footer / on the fence chrome.
+    return (
+      raw.startsWith("[[") ||
+      raw.startsWith("`") ||
+      raw.includes("ide://") ||
+      /^\[[^\]]*\]\(/.test(raw)
+    );
+  });
   if (cites.length === 0) return [{ type: "text", value: md }];
   const out: Array<
     { type: "text"; value: string } | { type: "cite"; citation: IdeCitation }
@@ -58,14 +76,89 @@ function segmentExplain(md: string): Array<
   return out;
 }
 
+function fenceHint(f: ExplainFence): string {
+  if (f.path && f.line != null) {
+    if (f.endLine != null && f.endLine !== f.line) {
+      return `${f.path}:${f.line}-${f.endLine}`;
+    }
+    return `${f.path}:${f.line}`;
+  }
+  if (f.path) return f.path;
+  return "点击定位源码";
+}
+
+function ExplainFenceCard({
+  text,
+  fence,
+  onFence,
+}: {
+  text: string;
+  fence?: ExplainFence;
+  onFence?: (f: ExplainFence) => void;
+}) {
+  const synthetic: ExplainFence = fence ?? {
+    lang: "",
+    info: "",
+    body: text,
+    index: 0,
+    endIndex: 0,
+  };
+  const clickable = typeof onFence === "function";
+  const hint = fenceHint(synthetic);
+  return (
+    <div
+      role={clickable ? "button" : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      title={clickable ? hint : undefined}
+      onClick={clickable ? () => onFence!(synthetic) : undefined}
+      onKeyDown={
+        clickable
+          ? (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onFence!(synthetic);
+              }
+            }
+          : undefined
+      }
+      className={cn(
+        "my-2 rounded-lg border border-[var(--border)] overflow-hidden text-left",
+        clickable &&
+          "cursor-pointer hover:border-[color-mix(in_srgb,var(--accent)_55%,var(--border))]"
+      )}
+    >
+      <div className="flex items-center justify-between gap-2 px-2 py-1 text-[10px] font-mono text-[var(--muted)] bg-[var(--hover)]">
+        <span>{synthetic.lang || "code"}</span>
+        {clickable && <span className="text-[var(--accent)] truncate">{hint}</span>}
+      </div>
+      <pre className="m-0 px-2 py-2 overflow-x-auto text-[12px] leading-5 font-mono">
+        <code>{text}</code>
+      </pre>
+    </div>
+  );
+}
+
 function ExplainBody({
   content,
   onCite,
+  onFence,
 }: {
   content: string;
   onCite: (c: IdeCitation) => void;
+  onFence?: (f: ExplainFence) => void;
 }) {
   const parts = segmentExplain(content);
+  const fences = React.useMemo(() => parseExplainFences(content), [content]);
+  const used = new Set<number>();
+
+  const takeFence = (text: string): ExplainFence | undefined => {
+    const want = text.replace(/\r\n/g, "\n").replace(/\n$/, "");
+    const idx = fences.findIndex((f, i) => !used.has(i) && f.body === want);
+    if (idx < 0) return undefined;
+    used.add(idx);
+    return fences[idx];
+  };
+
   return (
     <div className="space-y-1 text-sm leading-relaxed font-ui text-[var(--fg)]">
       {parts.map((p, i) => {
@@ -76,13 +169,42 @@ function ExplainBody({
               key={i}
               remarkPlugins={[remarkGfm]}
               components={{
-                p: ({ children }) => <p className="my-1.5">{children}</p>,
-                code: ({ children }) => (
-                  <code className="rounded px-1 py-0.5 bg-[var(--hover)] text-[12px] font-mono">
-                    {children}
-                  </code>
+                p: ({ children }: { children?: React.ReactNode }) => (
+                  <p className="my-1.5">{children}</p>
                 ),
-                a: ({ href, children }) => (
+                pre: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
+                code: ({
+                  className,
+                  children,
+                  ...props
+                }: {
+                  className?: string;
+                  children?: React.ReactNode;
+                  inline?: boolean;
+                } & Record<string, unknown>) => {
+                  const inline = props.inline;
+                  const text = flattenCodeText(children).replace(/\n$/, "");
+                  const isBlock =
+                    inline === false ||
+                    (typeof className === "string" &&
+                      /(^|\s)language-/.test(className)) ||
+                    text.includes("\n");
+                  if (!isBlock) {
+                    return (
+                      <code className="rounded px-1 py-0.5 bg-[var(--hover)] text-[12px] font-mono">
+                        {children}
+                      </code>
+                    );
+                  }
+                  return (
+                    <ExplainFenceCard
+                      text={text}
+                      fence={takeFence(text)}
+                      onFence={onFence}
+                    />
+                  );
+                },
+                a: ({ href, children }: { href?: string; children?: React.ReactNode }) => (
                   <a
                     href={href}
                     className="text-[var(--accent)] underline-offset-2 hover:underline"
@@ -92,7 +214,7 @@ function ExplainBody({
                     {children}
                   </a>
                 ),
-              }}
+              } as never}
             >
               {p.value}
             </ReactMarkdown>
@@ -122,12 +244,15 @@ function ExplainBody({
 function ExplainFooterCitations({
   content,
   onCite,
+  onFence,
 }: {
   content: string;
   onCite: (c: IdeCitation) => void;
+  onFence?: (f: ExplainFence) => void;
 }) {
   const list = listFooterCitations(content);
-  if (list.length === 0) return null;
+  const extraFences = parseExplainFences(content).filter((f) => !f.path);
+  if (list.length === 0 && extraFences.length === 0) return null;
   return (
     <div className="mt-2 pt-2 border-t border-[var(--border)]">
       <div className="text-[10px] text-[var(--muted)] mb-1 font-ui">本次引用</div>
@@ -150,6 +275,21 @@ function ExplainFooterCitations({
                 ? `:${c.line}-${c.endLine}`
                 : `:${c.line}`
               : ""}
+          </button>
+        ))}
+        {extraFences.map((f, i) => (
+          <button
+            key={`fence-${i}`}
+            type="button"
+            title="按代码块正文定位"
+            onClick={() => onFence?.(f)}
+            className={cn(
+              "inline-flex items-center px-1.5 py-0.5 rounded-md text-[11px] font-mono",
+              "bg-[color-mix(in_srgb,var(--accent)_18%,transparent)] text-[var(--accent)]",
+              "hover:bg-[color-mix(in_srgb,var(--accent)_28%,transparent)] border border-[color-mix(in_srgb,var(--accent)_35%,transparent)]"
+            )}
+          >
+            代码块{extraFences.length > 1 ? i + 1 : ""}
           </button>
         ))}
       </div>
@@ -188,6 +328,9 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
   const [showSettings, setShowSettings] = React.useState(false);
   const [candidates, setCandidates] = React.useState<string[]>([]);
   const abortRef = React.useRef<AbortController | null>(null);
+  const corpusByMsgRef = React.useRef<Record<string, IdeExplainFilePayload[]>>(
+    {}
+  );
   const listRef = React.useRef<HTMLDivElement>(null);
   const sendRef = React.useRef<
     (preset?: string, opts?: { includeFile?: boolean; includeSelection?: boolean }) => Promise<void>
@@ -252,6 +395,80 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
       failWith(resolved.candidates);
     },
     [children, openFile, setStatus]
+  );
+
+  const jumpFence = React.useCallback(
+    async (f: ExplainFence, msgId?: string) => {
+      const tabFiles = tabs.map((t) => ({
+        path: t.path,
+        content: t.draft,
+        startLine: 1,
+      }));
+      const corpus = mergeSnippetCorpus(
+        msgId ? corpusByMsgRef.current[msgId] : undefined,
+        tabFiles
+      );
+
+      if (f.path && f.line != null) {
+        await jumpCitation({
+          path: f.path,
+          line: f.line,
+          endLine: f.endLine,
+          raw: f.body,
+          index: f.index,
+          endIndex: f.endIndex,
+        });
+        return;
+      }
+
+      const located = locateSnippetInFiles(f.body, corpus);
+      if (located.ok) {
+        setCandidates([]);
+        const ok = await openFile(located.path, {
+          line: located.line,
+          endLine: located.endLine,
+        });
+        if (!ok) {
+          setStatus(`工程里找不到 ${located.path}`);
+          return;
+        }
+        const how = located.precision === "exact" ? "精确" : "忽略空白";
+        setStatus(
+          `已定位 ${located.path}:${located.line}（${how}）`
+        );
+        return;
+      }
+
+      if (f.path) {
+        await jumpCitation({
+          path: f.path,
+          line: f.line,
+          endLine: f.endLine,
+          raw: f.body,
+          index: f.index,
+          endIndex: f.endIndex,
+        });
+        return;
+      }
+
+      if (located.reason === "ambiguous") {
+        setCandidates(located.candidates);
+        setStatus(
+          located.candidates.length === 1
+            ? "这段代码在文件里出现多次，请点候选或改选更长的片段"
+            : `多处命中：${located.candidates.join("、")}`
+        );
+        return;
+      }
+      if (located.reason === "too-short" || located.reason === "empty") {
+        setCandidates([]);
+        setStatus("代码块太短，无法可靠定位");
+        return;
+      }
+      setCandidates([]);
+      setStatus("工程里找不到这段代码");
+    },
+    [jumpCitation, openFile, setStatus, tabs]
   );
 
   const stop = () => {
@@ -338,6 +555,7 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
       createdAt: Date.now(),
     };
     const assistantId = newId();
+    corpusByMsgRef.current[assistantId] = files;
     pushExplainMessage(userMsg);
     pushExplainMessage({
       id: assistantId,
@@ -560,10 +778,15 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
               {m.role === "assistant" ? (
                 m.content ? (
                   <>
-                    <ExplainBody content={m.content} onCite={(c) => void jumpCitation(c)} />
+                    <ExplainBody
+                      content={m.content}
+                      onCite={(c) => void jumpCitation(c)}
+                      onFence={(f) => void jumpFence(f, m.id)}
+                    />
                     <ExplainFooterCitations
                       content={m.content}
                       onCite={(c) => void jumpCitation(c)}
+                      onFence={(f) => void jumpFence(f, m.id)}
                     />
                   </>
                 ) : (

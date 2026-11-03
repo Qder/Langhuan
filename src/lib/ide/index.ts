@@ -15,6 +15,7 @@ export { getIdeFsCapability } from "./ideFs";
 export {
   listFooterCitations,
   parseIdeCitations,
+  parseIdePathLineToken,
   resolveIdeCitation,
   planIdeCitationJump,
   ideAncestorDirs,
@@ -24,6 +25,14 @@ export {
   type IdeCitationJumpPlan,
   type IdePendingReveal,
 } from "./citations";
+export {
+  locateSnippetInFiles,
+  mergeSnippetCorpus,
+  parseExplainFences,
+  type ExplainFence,
+  type SnippetFile,
+  type SnippetLocateResult,
+} from "./snippetLocate";
 export {
   assembleExplainUserContent,
   buildExplainFilePayloads,

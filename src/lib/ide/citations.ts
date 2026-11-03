@@ -70,6 +70,13 @@ export function isIdeCitationPath(path: string): boolean {
   return isLikelyTextPath(p) || languageIdFromPath(p) !== "plaintext";
 }
 
+/** Parse `path`, `path:12`, or `path:12-40` when `path` looks like a project file. */
+export function parseIdePathLineToken(
+  s: string
+): { path: string; line?: number; endLine?: number } | null {
+  return parseLineSuffix(s);
+}
+
 function parseLineSuffix(s: string): { path: string; line?: number; endLine?: number } | null {
   const trimmed = s.trim();
   // path:12-34 or path:12
@@ -160,18 +167,17 @@ export function parseIdeCitations(markdown: string): IdeCitation[] {
     }
   }
 
-  // 4) Fence info: ```java src/main/java/com/demo/Tree.java
+  // 4) Fence info: ```java src/foo/Bar.java  or  ```java src/foo/Bar.java:12-40
   {
     const re = /^```[\w.+-]*[ \t]+([^\n`]+)$/gm;
     let m: RegExpExecArray | null;
     while ((m = re.exec(markdown))) {
       const pathPart = m[1].trim().split(/\s+/)[0] || "";
-      const path = normalizeIdeRelPath(pathPart);
-      if (!isIdeCitationPath(path)) continue;
-      // raw is just the path token for chip purposes; index at path start
+      const parsed = parseLineSuffix(pathPart);
+      if (!parsed) continue;
       const pathOffset = m[0].indexOf(pathPart);
       const index = m.index + (pathOffset >= 0 ? pathOffset : 0);
-      take(pathPart, index, { path });
+      take(pathPart, index, parsed);
     }
   }
 
