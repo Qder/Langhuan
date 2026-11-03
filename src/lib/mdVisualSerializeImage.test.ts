@@ -57,11 +57,19 @@ describe("行内混排", () => {
 });
 
 describe("兜底", () => {
-  it("源码里没有对应的图（刚粘进来的）→ 宁可少写也不编假路径", () => {
+  it("源码里没有对应的图且无 data-lh-md-href → 宁可少写也不编假路径", () => {
     const doc = dom(`<p>文字 <img alt="新图" src="data:image/png;base64,xx"></p>`);
     const p = doc.querySelector("p")!;
     // 图去掉，文字留着；前面那个空格来自 DOM 文本节点，原样保留
     expect(serialize(p, "文字\n")).toBe("文字 \n");
+  });
+
+  it("刚粘贴的图带 data-lh-md-href → 写回 markdown", () => {
+    const doc = dom(
+      `<p>文字 <img alt="新图" src="blob:x" data-lh-md-href="./assets/x.png"></p>`
+    );
+    const p = doc.querySelector("p")!;
+    expect(serialize(p, "文字\n")).toBe("文字 ![新图](./assets/x.png)\n");
   });
 
   it("图和 wikilink 各用各的（上下文不互相吃）", () => {

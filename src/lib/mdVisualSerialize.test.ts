@@ -325,3 +325,15 @@ describe("serializeVisualBlock tableCell", () => {
     expect(after).toBe("| f(a) | ✓ | 项上的一元函数 |\n");
   });
 });
+
+describe("strong around punctuation (Typora-style |A|)", () => {
+  it("keeps original **|A|…** marker on click-blur", () => {
+    const slice = "规律：就是**|A| 维立方体的顶点与棱**——解释\n";
+    const p = el(
+      "<p>规律：就是<strong>|A| 维立方体的顶点与棱</strong>——解释</p>"
+    );
+    expect(
+      serializeVisualBlock({ originalSlice: slice, blockType: "paragraph", element: p })
+    ).toBe(slice);
+  });
+});

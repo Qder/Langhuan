@@ -460,10 +460,17 @@ type InlineCtx = {
   mathUsed: Set<number>;
   /** 已还原过的图（按出现顺序对上源码里的 ![]()，图注不进源码）。 */
   imgUsed: Set<number>;
+  /** 已还原过的 **…** / __…__ 起止下标，避免串位。 */
+  strongUsed: Set<number>;
 };
 
 function newInlineCtx(): InlineCtx {
-  return { wikiUsed: new Set<number>(), mathUsed: new Set<number>(), imgUsed: new Set<number>() };
+  return {
+    wikiUsed: new Set<number>(),
+    mathUsed: new Set<number>(),
+    imgUsed: new Set<number>(),
+    strongUsed: new Set<number>(),
+  };
 }
 
 function serializeInlineNode(
@@ -502,7 +509,14 @@ function serializeInlineNode(
   }
 
   if (tag === "strong" || tag === "b") {
-    return "**" + serializeChildren(e, originalSlice, ctx) + "**";
+    const inner = serializeChildren(e, originalSlice, ctx);
+    const kept = matchStrongFromOriginal(inner, originalSlice, ctx);
+    if (kept) return kept;
+    // New bold via Ctrl+B: CommonMark rejects `**|…` — insert WJ so it still parses.
+    if (/^\p{P}/u.test(inner)) {
+      return "**" + "\u2060" + inner + "**";
+    }
+    return "**" + inner + "**";
   }
   if (tag === "em" || tag === "i") {
     return "*" + serializeChildren(e, originalSlice, ctx) + "*";
@@ -522,7 +536,8 @@ function serializeInlineNode(
 
   // 图：源码里的 ![](...) 原样搬回来（预渲染时 src 可能被改写成 blob / URL，
   // 不能反过来拼）。图注是 alt 的呈现，不写回正文。
-  if (tag === "img") return matchImageFromOriginal(originalSlice, ctx);
+  // 刚粘贴的图带 data-lh-md-href，按该路径写回，避免丢图。
+  if (tag === "img") return matchImageFromOriginal(e, originalSlice, ctx);
   if (tag === "figcaption") return "";
 
   // Generic wrapper (span, etc.): descend
@@ -545,10 +560,43 @@ function serializeChildren(
 }
 
 /**
- * 把 DOM 里的 <img> 对回源码里的 ![](...)，按出现顺序取下一个还没用过的。
- * 源码里没有对应（比如刚粘进来的图）就返回空串：宁可少写，也不编一个假路径。
+ * Prefer the exact original `**…**` / `__…__` marker so a bare click-blur does
+ * not rewrite Typora-style `**|A|…**` (CommonMark-invalid but rehype-recovered).
  */
-function matchImageFromOriginal(original: string, ctx: InlineCtx): string {
+function matchStrongFromOriginal(
+  inner: string,
+  original: string,
+  ctx: InlineCtx
+): string | null {
+  const re = /(\*\*|__)([\u200b\u2060]?)([\s\S]*?)\1/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(original))) {
+    if (ctx.strongUsed.has(m.index)) continue;
+    const payload = (m[2] || "") + (m[3] || "");
+    const payloadPlain = payload.replace(/[\u200b\u2060]/g, "");
+    const innerPlain = inner.replace(/[\u200b\u2060]/g, "");
+    if (payload === inner || payloadPlain === innerPlain) {
+      ctx.strongUsed.add(m.index);
+      return m[0];
+    }
+  }
+  return null;
+}
+
+/**
+ * 把 DOM 里的 <img> 对回源码里的 ![](...)，按出现顺序取下一个还没用过的。
+ * 刚粘贴的图带 data-lh-md-href 时直接写回 markdown，避免丢图。
+ */
+function matchImageFromOriginal(
+  el: Element,
+  original: string,
+  ctx: InlineCtx
+): string {
+  const stamped = el.getAttribute("data-lh-md-href");
+  if (stamped) {
+    const alt = (el.getAttribute("alt") || "").replace(/[[\]]/g, "");
+    return `![${alt}](${stamped})`;
+  }
   const re = /!\[[^\]]*\]\([^)]*\)/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(original))) {

@@ -55,6 +55,7 @@ import {
 import type { SortedAnchorArrays } from "@/lib/locate/scrollSync";
 import type { LocateResult } from "@/lib/locate";
 import { rehypeSrcPositions } from "@/lib/locate/rehypeSrcPositions";
+import { rehypeRecoverEmphasis } from "@/lib/rehypeRecoverEmphasis";
 import { PreviewContextMenu, type ContextMenuItem } from "./locate/PreviewContextMenu";
 import { subscribeScrollSync } from "@/lib/locate/scrollBus";
 import { probeRender, probeSection } from "@/lib/dev/perfProbe";
@@ -391,6 +392,8 @@ const MarkdownBody = React.memo(function MarkdownBody({
       rehypeRaw,
       // Bug 3: stamp data-src-* BEFORE sanitize/highlight drop positions.
       rehypeSrcPositions(fmOffset, fmLineOffset),
+      // Typora-friendly: recover `**|A|…**` that CommonMark left-flanking rejects.
+      rehypeRecoverEmphasis,
       [rehypeSanitize, mdSanitizeSchema] as [typeof rehypeSanitize, typeof mdSanitizeSchema],
       [rehypeHighlight, { plainText: ["mermaid"] }] as [typeof rehypeHighlight, { plainText: string[] }],
     ],
@@ -1658,7 +1661,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
       if (editingHost && inlineEditRef.current?.kind === "block") {
         return;
       }
-      if (t.closest("a, button, input, textarea, summary")) return;
+      if (t.closest("a, button, input, textarea, summary, img, .lh-broken-img, .lh-md-figure")) return;
       const mode = useStore.getState().viewMode;
 
       // Ignore pure text-selection clicks (keep划词/批注), unless double-click.
@@ -2346,6 +2349,32 @@ export function MarkdownReader({ doc }: { doc: Document }) {
           onDragOver={(e) => {
             if ([...e.dataTransfer.types].includes("Files")) e.preventDefault();
           }}
+          onPaste={async (e) => {
+            // Visual CE hosts handle paste themselves (caret insert).
+            const t = e.target as HTMLElement | null;
+            if (t?.closest?.("[data-lh-inline-editor], [contenteditable=true]")) {
+              return;
+            }
+            const items = e.clipboardData?.items;
+            if (!items?.length) return;
+            const imageItems = [...items].filter((it) => it.type.startsWith("image/"));
+            if (!imageItems.length) return;
+            e.preventDefault();
+            let next = getContent(doc.id);
+            let n = 0;
+            for (const it of imageItems) {
+              const file = it.getAsFile();
+              if (!file) continue;
+              const res = await ingestImageFile(doc.id, file, file.name || undefined);
+              if (!res) continue;
+              next = next.replace(/\s*$/, "") + `\n\n${res.snippet}\n`;
+              n += 1;
+            }
+            if (!n) return;
+            setDraft(doc.id, next);
+            saveDoc(doc.id);
+            setStatus(`已粘贴 ${n} 张图片`);
+          }}
           onDrop={async (e) => {
             const files = [...e.dataTransfer.files].filter((f) =>
               f.type.startsWith("image/")
@@ -2356,7 +2385,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
             for (const f of files) {
               const res = await ingestImageFile(doc.id, f, f.name);
               if (res) {
-                next = next.replace(/\s*$/, "") + `\n\n![${f.name}](${res.href})\n`;
+                next = next.replace(/\s*$/, "") + `\n\n${res.snippet}\n`;
               }
             }
             setDraft(doc.id, next);
@@ -2451,6 +2480,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
           )}
           {inlineEdit?.kind === "block" && inlineEdit.mode === "visual" && (
             <InlineVisualBlockEditor
+              docId={doc.id}
               anchorEl={inlineEdit.el}
               originalSlice={inlineEdit.text}
               blockType={inlineEdit.blockType}

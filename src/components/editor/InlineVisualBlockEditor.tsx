@@ -5,6 +5,7 @@ import {
   serializeVisualBlock,
   type VisualBlockType,
 } from "@/lib/mdVisualSerialize";
+import { useStore } from "@/lib/store";
 import {
   caretEdgeInBlock,
   hideVisualAnchorsBySrcRange,
@@ -18,6 +19,8 @@ import {
 export type VisualNavDir = "prev" | "next";
 
 export type InlineVisualBlockEditorProps = {
+  /** Document that owns paste/drop image ingest. */
+  docId: string;
   anchorEl: HTMLElement;
   originalSlice: string;
   blockType: VisualBlockType;
@@ -55,6 +58,7 @@ export type InlineVisualBlockEditorProps = {
  * merges, arrows cross blocks. Commit via serializeVisualBlock + replaceRange.
  */
 export function InlineVisualBlockEditor({
+  docId,
   anchorEl,
   originalSlice,
   blockType,
@@ -296,21 +300,55 @@ export function InlineVisualBlockEditor({
       }, 0);
     };
 
+    const onPaste = (e: ClipboardEvent) => {
+      const cd = e.clipboardData;
+      if (!cd) return;
+      const image = [...cd.items].find((it) => it.type.startsWith("image/"));
+      if (!image) return;
+      const file = image.getAsFile();
+      if (!file) return;
+      e.preventDefault();
+      e.stopPropagation();
+      void (async () => {
+        const res = await useStore.getState().ingestImageFile(docId, file, file.name || undefined);
+        if (!res || committedRef.current) return;
+        const img = el.ownerDocument.createElement("img");
+        img.src = URL.createObjectURL(file);
+        img.alt = (file.name || "image").replace(/\.[^.]+$/, "");
+        img.setAttribute("data-lh-md-href", res.href);
+        img.className = "lh-md-img";
+        const sel = el.ownerDocument.getSelection?.() || window.getSelection();
+        if (sel && sel.rangeCount && el.contains(sel.anchorNode)) {
+          const range = sel.getRangeAt(0);
+          range.deleteContents();
+          range.insertNode(img);
+          range.setStartAfter(img);
+          range.collapse(true);
+          sel.removeAllRanges();
+          sel.addRange(range);
+        } else {
+          el.appendChild(img);
+        }
+      })();
+    };
+
     // Capture so we win over any bubble-phase CE/default handlers.
     el.addEventListener("beforeinput", onBeforeInput, true);
     el.addEventListener("keydown", onKeyDown, true);
+    el.addEventListener("paste", onPaste, true);
     el.addEventListener("blur", onBlur);
 
     return () => {
       el.removeEventListener("beforeinput", onBeforeInput, true);
       el.removeEventListener("keydown", onKeyDown, true);
+      el.removeEventListener("paste", onPaste, true);
       el.removeEventListener("blur", onBlur);
       hostRef.current = null;
       dispose();
     };
     // remount host only when the React anchor identity / slice changes
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [anchorEl, blockType, originalSlice, clientX, clientY, caretAt, suppressBlurRef]);
+  }, [docId, anchorEl, blockType, originalSlice, clientX, clientY, caretAt, suppressBlurRef]);
 
   // After save / body rewrite: MarkdownBody may remount a visible twin while
   // the isolated CE host is still implanted. Re-hide by src range; if the
