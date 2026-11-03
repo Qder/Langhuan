@@ -28,6 +28,19 @@ function looksLikeBlockStart(text: string): boolean {
  * `nextText` does not, keep one trailing newline so the following block
  * (e.g. a heading marker) is not glued onto this block's last line.
  */
+/** If [start,end) has no trailing newline, absorb one from source[end]. */
+export function expandRangeThroughTrailingNl(
+  source: string,
+  start: number,
+  end: number
+): number {
+  if (end <= start || end > source.length) return end;
+  if (trailingNewline(source.slice(start, end))) return end;
+  if (source.startsWith("\r\n", end)) return end + 2;
+  if (source[end] === "\n") return end + 1;
+  return end;
+}
+
 export function replaceRange(
   source: string,
   start: number,
@@ -41,7 +54,10 @@ export function replaceRange(
 
   const origNl = trailingNewline(original);
   const nextNl = trailingNewline(text);
-  if (origNl && !nextNl) {
+  // Full-block delete (empty nextText): do not re-inject the victim's trailing
+  // newline — that left a blank line / empty list chrome (teal li::before) after
+  // Backspace/Enter removed an empty list item.
+  if (origNl && !nextNl && text.length > 0) {
     text = text + origNl;
   } else if (!origNl && !nextNl) {
     const after = source.slice(e);

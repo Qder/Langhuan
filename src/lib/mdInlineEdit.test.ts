@@ -6,6 +6,8 @@ import {
   isClientYBelowLastSrcBlock,
   isMonoSrcSlice,
   listGapHitRects,
+  expandRangeThroughTrailingNl,
+  listAnnotatedSrcBlocks,
   listGapSrcBlocks,
   normalizeAppendWriteText,
   prepareAppendAtEnd,
@@ -438,5 +440,72 @@ describe("findEditableSrcBlock", () => {
     const found = findEditableSrcBlock(td, root);
     expect(found!.el.tagName).toBe("TD");
     expect(found!.start).toBe(10);
+  });
+});
+
+describe("listAnnotatedSrcBlocks vs listGapSrcBlocks — empty li", () => {
+  it("annotated drops empty li inside ul; gap keeps both lis (teal-dot cleanup)", () => {
+    const li1 = {
+      tagName: "LI",
+      hasAttribute: () => false,
+      getAttribute: (name: string) =>
+        name === "data-src-start" ? "0" : name === "data-src-end" ? "15" : null,
+      getBoundingClientRect: () => ({ top: 0, bottom: 20 }),
+      contains: () => false,
+    };
+    // Empty list item from Enter after "- something\n" → stranded teal ::before
+    const liEmpty = {
+      tagName: "LI",
+      hasAttribute: () => false,
+      getAttribute: (name: string) =>
+        name === "data-src-start" ? "16" : name === "data-src-end" ? "18" : null,
+      getBoundingClientRect: () => ({ top: 30, bottom: 40 }),
+      contains: () => false,
+    };
+    const ul = {
+      tagName: "UL",
+      hasAttribute: () => false,
+      getAttribute: (name: string) =>
+        name === "data-src-start" ? "0" : name === "data-src-end" ? "18" : null,
+      getBoundingClientRect: () => ({ top: 0, bottom: 40 }),
+      contains: (n: unknown) => n === li1 || n === liEmpty,
+    };
+    const heading = {
+      tagName: "H1",
+      hasAttribute: () => false,
+      getAttribute: (name: string) =>
+        name === "data-src-start" ? "20" : name === "data-src-end" ? "26" : null,
+      getBoundingClientRect: () => ({ top: 50, bottom: 70 }),
+      contains: () => false,
+    };
+    const root = {
+      querySelectorAll: () => [ul, li1, liEmpty, heading],
+    } as unknown as ParentNode;
+
+    const annotated = listAnnotatedSrcBlocks(root);
+    expect(annotated.map((g) => g.el.tagName)).toEqual(["UL", "H1"]);
+    // Empty li start=16 is NOT in annotated → Backspace findIndex failed previously
+    expect(annotated.some((g) => g.start === 16)).toBe(false);
+
+    const gaps = listGapSrcBlocks(root);
+    expect(gaps.map((g) => g.el.tagName)).toEqual(["LI", "LI", "H1"]);
+    expect(gaps.map((g) => g.start)).toEqual([0, 16, 20]);
+  });
+});
+
+describe("expandRangeThroughTrailingNl + empty list delete", () => {
+  it("absorbs mdast-omitted trailing newline on empty list item", () => {
+    const src = "- a\n- \n\n# 速记\n";
+    // DOM/mdast often ends empty li before the newline ("- " = [4,6))
+    expect(expandRangeThroughTrailingNl(src, 4, 6)).toBe(7);
+    expect(expandRangeThroughTrailingNl(src, 4, 7)).toBe(7);
+  });
+
+  it("replaceRange empty delete of empty list item leaves no stranded marker", () => {
+    const src = "- a\n- \n\n# 速记\n";
+    const end = expandRangeThroughTrailingNl(src, 4, 6);
+    const next = replaceRange(src, 4, end, "");
+    expect(next).toBe("- a\n\n# 速记\n");
+    expect(next.includes("- \n")).toBe(false);
   });
 });

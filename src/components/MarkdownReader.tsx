@@ -73,13 +73,13 @@ import {
   guessCursorInSlice,
   isClientYBelowLastSrcBlock,
   isMonoSrcSlice,
-  listAnnotatedSrcBlocks,
   listGapHitRects,
   listGapSrcBlocks,
   normalizeAppendWriteText,
   plainOffsetInElement,
   prepareAppendAtEnd,
   prepareInsertBetween,
+  expandRangeThroughTrailingNl,
   replaceRange,
   type GapHitRect,
   type SrcBlockGeom,
@@ -94,6 +94,7 @@ import {
   type VisualBlockType,
 } from "@/lib/mdVisualSerialize";
 import {
+  isEmptyVisualSlice,
   isMergeBoundaryType,
   mergeVisualSlices,
   removeOrphanVisualHosts,
@@ -1252,16 +1253,35 @@ export function MarkdownReader({ doc }: { doc: Document }) {
     []
   );
 
-  /** Top-level annotated blocks with classify + visual flag. */
+  /**
+   * Visual caret nav / Enter-split / Backspace-merge candidates.
+   * Prefer listGapSrcBlocks (li over ul): listAnnotatedSrcBlocks drops contained
+   * lis when the ul annotation spans them, so empty-li Backspace could not find
+   * the block and left the teal li::before dot behind.
+   */
   const describeSrcBlocks = React.useCallback(
     (root: ParentNode, source: string) => {
-      return listAnnotatedSrcBlocks(root).map((b) => {
+      return listGapSrcBlocks(root).map((b) => {
         const slice = source.slice(b.start, b.end);
         const blockType = resolvePreviewBlockType(slice, b.el);
         const mono = isMonoSrcSlice(slice) || isSourceMonoFallback(blockType);
         const visual = isVisualEditableType(blockType) && !mono;
         return { ...b, slice, blockType, mono, visual };
       });
+    },
+    []
+  );
+
+  /** Exact start+end, then start-only (mdast end may omit trailing newline). */
+  const findDescribedBlockIndex = React.useCallback(
+    (
+      blocks: { start: number; end: number }[],
+      start: number,
+      end: number
+    ): number => {
+      const exact = blocks.findIndex((b) => b.start === start && b.end === end);
+      if (exact >= 0) return exact;
+      return blocks.findIndex((b) => b.start === start);
     },
     []
   );
@@ -1359,9 +1379,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
         const root = articleRef.current;
         const cur = getContent(doc.id);
         const blocks = root ? describeSrcBlocks(root, cur) : [];
-        const idx = blocks.findIndex(
-          (b) => b.start === ed.start && b.end === ed.end
-        );
+        const idx = findDescribedBlockIndex(blocks, ed.start, ed.end);
         const prev = idx > 0 ? blocks[idx - 1] : null;
         const next = idx >= 0 && idx < blocks.length - 1 ? blocks[idx + 1] : null;
         // Prefer previous visual at end; else next at start.
@@ -1374,6 +1392,12 @@ export function MarkdownReader({ doc }: { doc: Document }) {
             ...openNextForRange(cur, next.start, next.end, "start"),
             // will get delta in commit because start >= ed.end
           };
+        }
+        if (ed.blockType === "listItem") {
+          const delEnd = expandRangeThroughTrailingNl(cur, ed.start, ed.end);
+          if (delEnd !== ed.end) {
+            inlineEditRef.current = { ...ed, end: delEnd, text: cur.slice(ed.start, delEnd) };
+          }
         }
         commitInlineEdit({ text: "", openNext });
         return true;
@@ -1403,7 +1427,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
       });
       return true;
     },
-    [commitInlineEdit, describeSrcBlocks, doc.id, getContent, openNextForRange]
+    [commitInlineEdit, describeSrcBlocks, doc.id, findDescribedBlockIndex, getContent, openNextForRange]
   );
 
   const handleVisualMergePrev = React.useCallback(
@@ -1414,9 +1438,38 @@ export function MarkdownReader({ doc }: { doc: Document }) {
       if (!root) return false;
       const cur = getContent(doc.id);
       const blocks = describeSrcBlocks(root, cur);
-      const idx = blocks.findIndex(
-        (b) => b.start === ed.start && b.end === ed.end
-      );
+      const idx = findDescribedBlockIndex(blocks, ed.start, ed.end);
+
+      // Empty list item + Backspace: delete the item (same as Enter-on-empty).
+      // Otherwise a stranded empty <li> keeps the teal li::before accent dot.
+      const emptyList =
+        ed.blockType === "listItem" &&
+        (isEmptyVisualSlice(serialized, "listItem") ||
+          isEmptyVisualSlice(ed.text, "listItem"));
+      if (emptyList) {
+        let openNext = undefined as ReturnType<typeof openNextForRange> | undefined;
+        if (idx > 0) {
+          const prev = blocks[idx - 1]!;
+          if (prev.visual && !isMergeBoundaryType(prev.blockType)) {
+            openNext = openNextForRange(cur, prev.start, prev.end, "end");
+          }
+        } else if (idx < 0) {
+          // Fallback when DOM range drifted: nearest visual block ending at/before us.
+          const prev = [...blocks]
+            .reverse()
+            .find((b) => b.end <= ed.start && b.visual && !isMergeBoundaryType(b.blockType));
+          if (prev) {
+            openNext = openNextForRange(cur, prev.start, prev.end, "end");
+          }
+        }
+        const delEnd = expandRangeThroughTrailingNl(cur, ed.start, ed.end);
+        if (delEnd !== ed.end) {
+          inlineEditRef.current = { ...ed, end: delEnd, text: cur.slice(ed.start, delEnd) };
+        }
+        commitInlineEdit({ text: "", openNext });
+        return true;
+      }
+
       if (idx <= 0) return false;
       const prev = blocks[idx - 1]!;
       if (isMergeBoundaryType(prev.blockType) || !prev.visual) {
@@ -1457,7 +1510,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
       });
       return true;
     },
-    [commitInlineEdit, describeSrcBlocks, doc.id, getContent]
+    [commitInlineEdit, describeSrcBlocks, doc.id, findDescribedBlockIndex, getContent, openNextForRange]
   );
 
   const handleVisualNavigate = React.useCallback(
@@ -1468,9 +1521,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
       if (!root) return false;
       const cur = getContent(doc.id);
       const blocks = describeSrcBlocks(root, cur);
-      const idx = blocks.findIndex(
-        (b) => b.start === ed.start && b.end === ed.end
-      );
+      const idx = findDescribedBlockIndex(blocks, ed.start, ed.end);
       if (idx < 0) return false;
       const targetIdx = dir === "prev" ? idx - 1 : idx + 1;
       // Skip to nearest visual block; if next is source-type, still open it (source editor).
@@ -1484,7 +1535,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
       });
       return true;
     },
-    [commitInlineEdit, describeSrcBlocks, doc.id, getContent, openNextForRange]
+    [commitInlineEdit, describeSrcBlocks, doc.id, findDescribedBlockIndex, getContent, openNextForRange]
   );
 
   // Restore scroll after content rewrite from inline edit; open pending block/append.
@@ -1520,11 +1571,16 @@ export function MarkdownReader({ doc }: { doc: Document }) {
           Number(n.getAttribute("data-src-end") || 0) === pending.end
       ) ?? null;
     if (!el) {
-      // Prefer outer wrapper with same start
-      el =
-        nodes.find(
-          (n) => Number(n.getAttribute("data-src-start")) === pending.start
-        ) ?? null;
+      // Prefer innermost / smallest range with same start (li over wrapping ul).
+      const sameStart = nodes.filter(
+        (n) => Number(n.getAttribute("data-src-start")) === pending.start
+      );
+      sameStart.sort((a, b) => {
+        const ea = Number(a.getAttribute("data-src-end") || 0);
+        const eb = Number(b.getAttribute("data-src-end") || 0);
+        return ea - eb;
+      });
+      el = sameStart[0] ?? null;
     }
     if (!el) {
       setInlineEdit({
@@ -1542,8 +1598,14 @@ export function MarkdownReader({ doc }: { doc: Document }) {
       el = wrap;
     }
     const end = Number(el.getAttribute("data-src-end") || pending.end);
+    // Clamp text to DOM mdast range — split writeText may include a trailing \n
+    // that rehypeSrcPositions omits on empty list items.
+    const clampedText =
+      end !== pending.end || pending.text.length !== end - pending.start
+        ? body.slice(pending.start, end)
+        : pending.text;
     const blockType =
-      pending.blockType ?? resolvePreviewBlockType(pending.text, el);
+      pending.blockType ?? resolvePreviewBlockType(clampedText, el);
     const mode =
       pending.mode ??
       previewBlockEditMode(blockType, pending.mono);
@@ -1553,7 +1615,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
       blockType,
       start: pending.start,
       end,
-      text: pending.text,
+      text: clampedText,
       mono: pending.mono,
       cursorAt: pending.cursorAt,
       el,

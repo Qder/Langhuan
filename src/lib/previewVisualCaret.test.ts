@@ -13,6 +13,7 @@ import {
   removeOrphanVisualHosts,
   splitVisualAtCaret,
   EMPTY_PARA_PLACEHOLDER,
+  isEmptyVisualSlice,
 } from "./previewVisualCaret";
 import { classifyMdBlock } from "./mdVisualSerialize";
 
@@ -475,5 +476,40 @@ describe("isCaretAtVisualBlockStart — null-safe Backspace gate", () => {
     sel.removeAllRanges();
     sel.addRange(range);
     expect(isCaretAtVisualBlockStart(el)).toBe(false);
+  });
+});
+
+describe("isEmptyVisualSlice — empty list teal-dot remnant", () => {
+  it("treats empty list marker as empty", () => {
+    expect(isEmptyVisualSlice("- \n", "listItem")).toBe(true);
+    expect(isEmptyVisualSlice("- \u200b\n", "listItem")).toBe(true);
+    expect(isEmptyVisualSlice("- 内容\n", "listItem")).toBe(false);
+  });
+
+  it("Backspace-merge of empty list item into prev removes the empty item from source", () => {
+    const src = "- a\n- \n\n# 速记\n";
+    const prevStart = 0;
+    const prevEnd = 4; // "- a\n"
+    const nextStart = 4;
+    const nextEnd = 7; // "- \n"
+    const merged = mergeVisualSlices({
+      prevSlice: src.slice(prevStart, prevEnd),
+      nextSlice: src.slice(nextStart, nextEnd),
+      prevType: "listItem",
+      nextType: "listItem",
+    });
+    expect(merged).not.toBeNull();
+    if (!merged) return;
+    const next = replaceRange(src, prevStart, nextEnd, merged.writeText);
+    expect(next).toBe("- a\n\n# 速记\n");
+    expect(next.includes("- \n")).toBe(false);
+  });
+
+  it("delete empty list item via write \"\" also clears the teal-dot source range", () => {
+    const src = "- a\n- \n\n# 速记\n";
+    const start = 4;
+    const end = 7; // "- \n"
+    const next = replaceRange(src, start, end, "");
+    expect(next).toBe("- a\n\n# 速记\n");
   });
 });

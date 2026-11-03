@@ -76,6 +76,11 @@ export function splitVisualSlice(args: {
   return splitParagraph(slice, leftPlain, rightPlain);
 }
 
+/** True when the visible body is empty (ZWSP/whitespace only). Empty list items leave a teal li::before dot until deleted. */
+export function isEmptyVisualSlice(slice: string, blockType: VisualBlockType): boolean {
+  return visibleBodyFromSlice(slice, blockType).replace(/\u200b/g, "").trim() === "";
+}
+
 function visibleBodyFromSlice(slice: string, blockType: VisualBlockType): string {
   const { core } = stripTrailingNl(slice);
   if (blockType === "heading") {
