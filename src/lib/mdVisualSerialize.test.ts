@@ -5,6 +5,7 @@ import {
   classifyMdBlock,
   isSourceEditType,
   isVisualEditableType,
+  parseTableCellSlice,
   serializeVisualBlock,
   type VisualBlockType,
 } from "./mdVisualSerialize";
@@ -32,6 +33,9 @@ describe("classifyMdBlock", () => {
     expect(classifyMdBlock("> quote\n")).toBe("blockquote");
     expect(classifyMdBlock("> [!tip] Hi\n")).toBe("callout");
     expect(classifyMdBlock("| a | b |\n| - | - |\n")).toBe("table");
+    expect(classifyMdBlock("| a | b |")).toBe("table");
+    expect(classifyMdBlock("| 1 元函数作用于项 |")).toBe("tableCell");
+    expect(classifyMdBlock("| f(a) ")).toBe("tableCell");
   });
 
   it("visual vs source edit split", () => {
@@ -39,9 +43,11 @@ describe("classifyMdBlock", () => {
     expect(isVisualEditableType("paragraph")).toBe(true);
     expect(isVisualEditableType("listItem")).toBe(true);
     expect(isVisualEditableType("blockquote")).toBe(true);
+    expect(isVisualEditableType("tableCell")).toBe(true);
     expect(isSourceEditType("code")).toBe(true);
     expect(isSourceEditType("math")).toBe(true);
     expect(isSourceEditType("table")).toBe(true);
+    expect(isSourceEditType("tableCell")).toBe(false);
     expect(isSourceEditType("callout")).toBe(true);
   });
 });
@@ -256,5 +262,66 @@ describe("roundtrip via replaceRange", () => {
       '<li><input type="checkbox" disabled=""> 新题</li>'
     );
     expect(next).toBe("list:\n\n- [ ] 新题\n- [ ] 其它\n");
+  });
+});
+
+describe("serializeVisualBlock tableCell", () => {
+  it("edits visible text and keeps surrounding pipes", () => {
+    const node = el("<table><tr><td>新理由</td></tr></table>").querySelector("td") as HTMLElement;
+    const next = serializeVisualBlock({
+      originalSlice: "| 1 元函数作用于项 |",
+      blockType: "tableCell",
+      element: node,
+    });
+    expect(next).toBe("| 新理由 |");
+  });
+
+  it("keeps non-last cell shape without trailing pipe", () => {
+    const node = el("<table><tr><td>g(b)</td></tr></table>").querySelector("td") as HTMLElement;
+    const next = serializeVisualBlock({
+      originalSlice: "| f(a) ",
+      blockType: "tableCell",
+      element: node,
+    });
+    expect(next).toBe("| g(b) ");
+  });
+
+  it("escapes pipes in cell content so the row stays intact", () => {
+    const node = el("<table><tr><td>a|b</td></tr></table>").querySelector("td") as HTMLElement;
+    const next = serializeVisualBlock({
+      originalSlice: "| x |",
+      blockType: "tableCell",
+      element: node,
+    });
+    expect(next).toBe("| a&#124;b |");
+  });
+
+  it("parseTableCellSlice strips pipes for the edit surface", () => {
+    expect(parseTableCellSlice("| 1 元函数作用于项 |")).toEqual({
+      prefix: "| ",
+      content: "1 元函数作用于项",
+      suffix: " |",
+    });
+    expect(parseTableCellSlice("| f(a) ")).toEqual({
+      prefix: "| ",
+      content: "f(a)",
+      suffix: " ",
+    });
+    expect(parseTableCellSlice("| a | b |")).toBeNull();
+  });
+
+  it("replaceRange writeback keeps neighboring cells", () => {
+    const row = "| f(a) | ✓ | 1 元函数作用于项 |\n";
+    // offsets from mdast fixture: last cell [11, 24) within row? use absolute search
+    const start = row.indexOf("| 1");
+    const end = row.indexOf("\n");
+    const node = el("<table><tr><td>项上的一元函数</td></tr></table>").querySelector("td") as HTMLElement;
+    const nextCell = serializeVisualBlock({
+      originalSlice: row.slice(start, end),
+      blockType: "tableCell",
+      element: node,
+    });
+    const after = replaceRange(row, start, end, nextCell);
+    expect(after).toBe("| f(a) | ✓ | 项上的一元函数 |\n");
   });
 });

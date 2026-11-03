@@ -162,12 +162,18 @@ export function InlineVisualBlockEditor({
       }
 
       // Enter → hard-split (Shift+Enter keeps browser soft <br>)
+      // Table cells: commit in place (splitting would break the GFM row).
       if (e.key === "Enter" && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
         if ((e as KeyboardEvent & { isComposing?: boolean }).isComposing || e.keyCode === 229) {
           return;
         }
         e.preventDefault();
         e.stopPropagation();
+        if (blockType === "tableCell") {
+          if (suppressBlurRef) suppressBlurRef.current = true;
+          finishCommit();
+          return;
+        }
         performSplit();
         return;
       }

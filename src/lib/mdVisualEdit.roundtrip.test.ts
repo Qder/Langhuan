@@ -140,12 +140,16 @@ describe("Esc ⇒ no writeback contract", () => {
 });
 
 describe("blockquote / mermaid / math / table policy", () => {
-  it("blockquote is visual; callout/table/math/mermaid are source", () => {
+  it("blockquote/tableCell are visual; callout/table/math/mermaid are source", () => {
     expect(isVisualEditableType(classifyMdBlock("> hi\n"))).toBe(true);
     expect(isSourceEditType(classifyMdBlock("> [!tip] x\n"))).toBe(true);
     expect(isSourceEditType(classifyMdBlock("| a | b |\n|---|---|\n"))).toBe(
       true
     );
+    expect(isVisualEditableType(classifyMdBlock("| 1 元函数作用于项 |"))).toBe(
+      true
+    );
+    expect(isSourceEditType(classifyMdBlock("| 1 元函数作用于项 |"))).toBe(false);
     expect(isSourceEditType(classifyMdBlock("$$x$$\n"))).toBe(true);
     expect(
       isSourceEditType(classifyMdBlock("```mermaid\ngraph TD\nA-->B\n```\n"))

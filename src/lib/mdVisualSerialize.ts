@@ -21,6 +21,7 @@ export type VisualBlockType =
   | "mermaid"
   | "math"
   | "table"
+  | "tableCell"
   | "unknown";
 
 export type SerializeVisualArgs = {
@@ -39,8 +40,19 @@ export function classifyMdBlock(slice: string): VisualBlockType {
   }
   if (/^```/.test(t) || /^~~~/.test(t)) return "code";
   if (/^#{1,6}(\s|$)/.test(t)) return "heading";
-  // GFM table: pipe row (and usually a separator on next line)
-  if (/^\|.+\|/.test(t) || /\n\|.+\|/.test(t)) return "table";
+  // GFM table / cell: mdast cell ranges look like "| text " or "| text |"
+  if (/^\|/.test(t)) {
+    const core = t.replace(/\s+$/, "");
+    if (!core.includes("\n")) {
+      let body = core.slice(1);
+      if (body.endsWith("|")) body = body.slice(0, -1);
+      // One content segment → cell; internal pipes → whole row (source).
+      if (!body.includes("|")) return "tableCell";
+      return "table";
+    }
+    return "table";
+  }
+  if (/\n\|.+\|/.test(t)) return "table";
   if (/^>\s*\[!(tip|note|warn)\]/i.test(t)) return "callout";
   if (/^>/.test(t)) return "blockquote";
   if (/^(\s*)([-*+]|\d+[.)])(\s+)/.test(t)) return "listItem";
@@ -53,7 +65,8 @@ export function isVisualEditableType(t: VisualBlockType): boolean {
     t === "heading" ||
     t === "paragraph" ||
     t === "listItem" ||
-    t === "blockquote"
+    t === "blockquote" ||
+    t === "tableCell"
   );
 }
 
@@ -196,6 +209,8 @@ export function serializeVisualBlock(args: SerializeVisualArgs): string {
       return serializeBlockquote(originalSlice, element);
     case "paragraph":
       return serializeParagraph(originalSlice, element);
+    case "tableCell":
+      return serializeTableCell(originalSlice, element);
     default:
       // Safety: never invent MD for mono/unknown — caller should not visual-edit these.
       return originalSlice;
@@ -217,6 +232,58 @@ export function serializeVisualDomHalf(
   }
   // Headings / lists / quotes still need marker prefixes from originalSlice.
   return serializeVisualBlock({ originalSlice, blockType, element });
+}
+
+// ─── table cell ────────────────────────────────────────────────────────────
+
+export type ParsedTableCellSlice = {
+  /** Leading "|" plus following spaces from the original slice. */
+  prefix: string;
+  /** Visible cell body (no surrounding pipes). */
+  content: string;
+  /** Trailing spaces, optional closing "|", and trailing newlines. */
+  suffix: string;
+};
+
+/**
+ * Parse a mdast-style table cell slice ("| text " or "| text |").
+ * Returns null when the slice is not a single cell fragment.
+ */
+export function parseTableCellSlice(slice: string): ParsedTableCellSlice | null {
+  const nl = trailingNewline(slice);
+  const core = nl ? slice.slice(0, -nl.length) : slice;
+  if (!core.startsWith("|")) return null;
+  let body = core.slice(1);
+  let trailingPipe = false;
+  if (body.endsWith("|")) {
+    trailingPipe = true;
+    body = body.slice(0, -1);
+  }
+  // Multi-cell row — not a single cell.
+  if (body.includes("|")) return null;
+  const leadWs = body.match(/^\s*/)?.[0] ?? "";
+  const trailWs = body.match(/\s*$/)?.[0] ?? "";
+  const content = body.slice(leadWs.length, body.length - trailWs.length);
+  return {
+    prefix: "|" + leadWs,
+    content,
+    suffix: trailWs + (trailingPipe ? "|" : "") + nl,
+  };
+}
+
+/** Escape pipes so edited cell text cannot break the GFM row. */
+function escapeTableCellPipes(text: string): string {
+  return text.replace(/\|/g, "&#124;");
+}
+
+function serializeTableCell(originalSlice: string, element: Element): string {
+  const parsed = parseTableCellSlice(originalSlice);
+  if (!parsed) return originalSlice;
+  const visible = (element.textContent || "")
+    .replace(/\u200b/g, "")
+    .replace(/\s*\n\s*/g, " ")
+    .trim();
+  return parsed.prefix + escapeTableCellPipes(visible) + parsed.suffix;
 }
 
 // ─── heading ───────────────────────────────────────────────────────────────

@@ -104,8 +104,24 @@ import "katex/dist/katex.min.css";
 
 
 function isSourceMonoFallback(t: VisualBlockType): boolean {
-  // table/callout/unknown stay on source textarea (safer than bad serialize).
+  // Whole table/callout/unknown stay on source textarea (safer than bad serialize).
+  // Individual table cells use visual edit (tableCell) — not mono source.
   return t === "table" || t === "callout" || t === "unknown";
+}
+
+/** mdast cell ranges classify as tableCell; also trust TD/TH tags. */
+function resolvePreviewBlockType(
+  slice: string,
+  el?: HTMLElement | null
+): VisualBlockType {
+  const classified = classifyMdBlock(slice);
+  const tag = el?.tagName?.toUpperCase?.() || "";
+  if (tag === "TD" || tag === "TH") {
+    if (classified === "table" || classified === "paragraph" || classified === "tableCell") {
+      return "tableCell";
+    }
+  }
+  return classified;
 }
 
 /** Hosts a mid-doc insert textarea immediately after the previous preview block. */
@@ -1081,7 +1097,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
     ) => {
       const cur = getContent(doc.id);
       const slice = cur.slice(start, end);
-      const blockType = classifyMdBlock(slice);
+      const blockType = resolvePreviewBlockType(slice, el);
       const mono = isMonoSrcSlice(slice) || isSourceMonoFallback(blockType);
       const mode = previewBlockEditMode(blockType, mono);
       // For code fences, place caret in body using pre/code text (not chrome/gutter).
@@ -1182,7 +1198,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
     (root: ParentNode, source: string) => {
       return listAnnotatedSrcBlocks(root).map((b) => {
         const slice = source.slice(b.start, b.end);
-        const blockType = classifyMdBlock(slice);
+        const blockType = resolvePreviewBlockType(slice, b.el);
         const mono = isMonoSrcSlice(slice) || isSourceMonoFallback(blockType);
         const visual = isVisualEditableType(blockType) && !mono;
         return { ...b, slice, blockType, mono, visual };
@@ -1467,7 +1483,8 @@ export function MarkdownReader({ doc }: { doc: Document }) {
       el = wrap;
     }
     const end = Number(el.getAttribute("data-src-end") || pending.end);
-    const blockType = pending.blockType ?? classifyMdBlock(pending.text);
+    const blockType =
+      pending.blockType ?? resolvePreviewBlockType(pending.text, el);
     const mode =
       pending.mode ??
       previewBlockEditMode(blockType, pending.mono);
@@ -1725,7 +1742,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
         if (cur) {
           suppressBlurCommitRef.current = true;
           const slice = getContent(doc.id).slice(start, end);
-          const nextType = classifyMdBlock(slice);
+          const nextType = resolvePreviewBlockType(slice, el);
           const nextMono =
             isMonoSrcSlice(slice) ||
             nextType === "table" ||

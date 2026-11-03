@@ -150,6 +150,7 @@ describe("mergeVisualSlices — Backspace at block start", () => {
     expect(isMergeBoundaryType("mermaid")).toBe(true);
     expect(isMergeBoundaryType("math")).toBe(true);
     expect(isMergeBoundaryType("table")).toBe(true);
+    expect(isMergeBoundaryType("tableCell")).toBe(true);
     expect(isMergeBoundaryType("callout")).toBe(true);
     expect(isMergeBoundaryType("paragraph")).toBe(false);
     expect(

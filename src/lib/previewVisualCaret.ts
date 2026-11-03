@@ -94,6 +94,11 @@ function visibleBodyFromSlice(slice: string, blockType: VisualBlockType): string
       .map((l) => l.replace(/^>\s?/, ""))
       .join("\n");
   }
+  if (blockType === "tableCell") {
+    let body = core.startsWith("|") ? core.slice(1) : core;
+    if (body.endsWith("|")) body = body.slice(0, -1);
+    return body.trim();
+  }
   return core;
 }
 
@@ -290,7 +295,8 @@ export function mergeVisualSlices(args: {
 
 /** True when previous block must not be swallowed by Backspace merge. */
 export function isMergeBoundaryType(t: VisualBlockType): boolean {
-  return isSourceEditType(t) || !isVisualEditableType(t);
+  // tableCell is visual but must not merge across cells / out of the table.
+  return isSourceEditType(t) || !isVisualEditableType(t) || t === "tableCell";
 }
 
 export function classifySlice(slice: string): VisualBlockType {
