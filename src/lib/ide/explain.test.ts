@@ -5,6 +5,7 @@ import {
   buildMockExplainMarkdown,
   collectScannedFileIndex,
   mockExplainHasCitationTo,
+  planExplainSelectionRequest,
   IDE_EXPLAIN_MAX_FULL_LINES,
 } from "./explain";
 import { parseIdeCitations } from "./citations";
@@ -126,5 +127,42 @@ describe("buildMockExplainMarkdown", () => {
       hits.some((h) => h.path === "src/B.java" && h.line === 1)
     ).toBe(true);
     expect(mockExplainHasCitationTo(md, "src/B.java")).toBe(true);
+  });
+});
+
+
+describe("planExplainSelectionRequest / selection payloads", () => {
+  it("builds padded payload from a selection", () => {
+    const content = Array.from({ length: 500 }, (_, i) => `L${i + 1}`).join("\n");
+    const selection = {
+      path: "src/A.java",
+      fromLine: 200,
+      toLine: 205,
+      text: "L200\nL201",
+    };
+    const planned = planExplainSelectionRequest(selection);
+    expect(planned).not.toBeNull();
+    expect(planned!.question).toBe("解释当前选区");
+    const files = buildExplainFilePayloads({
+      path: selection.path,
+      content,
+      includeFile: planned!.includeFile,
+      includeSelection: planned!.includeSelection,
+      selection,
+    });
+    expect(files[0]!.startLine).toBe(120);
+    expect(files[0]!.content).toContain("L200");
+  });
+
+  it("is a no-op without selection", () => {
+    expect(planExplainSelectionRequest(null)).toBeNull();
+    expect(
+      planExplainSelectionRequest({
+        path: "src/A.java",
+        fromLine: 1,
+        toLine: 1,
+        text: "",
+      })
+    ).toBeNull();
   });
 });

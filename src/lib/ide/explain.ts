@@ -236,6 +236,29 @@ export function buildMockExplainMarkdown(opts: {
   return parts.join("\n\n");
 }
 
+/** Right-click「讲解选区」: no-op when selection is empty / missing. */
+export function planExplainSelectionRequest(
+  selection: (IdeExplainSelection & { path: string }) | null | undefined
+): {
+  question: string;
+  includeSelection: true;
+  includeFile: boolean;
+  path: string;
+  selection: IdeExplainSelection & { path: string };
+} | null {
+  if (!selection || !selection.path) return null;
+  if (!Number.isFinite(selection.fromLine) || selection.fromLine < 1) return null;
+  // Empty CM selection is cleared to null by IdeEditor; require non-empty text.
+  if (!(selection.text && selection.text.length > 0)) return null;
+  return {
+    question: "解释当前选区",
+    includeSelection: true,
+    includeFile: true,
+    path: selection.path,
+    selection,
+  };
+}
+
 export function mockExplainHasCitationTo(
   markdown: string,
   path: string

@@ -28,6 +28,7 @@ export {
   buildExplainFilePayloads,
   buildMockExplainMarkdown,
   collectScannedFileIndex,
+  planExplainSelectionRequest,
   IDE_EXPLAIN_SYSTEM_PROMPT,
 } from "./explain";
 export {

@@ -64,7 +64,7 @@ npm start
   —— 三段合一的设计与边界见 [docs/status/STATUS-element-inspector.md](docs/status/STATUS-element-inspector.md)，
   行为静态分析的边界见 [docs/行为定位.md](docs/行为定位.md)
 - 源码 / 分栏编辑，草稿机制，`⌘S` 保存，`⌘K` 命令面板
-- IDE 模式右侧「讲解」面板（`⌘/Ctrl+L`）：问当前文件/选区，答复里的 `[[路径:行]]` 可点跳文件并滚到行（未展开的精确路径也会尝试打开）；讲解会带上已扫描的文件路径（不含正文）；未配 API Key 时用本地示例讲解
+- IDE 模式右侧「讲解」面板（`⌘/Ctrl+L`）：问当前文件/选区，答复里的 `[[路径:行]]` 可点跳文件并滚到行（未展开的精确路径也会尝试打开）；讲解会带上已扫描的文件路径（不含正文）；编辑器划词右键「讲解选区」会打开面板并自动开讲；未配 API Key 时用本地示例讲解
 - IDE 资源管理器会像 VS Code 一样把单子目录链收成一行（如 `java/com/campus/food/campusfood`），点开仍是真实相对路径
 - 导入文件夹 / 文件；支持 File System Access 的浏览器可打开本地文件夹
 - 项目预览把项目内的图片 / 图标 / 字体换成 data URL 再塞进 srcDoc（沙箱拿不到相对路径）：

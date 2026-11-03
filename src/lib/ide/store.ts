@@ -37,6 +37,7 @@ import {
   appendExplainMessage,
   citationsFromMarkdown,
   IDE_EXPLAIN_HISTORY_MAX,
+  planExplainSelectionRequest,
   type IdeExplainMessage,
   type IdeExplainSelection,
 } from "./explain";
@@ -88,6 +89,13 @@ type IdeState = {
   /** Explain chat keyed by project session.id */
   explainBySession: Record<string, IdeExplainMessage[]>;
   explainSettings: IdeExplainSettings;
+  /** One-shot: open panel + auto-send (e.g. right-click 讲解选区). */
+  pendingExplainRequest: {
+    nonce: number;
+    question: string;
+    includeSelection: boolean;
+    includeFile: boolean;
+  } | null;
 
   setExplorerOpen: (v: boolean) => void;
   setStatus: (msg: string | null) => void;
@@ -117,6 +125,8 @@ type IdeState = {
   pushExplainMessage: (msg: IdeExplainMessage) => void;
   updateLastAssistant: (content: string, extra?: { mock?: boolean }) => void;
   setExplainSettings: (patch: Partial<IdeExplainSettings>) => void;
+  requestExplainSelection: () => boolean;
+  clearPendingExplainRequest: () => void;
 };
 
 const IDE_STORE_KEY = "langhuan-ide-store";
@@ -146,6 +156,7 @@ function rememberSession(
     expanded: { "": true },
     pendingReveal: null,
     selection: null,
+    pendingExplainRequest: null,
     status: `已打开工程「${session.name}」`,
   });
 }
@@ -172,6 +183,7 @@ export const useIdeStore = create<IdeState>()(
         baseUrl: "",
         model: "",
       },
+      pendingExplainRequest: null,
 
       setExplorerOpen: (v) => set({ explorerOpen: v }),
       setStatus: (msg) => set({ status: msg }),
@@ -183,6 +195,21 @@ export const useIdeStore = create<IdeState>()(
         set((s) => ({
           explainSettings: { ...s.explainSettings, ...patch },
         })),
+      clearPendingExplainRequest: () => set({ pendingExplainRequest: null }),
+      requestExplainSelection: () => {
+        const planned = planExplainSelectionRequest(get().selection);
+        if (!planned) return false;
+        set({
+          explainOpen: true,
+          pendingExplainRequest: {
+            nonce: Date.now(),
+            question: planned.question,
+            includeSelection: true,
+            includeFile: planned.includeFile,
+          },
+        });
+        return true;
+      },
 
       clearExplainHistory: () => {
         const id = get().session?.id;
@@ -291,6 +318,7 @@ export const useIdeStore = create<IdeState>()(
           pendingClose: null,
           pendingReveal: null,
           selection: null,
+          pendingExplainRequest: null,
           status: "已关闭工程",
         });
         return true;

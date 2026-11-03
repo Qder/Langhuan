@@ -32,6 +32,8 @@ import {
   revealRangeInView,
 } from "@/components/editor/locateHighlight";
 
+type CtxMenu = { x: number; y: number; hasSelection: boolean };
+
 export function IdeEditor({ path }: { path: string }) {
   const hostRef = React.useRef<HTMLDivElement>(null);
   const viewRef = React.useRef<EditorView | null>(null);
@@ -45,8 +47,11 @@ export function IdeEditor({ path }: { path: string }) {
   const setSelection = useIdeStore((s) => s.setSelection);
   const pendingReveal = useIdeStore((s) => s.pendingReveal);
   const clearPendingReveal = useIdeStore((s) => s.clearPendingReveal);
+  const requestExplainSelection = useIdeStore((s) => s.requestExplainSelection);
   const theme = useStore((s) => s.theme);
   const dark = isDarkTheme(theme);
+
+  const [ctxMenu, setCtxMenu] = React.useState<CtxMenu | null>(null);
 
   React.useEffect(() => {
     const host = hostRef.current;
@@ -123,6 +128,18 @@ export function IdeEditor({ path }: { path: string }) {
           }
         }),
         EditorView.lineWrapping,
+        EditorView.domEventHandlers({
+          contextmenu: (event, view) => {
+            event.preventDefault();
+            const sel = view.state.selection.main;
+            setCtxMenu({
+              x: event.clientX,
+              y: event.clientY,
+              hasSelection: !sel.empty,
+            });
+            return true;
+          },
+        }),
       ],
     });
 
@@ -237,5 +254,71 @@ export function IdeEditor({ path }: { path: string }) {
     };
   }, [pendingReveal, path, clearPendingReveal]);
 
-  return <div ref={hostRef} className={cn("h-full w-full overflow-hidden")} />;
+  React.useEffect(() => {
+    if (!ctxMenu) return;
+    const close = () => setCtxMenu(null);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") close();
+    };
+    window.addEventListener("mousedown", close);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("mousedown", close);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [ctxMenu]);
+
+  const copySelection = () => {
+    const view = viewRef.current;
+    setCtxMenu(null);
+    if (!view) return;
+    const sel = view.state.selection.main;
+    if (sel.empty) return;
+    const text = view.state.doc.sliceString(sel.from, sel.to);
+    void navigator.clipboard?.writeText(text).catch(() => {
+      /* ignore */
+    });
+  };
+
+  const explainSelection = () => {
+    setCtxMenu(null);
+    requestExplainSelection();
+  };
+
+  return (
+    <div className={cn("relative h-full w-full overflow-hidden")}>
+      <div ref={hostRef} className={cn("h-full w-full overflow-hidden")} />
+      {ctxMenu && (
+        <div
+          role="menu"
+          className="fixed z-50 min-w-[148px] rounded-lg border border-[var(--border)] bg-[var(--chrome)] shadow-lg py-1 font-ui text-sm"
+          style={{ left: ctxMenu.x, top: ctxMenu.y }}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            disabled={!ctxMenu.hasSelection}
+            className={cn(
+              "w-full text-left px-3 py-1.5 hover:bg-[var(--hover)] disabled:opacity-40 disabled:hover:bg-transparent"
+            )}
+            onClick={explainSelection}
+          >
+            讲解选区
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            disabled={!ctxMenu.hasSelection}
+            className={cn(
+              "w-full text-left px-3 py-1.5 hover:bg-[var(--hover)] disabled:opacity-40 disabled:hover:bg-transparent"
+            )}
+            onClick={copySelection}
+          >
+            复制
+          </button>
+        </div>
+      )}
+    </div>
+  );
 }

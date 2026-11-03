@@ -131,6 +131,8 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
   const clearExplainHistory = useIdeStore((s) => s.clearExplainHistory);
   const explainSettings = useIdeStore((s) => s.explainSettings);
   const setExplainSettings = useIdeStore((s) => s.setExplainSettings);
+  const pendingExplainRequest = useIdeStore((s) => s.pendingExplainRequest);
+  const clearPendingExplainRequest = useIdeStore((s) => s.clearPendingExplainRequest);
 
   const messages: IdeExplainMessage[] = session
     ? explainBySession[session.id] || []
@@ -145,6 +147,9 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
   const [candidates, setCandidates] = React.useState<string[]>([]);
   const abortRef = React.useRef<AbortController | null>(null);
   const listRef = React.useRef<HTMLDivElement>(null);
+  const sendRef = React.useRef<
+    (preset?: string, opts?: { includeFile?: boolean; includeSelection?: boolean }) => Promise<void>
+  >(async () => {});
 
   React.useEffect(() => {
     const el = listRef.current;
@@ -213,7 +218,10 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
     setBusy(false);
   };
 
-  const send = async (preset?: string) => {
+  const send = async (
+    preset?: string,
+    opts?: { includeFile?: boolean; includeSelection?: boolean }
+  ) => {
     if (!session) {
       setStatus("请先打开文件夹");
       return;
@@ -221,14 +229,17 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
     const q = (preset ?? question).trim();
     if (!q || busy) return;
 
+    const useFile = opts?.includeFile ?? includeFile;
+    const useSel = opts?.includeSelection ?? includeSelection;
+
     const files =
-      activeTab && (includeFile || includeSelection)
+      activeTab && (useFile || useSel)
         ? buildExplainFilePayloads({
             path: activeTab.path,
             content: activeTab.draft,
-            includeFile,
+            includeFile: useFile,
             includeSelection:
-              includeSelection &&
+              useSel &&
               !!selection &&
               selection.path === activeTab.path,
             selection:
@@ -329,6 +340,23 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
       setBusy(false);
     }
   };
+
+  sendRef.current = send;
+
+  React.useEffect(() => {
+    if (!pendingExplainRequest) return;
+    const req = pendingExplainRequest;
+    clearPendingExplainRequest();
+    setIncludeFile(req.includeFile);
+    setIncludeSelection(req.includeSelection);
+    const id = window.setTimeout(() => {
+      void sendRef.current(req.question, {
+        includeFile: req.includeFile,
+        includeSelection: req.includeSelection,
+      });
+    }, 0);
+    return () => window.clearTimeout(id);
+  }, [pendingExplainRequest, clearPendingExplainRequest]);
 
   const panel = (
     <div
