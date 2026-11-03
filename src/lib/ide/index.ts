@@ -13,6 +13,7 @@ export {
 export { useIdeStore } from "./store";
 export { getIdeFsCapability } from "./ideFs";
 export {
+  listFooterCitations,
   parseIdeCitations,
   resolveIdeCitation,
   planIdeCitationJump,

@@ -5,6 +5,7 @@ import {
   clampIdeLine,
   ideAncestorDirs,
   isIdeCitationPath,
+  listFooterCitations,
   parseIdeCitations,
   planIdeCitationJump,
   resolveIdeCitation,
@@ -189,5 +190,22 @@ describe("ideAncestorDirs", () => {
   it("lists parent dirs excluding root and file", () => {
     expect(ideAncestorDirs("src/foo/A.java")).toEqual(["src", "src/foo"]);
     expect(ideAncestorDirs("README.md")).toEqual([]);
+  });
+});
+
+describe("listFooterCitations", () => {
+  it("dedupes by path+line, keeps different lines and ranges", () => {
+    const md = [
+      "见 [[src/A.java:10]] 与 [[src/A.java:20]]，",
+      "再提一次 [[src/A.java:10]]，以及范围 [[src/A.java:10-15]]。",
+    ].join("");
+    const list = listFooterCitations(md);
+    expect(list).toHaveLength(2);
+    expect(list[0]).toMatchObject({ path: "src/A.java", line: 10, endLine: 15 });
+    expect(list[1]).toMatchObject({ path: "src/A.java", line: 20 });
+  });
+
+  it("returns empty when no citations", () => {
+    expect(listFooterCitations("没有引用")).toEqual([]);
   });
 });

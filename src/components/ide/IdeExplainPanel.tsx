@@ -7,6 +7,7 @@ import { Eraser, Loader2, Send, Square, Sparkles, X, Settings2 } from "lucide-re
 import { Button } from "../ui/button";
 import { useIdeStore } from "@/lib/ide/store";
 import {
+  listFooterCitations,
   parseIdeCitations,
   planIdeCitationJump,
   resolveIdeCitation,
@@ -112,6 +113,44 @@ function ExplainBody({
           </button>
         );
       })}
+    </div>
+  );
+}
+
+function ExplainFooterCitations({
+  content,
+  onCite,
+}: {
+  content: string;
+  onCite: (c: IdeCitation) => void;
+}) {
+  const list = listFooterCitations(content);
+  if (list.length === 0) return null;
+  return (
+    <div className="mt-2 pt-2 border-t border-[var(--border)]">
+      <div className="text-[10px] text-[var(--muted)] mb-1 font-ui">本次引用</div>
+      <div className="flex flex-wrap gap-1">
+        {list.map((c, i) => (
+          <button
+            key={`${c.path}:${c.line ?? ""}:${c.endLine ?? ""}:${i}`}
+            type="button"
+            title={c.path + (c.line != null ? `:${c.line}` : "")}
+            onClick={() => onCite(c)}
+            className={cn(
+              "inline-flex items-center px-1.5 py-0.5 rounded-md text-[11px] font-mono",
+              "bg-[color-mix(in_srgb,var(--accent)_18%,transparent)] text-[var(--accent)]",
+              "hover:bg-[color-mix(in_srgb,var(--accent)_28%,transparent)] border border-[color-mix(in_srgb,var(--accent)_35%,transparent)]"
+            )}
+          >
+            {c.path}
+            {c.line != null
+              ? c.endLine != null && c.endLine !== c.line
+                ? `:${c.line}-${c.endLine}`
+                : `:${c.line}`
+              : ""}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -481,7 +520,13 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
               </div>
               {m.role === "assistant" ? (
                 m.content ? (
-                  <ExplainBody content={m.content} onCite={(c) => void jumpCitation(c)} />
+                  <>
+                    <ExplainBody content={m.content} onCite={(c) => void jumpCitation(c)} />
+                    <ExplainFooterCitations
+                      content={m.content}
+                      onCite={(c) => void jumpCitation(c)}
+                    />
+                  </>
                 ) : (
                   <div className="flex items-center gap-1.5 text-[var(--muted)] text-xs">
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />

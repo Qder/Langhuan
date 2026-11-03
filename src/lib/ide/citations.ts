@@ -179,6 +179,36 @@ export function parseIdeCitations(markdown: string): IdeCitation[] {
   return found;
 }
 
+
+/**
+ * Deduped citation chips for the assistant message footer.
+ * Key is path + start line (no line → path only). When duplicates differ by
+ * endLine, keep the wider / first range. Order follows first appearance.
+ */
+export function listFooterCitations(markdown: string): IdeCitation[] {
+  const hits = parseIdeCitations(markdown);
+  const out: IdeCitation[] = [];
+  const keyIndex = new Map<string, number>();
+  for (const c of hits) {
+    const key = `${normalizeIdeRelPath(c.path)}\0${c.line ?? ""}`;
+    const prev = keyIndex.get(key);
+    if (prev == null) {
+      keyIndex.set(key, out.length);
+      out.push(c);
+      continue;
+    }
+    const existing = out[prev]!;
+    // Prefer keeping a range when the duplicate adds endLine
+    if (
+      c.endLine != null &&
+      (existing.endLine == null || c.endLine > existing.endLine)
+    ) {
+      out[prev] = { ...existing, endLine: c.endLine, raw: c.raw };
+    }
+  }
+  return out;
+}
+
 /** Flatten scanned explorer children into unique file paths. */
 export function listIdeTreeFiles(
   children: Record<string, IdeFsEntry[]>
