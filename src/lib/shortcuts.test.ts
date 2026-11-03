@@ -68,4 +68,9 @@ describe("shortcuts", () => {
       matchShortcut(keyEvent({ key: "f", ctrlKey: true }), DEFAULT_SHORTCUTS.search)
     ).toBe(true);
   });
+
+  it("search label is in-file find", async () => {
+    const { SHORTCUT_LABELS } = await import("./shortcuts");
+    expect(SHORTCUT_LABELS.search).toBe("文件内查找");
+  });
 });

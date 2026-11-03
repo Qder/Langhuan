@@ -26,6 +26,8 @@ import { QuizReviewDialog } from "./QuizReviewDialog";
 import { LinkHealthDialog } from "./LinkHealthDialog";
 import { FindReplaceDialog } from "./FindReplaceDialog";
 import { ShortcutsDialog } from "./ShortcutsDialog";
+import { SettingsDialog } from "./SettingsDialog";
+import { FindInFileBar } from "./FindInFileBar";
 import { CreateDocDialogHost } from "./CreateDocDialog";
 import { openCreateDocDialog } from "@/lib/createDocDialogBus";
 import { RegisterSW } from "./pwa/RegisterSW";
@@ -62,6 +64,7 @@ export function AppShell() {
   const closeTab = useStore((s) => s.closeTab);
   const setExportDialogOpen = useStore((s) => s.setExportDialogOpen);
   const setFindReplaceOpen = useStore((s) => s.setFindReplaceOpen);
+  const setFindInFileOpen = useStore((s) => s.setFindInFileOpen);
   const undoPreviewEdit = useStore((s) => s.undoPreviewEdit);
   const redoPreviewEdit = useStore((s) => s.redoPreviewEdit);
 
@@ -143,17 +146,12 @@ export function AppShell() {
         setCommandOpen(true);
         return;
       }
-      // Library search (command palette). Leave Ctrl/Cmd+F to CodeMirror when in source.
+      // In-file find (Ctrl/Cmd+F). Library search stays on ⌘K.
       if (matchShortcut(e, shortcuts.search)) {
-        const inCm =
-          !!target &&
-          typeof (target as HTMLElement).closest === "function" &&
-          !!(target as HTMLElement).closest(".cm-editor");
-        if (!inCm) {
-          e.preventDefault();
-          setCommandOpen(true);
-          return;
-        }
+        e.preventDefault();
+        if (getActive()) setFindInFileOpen(true);
+        else setStatus("请先打开一篇文档");
+        return;
       }
       if (matchShortcut(e, shortcuts.save)) {
         e.preventDefault();
@@ -273,6 +271,7 @@ export function AppShell() {
     closeTab,
     setExportDialogOpen,
     setFindReplaceOpen,
+    setFindInFileOpen,
     undoPreviewEdit,
     redoPreviewEdit,
   ]);
@@ -331,6 +330,8 @@ export function AppShell() {
       <LinkHealthDialog />
       <FindReplaceDialog />
       <ShortcutsDialog />
+      <SettingsDialog />
+      <FindInFileBar />
       <CreateDocDialogHost />
       <RegisterSW />
     </div>

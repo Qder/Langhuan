@@ -45,7 +45,7 @@ export const SHORTCUT_LABELS: Record<ShortcutAction, string> = {
   closeTab: "关闭当前标签",
   exportActive: "导出当前文档",
   findReplace: "查找替换",
-  search: "搜索",
+  search: "文件内查找",
   previewUndo: "撤销预览编辑",
   previewRedo: "重做预览编辑",
 };

@@ -1978,6 +1978,8 @@ export function MarkdownReader({ doc }: { doc: Document }) {
       const st = useStore.getState();
       if (
         st.commandOpen ||
+        st.settingsDialogOpen ||
+        st.findInFileOpen ||
         st.shortcutsDialogOpen ||
         st.exportDialogOpen ||
         st.backupDialogOpen ||

@@ -30,6 +30,7 @@ import { BookOpenCheck,
   FileCode2,
   Boxes,
   Code2,
+  Settings2,
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Dialog } from "./ui/dialog";
@@ -402,6 +403,7 @@ export function Sidebar() {
   const setCommandOpen = useStore((s) => s.setCommandOpen);
   const theme = useStore((s) => s.theme);
   const setAppMode = useStore((s) => s.setAppMode);
+  const setSettingsDialogOpen = useStore((s) => s.setSettingsDialogOpen);
   const setTheme = useStore((s) => s.setTheme);
   const sidebarOpen = useStore((s) => s.sidebarOpen);
   const setSidebarOpen = useStore((s) => s.setSidebarOpen);
@@ -941,6 +943,16 @@ export function Sidebar() {
           >
             <Code2 className="h-3.5 w-3.5" />
           </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn("shrink-0", narrow ? "h-10 w-10" : compact ? "h-7 w-7" : "h-8 w-8")}
+            aria-label="设置"
+            title="设置"
+            onClick={() => setSettingsDialogOpen(true)}
+          >
+            <Settings2 className="h-3.5 w-3.5" />
+          </Button>
           <Dropdown
             align="right"
             trigger={
@@ -1000,7 +1012,7 @@ export function Sidebar() {
           <Search className="h-4 w-4 shrink-0" />
           <span className="flex-1 min-w-0 truncate text-left">搜索文档、标签、命令…</span>
           <kbd className="shrink-0 rounded-md border border-[var(--border)] px-1.5 py-0.5 text-[10px] font-mono leading-none">
-            {formatShortcut(DEFAULT_SHORTCUTS.search)}
+            {formatShortcut(DEFAULT_SHORTCUTS.commandPalette)}
           </kbd>
         </button>
 
@@ -1565,7 +1577,7 @@ export function Sidebar() {
         onClick={() => setCommandOpen(true)}
         className="inline-flex h-9 w-9 items-center justify-center rounded-xl hover:bg-[var(--hover)]"
         aria-label="搜索"
-        title={`搜索 ${formatShortcut(DEFAULT_SHORTCUTS.search)}`}
+        title={`搜索 ${formatShortcut(DEFAULT_SHORTCUTS.commandPalette)}`}
       >
         <Search className="h-4 w-4" />
       </button>

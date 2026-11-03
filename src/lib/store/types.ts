@@ -194,6 +194,10 @@ export type LanghuanState = {
   linkHealthOpen: boolean;
   /** Library find & replace dialog. */
   findReplaceOpen: boolean;
+  /** App settings dialog (theme / reading / autosave). */
+  settingsDialogOpen: boolean;
+  /** In-file find bar (Ctrl/Cmd+F). */
+  findInFileOpen: boolean;
   /** In-memory preview-edit undo/redo stacks (not persisted). */
   previewUndoByDoc: Record<string, { undo: string[]; redo: string[] }>;
   /** After opening a quiz doc from review list, scroll+highlight this item. */
@@ -385,6 +389,8 @@ export type LanghuanState = {
   setQuizReviewOpen: (v: boolean) => void;
   setLinkHealthOpen: (v: boolean) => void;
   setFindReplaceOpen: (v: boolean) => void;
+  setSettingsDialogOpen: (v: boolean) => void;
+  setFindInFileOpen: (v: boolean) => void;
   setPendingQuizReveal: (v: { docId: string; itemId: string } | null) => void;
   upsertQuizDoc: (doc: QuizDoc) => void;
   setQuizItemState: (docId: string, itemId: string, state: QuizItemState) => void;

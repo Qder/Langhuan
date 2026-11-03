@@ -1,10 +1,9 @@
 "use client";
 
 import * as React from "react";
-import { Tag, BookOpenCheck, Archive, HeartPulse, Replace, BookmarkPlus, CalendarDays, ClipboardPaste, Columns2, Download, FilePlus2, FileText, FolderSync, Globe, History, Home, Keyboard, LayoutTemplate, Network, Palette, Search, SlidersHorizontal, Trash2, Maximize2, Blend, Type, Code2 } from "lucide-react";
+import { Tag, BookOpenCheck, Archive, HeartPulse, Replace, BookmarkPlus, CalendarDays, ClipboardPaste, Columns2, Download, FilePlus2, FileText, FolderSync, Globe, History, Home, LayoutTemplate, Network, Search, Settings2, SlidersHorizontal, Trash2, Maximize2, Blend, Code2 } from "lucide-react";
 import { Dialog } from "./ui/dialog";
 import { useStore } from "@/lib/store";
-import { themeLabel } from "@/lib/theme";
 import { planSearchOpenReveal, searchDocuments } from "@/lib/search";
 import { renderSnippetMarks } from "@/lib/search/highlight";
 import { titleOf, cn } from "@/lib/utils";
@@ -22,23 +21,16 @@ export function CommandPalette() {
   const openHome = useStore((s) => s.requestOpenHome);
   const createDoc = useStore((s) => s.createDoc);
   const setStatus = useStore((s) => s.setStatus);
-  const toggleTheme = useStore((s) => s.toggleTheme);
-  const setTheme = useStore((s) => s.setTheme);
   const setAppMode = useStore((s) => s.setAppMode);
   const appMode = useStore((s) => s.appMode);
-  const theme = useStore((s) => s.theme);
   const setBackupDialogOpen = useStore((s) => s.setBackupDialogOpen);
   const setFsSyncDialogOpen = useStore((s) => s.setFsSyncDialogOpen);
   const fsBoundName = useStore((s) => s.fsBoundName);
   const setVersionDialogOpen = useStore((s) => s.setVersionDialogOpen);
   const setSidebarPanel = useStore((s) => s.setSidebarPanel);
-  const autosaveEnabled = useStore((s) => s.autosaveEnabled);
-  const setAutosaveEnabled = useStore((s) => s.setAutosaveEnabled);
   const setViewMode = useStore((s) => s.setViewMode);
   const mdFocusMode = useStore((s) => s.mdFocusMode);
   const setMdFocusMode = useStore((s) => s.setMdFocusMode);
-  const setReadingPrefs = useStore((s) => s.setReadingPrefs);
-  const readingPrefs = useStore((s) => s.readingPrefs);
   const getActive = useStore((s) => s.getActive);
 
   const activeId = useStore((s) => s.activeId);
@@ -48,11 +40,11 @@ export function CommandPalette() {
   const setQuizReviewOpen = useStore((s) => s.setQuizReviewOpen);
   const setLinkHealthOpen = useStore((s) => s.setLinkHealthOpen);
   const setFindReplaceOpen = useStore((s) => s.setFindReplaceOpen);
+  const setSettingsDialogOpen = useStore((s) => s.setSettingsDialogOpen);
   const setClipUrlDialogOpen = useStore((s) => s.setClipUrlDialogOpen);
   const setPropsDialogOpen = useStore((s) => s.setPropsDialogOpen);
   const renameTagAcrossLibrary = useStore((s) => s.renameTagAcrossLibrary);
   const setExportDialogOpen = useStore((s) => s.setExportDialogOpen);
-  const setShortcutsDialogOpen = useStore((s) => s.setShortcutsDialogOpen);
   const toggleDocSplit = useStore((s) => s.toggleDocSplit);
   const secondaryId = useStore((s) => s.secondaryId);
   const savedSearches = useStore((s) => s.savedSearches);
@@ -144,80 +136,17 @@ export function CommandPalette() {
         },
       },
       {
-        key: "cmd-theme-cycle",
-        label: "切换下一主题",
-        hint: `当前：${themeLabel(theme)}`,
-        icon: <Palette className="h-4 w-4" />,
-        run: () => toggleTheme(),
-      },
-      {
-        key: "cmd-theme-bamboo",
-        label: "主题：青灯竹影",
-        hint: theme === "bamboo" ? "当前" : "浅青灰 · 墨绿",
-        icon: <Palette className="h-4 w-4" />,
-        run: () => { setTheme("bamboo"); setStatus("已切换到青灯竹影"); },
-      },
-      {
-        key: "cmd-theme-xuan",
-        label: "主题：宣纸靛青",
-        hint: theme === "xuan" ? "当前" : "宣纸白 · 靛青",
-        icon: <Palette className="h-4 w-4" />,
-        run: () => { setTheme("xuan"); setStatus("已切换到宣纸靛青"); },
-      },
-      {
-        key: "cmd-theme-songyan",
-        label: "主题：松烟月白",
-        hint: theme === "songyan" ? "当前" : "深炭 · 月白",
-        icon: <Palette className="h-4 w-4" />,
-        run: () => { setTheme("songyan"); setStatus("已切换到松烟月白"); },
-      },
-      {
-        key: "cmd-theme-jiang",
-        label: "主题：绛帐缃帙",
-        hint: theme === "jiang" ? "当前" : "暖米黄 · 绛紫",
-        icon: <Palette className="h-4 w-4" />,
-        run: () => { setTheme("jiang"); setStatus("已切换到绛帐缃帙"); },
-      },
-      {
-        key: "cmd-theme-cyber",
-        label: "主题：赛博藏经",
-        hint: theme === "cyber" ? "当前" : "深底 · 青绿",
-        icon: <Palette className="h-4 w-4" />,
-        run: () => { setTheme("cyber"); setStatus("已切换到赛博藏经"); },
-      },
-      {
-        key: "cmd-theme-phycat",
-        label: "主题：绯猫樱华",
-        hint: theme === "phycat" ? "当前" : "樱粉 · Phycat",
-        icon: <Palette className="h-4 w-4" />,
-        run: () => { setTheme("phycat"); setStatus("已切换到绯猫樱华"); },
-      },
-      {
-        key: "cmd-theme-phycat-mint",
-        label: "主题：绯猫薄荷",
-        hint: theme === "phycat-mint" ? "当前" : "薄荷绿 · Phycat",
-        icon: <Palette className="h-4 w-4" />,
-        run: () => { setTheme("phycat-mint"); setStatus("已切换到绯猫薄荷"); },
-      },
-      {
-        key: "cmd-theme-phycat-sky",
-        label: "主题：绯猫晴空",
-        hint: theme === "phycat-sky" ? "当前" : "晴空蓝 · Phycat",
-        icon: <Palette className="h-4 w-4" />,
-        run: () => { setTheme("phycat-sky"); setStatus("已切换到绯猫晴空"); },
-      },
-      {
-        key: "cmd-theme-phycat-abyss",
-        label: "主题：绯猫深渊",
-        hint: theme === "phycat-abyss" ? "当前" : "雾青 · Phycat",
-        icon: <Palette className="h-4 w-4" />,
-        run: () => { setTheme("phycat-abyss"); setStatus("已切换到绯猫深渊"); },
-      },
-      {
         key: "cmd-home",
         label: "回到首页",
         icon: <Home className="h-4 w-4" />,
         run: () => openHome(),
+      },
+      {
+        key: "cmd-settings",
+        label: "打开设置",
+        hint: "主题 / 阅读 / 自动保存 / 快捷键",
+        icon: <Settings2 className="h-4 w-4" />,
+        run: () => setSettingsDialogOpen(true),
       },
       {
         key: "cmd-backup",
@@ -357,26 +286,7 @@ export function CommandPalette() {
           setMdFocusMode(!mdFocusMode);
         },
       },
-      {
-        key: "cmd-font-larger",
-        label: "增大阅读字号",
-        hint: `当前 ${readingPrefs.fontSize}px`,
-        icon: <Type className="h-4 w-4" />,
-        run: () =>
-          setReadingPrefs({
-            fontSize: Math.min(24, readingPrefs.fontSize + 2),
-          }),
-      },
-      {
-        key: "cmd-font-smaller",
-        label: "减小阅读字号",
-        hint: `当前 ${readingPrefs.fontSize}px`,
-        icon: <Type className="h-4 w-4" />,
-        run: () =>
-          setReadingPrefs({
-            fontSize: Math.max(13, readingPrefs.fontSize - 2),
-          }),
-      },
+
       {
         key: "cmd-export",
         label: "导出…",
@@ -390,20 +300,6 @@ export function CommandPalette() {
         hint: "并排查看两篇（⌘\\）",
         icon: <Columns2 className="h-4 w-4 text-[var(--teal)]" />,
         run: () => toggleDocSplit(),
-      },
-      {
-        key: "cmd-shortcuts",
-        label: "快捷键设置",
-        hint: "自定义 ⌘K / 保存等",
-        icon: <Keyboard className="h-4 w-4" />,
-        run: () => setShortcutsDialogOpen(true),
-      },
-      {
-        key: "cmd-autosave",
-        label: autosaveEnabled ? "关闭自动保存" : "开启自动保存",
-        hint: "2 秒防抖写入",
-        icon: <FilePlus2 className="h-4 w-4" />,
-        run: () => setAutosaveEnabled(!autosaveEnabled),
       }
     );
     for (const s of savedSearches) {

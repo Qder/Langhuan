@@ -44,6 +44,8 @@ type UiSliceKeys =
   | "quizReviewOpen"
   | "linkHealthOpen"
   | "findReplaceOpen"
+  | "settingsDialogOpen"
+  | "findInFileOpen"
   | "pendingQuizReveal"
   | "fsSyncDialogOpen"
   | "autosaveEnabled"
@@ -88,6 +90,8 @@ type UiSliceKeys =
   | "setQuizReviewOpen"
   | "setLinkHealthOpen"
   | "setFindReplaceOpen"
+  | "setSettingsDialogOpen"
+  | "setFindInFileOpen"
   | "setPendingQuizReveal"
   | "setFsSyncDialogOpen"
   | "setAutosaveEnabled"
@@ -134,6 +138,8 @@ export const createUiSlice: StateCreator<
   quizReviewOpen: false,
   linkHealthOpen: false,
   findReplaceOpen: false,
+  settingsDialogOpen: false,
+  findInFileOpen: false,
   pendingQuizReveal: null,
   fsSyncDialogOpen: false,
   autosaveEnabled: true,
@@ -260,6 +266,8 @@ export const createUiSlice: StateCreator<
   setQuizReviewOpen: (v) => set({ quizReviewOpen: v }),
   setLinkHealthOpen: (v) => set({ linkHealthOpen: v }),
   setFindReplaceOpen: (v) => set({ findReplaceOpen: v }),
+  setSettingsDialogOpen: (v) => set({ settingsDialogOpen: v }),
+  setFindInFileOpen: (v) => set({ findInFileOpen: v }),
   setPendingQuizReveal: (v) => set({ pendingQuizReveal: v }),
   setFsSyncDialogOpen: (v) => set({ fsSyncDialogOpen: v }),
   setAutosaveEnabled: (v) => {

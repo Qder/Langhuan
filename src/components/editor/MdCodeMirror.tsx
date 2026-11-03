@@ -6,7 +6,7 @@ import { EditorState, Compartment, Prec } from "@codemirror/state";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { languages } from "@codemirror/language-data";
-import { searchKeymap, highlightSelectionMatches, openSearchPanel } from "@codemirror/search";
+import { searchKeymap, highlightSelectionMatches } from "@codemirror/search";
 import { autocompletion, closeBrackets, closeBracketsKeymap, completionKeymap } from "@codemirror/autocomplete";
 import { bracketMatching, foldGutter, foldKeymap, indentOnInput, syntaxHighlighting, defaultHighlightStyle } from "@codemirror/language";
 import { useStore } from "@/lib/store"
@@ -314,7 +314,10 @@ export function MdCodeMirror({
       },
       {
         key: "Mod-f",
-        run: openSearchPanel,
+        run: () => {
+          useStore.getState().setFindInFileOpen(true);
+          return true;
+        },
       },
       {
         key: "ArrowDown",

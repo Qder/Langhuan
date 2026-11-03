@@ -10,10 +10,10 @@ import {
   drawSelection,
   dropCursor,
 } from "@codemirror/view";
-import { EditorState, Compartment } from "@codemirror/state";
+import { EditorState, Compartment, Prec } from "@codemirror/state";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { html } from "@codemirror/lang-html";
-import { searchKeymap, highlightSelectionMatches, openSearchPanel } from "@codemirror/search";
+import { searchKeymap, highlightSelectionMatches } from "@codemirror/search";
 import {
   bracketMatching,
   foldGutter,
@@ -198,11 +198,18 @@ export function HtmlCodeMirror({
           ...foldKeymap,
           ...searchKeymap,
           indentWithTab,
-          {
-            key: "Mod-f",
-            run: openSearchPanel,
-          },
         ]),
+        Prec.highest(
+          keymap.of([
+            {
+              key: "Mod-f",
+              run: () => {
+                useStore.getState().setFindInFileOpen(true);
+                return true;
+              },
+            },
+          ])
+        ),
         updateListener,
         scrollHandler,
         ...locateHighlightExtensions(),

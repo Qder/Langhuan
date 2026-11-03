@@ -21,6 +21,7 @@ import {
   RefreshCw,
   Save,
   Search,
+  Settings2,
   Star,
   Tag,
   Trash2,
@@ -100,6 +101,8 @@ export function TopBar() {
   const deleteDoc = useStore((s) => s.deleteDoc);
   const discardDraft = useStore((s) => s.discardDraft);
   const setCommandOpen = useStore((s) => s.setCommandOpen);
+  const setSettingsDialogOpen = useStore((s) => s.setSettingsDialogOpen);
+  const setFindInFileOpen = useStore((s) => s.setFindInFileOpen);
   const setSidebarOpen = useStore((s) => s.setSidebarOpen);
   const setStatus = useStore((s) => s.setStatus);
   const outlineRailOpen = useStore((s) => s.outlineRailOpen);
@@ -726,6 +729,9 @@ export function TopBar() {
                       : "打开目录"}
                   </DropdownItem>
                 )}
+                <DropdownItem onClick={() => setSettingsDialogOpen(true)}>
+                  <Settings2 className="h-3.5 w-3.5" /> 设置
+                </DropdownItem>
                 <DropdownItem onClick={() => setPropsDialogOpen(true)}>
                   <SlidersHorizontal className="h-3.5 w-3.5" /> 属性面板
                 </DropdownItem>
@@ -745,8 +751,9 @@ export function TopBar() {
               <Button
                 variant="ghost"
                 size="icon"
-                aria-label="搜索"
-                onClick={() => setCommandOpen(true)}
+                aria-label="文件内查找"
+                title="文件内查找 (⌘/Ctrl+F)"
+                onClick={() => setFindInFileOpen(true)}
               >
                 <Search className="h-4 w-4" />
               </Button>
