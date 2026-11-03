@@ -54,3 +54,8 @@ export {
   wordAtOffset,
   type GotoDefinitionPlan,
 } from "./gotoDefinition";
+export {
+  isBareModL,
+  isIdeExplainToggleHotkey,
+  isTypingTarget,
+} from "./explainHotkey";

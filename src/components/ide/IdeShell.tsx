@@ -12,6 +12,7 @@ import { IdeExplainPanel } from "./IdeExplainPanel";
 import { IdeQuickOpen } from "./IdeQuickOpen";
 import { IdeGotoLine } from "./IdeGotoLine";
 import { useMediaQuery } from "@/lib/useMediaQuery";
+import { isIdeExplainToggleHotkey } from "@/lib/ide/explainHotkey";
 import { cn } from "@/lib/utils";
 
 export function IdeShell() {
@@ -49,12 +50,11 @@ export function IdeShell() {
     return () => window.removeEventListener("keydown", onKey);
   }, [isLg, explorerOpen, session, setExplorerOpen]);
 
-  // Mod+L toggles explain panel
+  // Mod+Shift+L toggles explain panel (bare Mod+L left for browser address bar)
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey)) return;
-      if (e.key.toLowerCase() !== "l") return;
-      // Avoid stealing browser location bar if any — still match IDE habit.
+      if (!isIdeExplainToggleHotkey(e)) return;
+      // Bare Mod+L is intentionally not handled (browser address bar).
       e.preventDefault();
       toggleExplainOpen();
     };
@@ -135,7 +135,7 @@ export function IdeShell() {
                     <br />
                     修改后 ⌘/Ctrl+S 写回磁盘；关闭未保存标签会提示。
                     <br />
-                    ⌘/Ctrl+P 快速打开；⌘/Ctrl+G 转到行；⌘/Ctrl+L 打开讲解面板。
+                    ⌘/Ctrl+P 快速打开；⌘/Ctrl+G 转到行；⌘/Ctrl+Shift+L 打开讲解面板。
                   </div>
                 )}
               </div>
@@ -159,7 +159,7 @@ export function IdeShell() {
         )}
       >
         <span className="truncate">
-          {status || "IDE · 工程与笔记库隔离 · ⌘/Ctrl+L 讲解"}
+          {status || "IDE · 工程与笔记库隔离 · ⌘/Ctrl+Shift+L 讲解"}
         </span>
       </div>
     </div>
