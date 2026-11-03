@@ -42,3 +42,7 @@ export {
   childrenLookupFromMap,
   type CompactFolderChain,
 } from "./compactFolders";
+export {
+  filterQuickOpenPaths,
+  planQuickOpenCandidates,
+} from "./quickOpen";

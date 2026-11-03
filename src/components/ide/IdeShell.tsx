@@ -9,6 +9,7 @@ import { IdeEditor } from "./IdeEditor";
 import { IdeWelcome } from "./IdeWelcome";
 import { IdeDirtyCloseDialog } from "./IdeDirtyCloseDialog";
 import { IdeExplainPanel } from "./IdeExplainPanel";
+import { IdeQuickOpen } from "./IdeQuickOpen";
 import { useMediaQuery } from "@/lib/useMediaQuery";
 import { cn } from "@/lib/utils";
 
@@ -22,7 +23,9 @@ export function IdeShell() {
   const toggleExplainOpen = useIdeStore((s) => s.toggleExplainOpen);
   const anyDirty = useIdeStore((s) => s.anyDirty);
   const status = useIdeStore((s) => s.status);
+  const setStatus = useIdeStore((s) => s.setStatus);
   const isLg = useMediaQuery("(min-width: 1024px)");
+  const [quickOpen, setQuickOpen] = React.useState(false);
 
   React.useEffect(() => {
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -56,6 +59,20 @@ export function IdeShell() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [toggleExplainOpen]);
+
+  // Mod+P quick open (IDE-only shell; notes ⌘K stays in notes AppShell)
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return;
+      if (e.key.toLowerCase() !== "p") return;
+      // Palette is the intent for Mod+P (including when focus is in an input).
+      e.preventDefault();
+      if (!session) setStatus("先打开文件夹");
+      setQuickOpen(true);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [session, setStatus]);
 
   const showDrawer = !!session && explorerOpen && !isLg;
   const showDocked = !!session && explorerOpen && isLg;
@@ -100,7 +117,7 @@ export function IdeShell() {
                     <br />
                     修改后 ⌘/Ctrl+S 写回磁盘；关闭未保存标签会提示。
                     <br />
-                    ⌘/Ctrl+L 打开讲解面板。
+                    ⌘/Ctrl+P 快速打开；⌘/Ctrl+L 打开讲解面板。
                   </div>
                 )}
               </div>
@@ -115,6 +132,7 @@ export function IdeShell() {
           <IdeExplainPanel onClose={() => setExplainOpen(false)} />
         )}
       </div>
+      <IdeQuickOpen open={quickOpen} onClose={() => setQuickOpen(false)} />
       <IdeDirtyCloseDialog />
       <div
         className={cn(
