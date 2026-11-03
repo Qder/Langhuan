@@ -9,6 +9,8 @@ import {
   splitVisualSlice,
   isMergeBoundaryType,
   mountIsolatedVisualHost,
+  hideVisualAnchorsBySrcRange,
+  removeOrphanVisualHosts,
   splitVisualAtCaret,
   EMPTY_PARA_PLACEHOLDER,
 } from "./previewVisualCaret";
@@ -264,6 +266,57 @@ describe("mountIsolatedVisualHost", () => {
       anchor.parentElement!.querySelectorAll("[data-lh-inline-editor=visual]")
     ).toHaveLength(0);
     expect(anchor.hasAttribute("hidden")).toBe(false);
+  });
+
+  it("blockquote remount twin is re-hidden by src range (no double ★ card)", () => {
+    const dom = new JSDOM(`<!doctype html><article class="prose-langhuan">
+      <blockquote data-src-start="22" data-src-end="111">
+        <p data-src-start="24" data-src-end="111">★「一句话」</p>
+      </blockquote>
+    </article>`);
+    const doc = dom.window.document;
+    const article = doc.querySelector("article") as HTMLElement;
+    const anchor = doc.querySelector("blockquote") as HTMLElement;
+    const mounted = mountIsolatedVisualHost(anchor)!;
+    expect(mounted.host.getAttribute("data-lh-inline-editor")).toBe("visual");
+    expect(anchor.style.display).toBe("none");
+
+    // Simulate React remount: old anchor gone, fresh visible twin inserted.
+    const parent = anchor.parentElement!;
+    anchor.remove();
+    const fresh = doc.createElement("blockquote");
+    fresh.setAttribute("data-src-start", "22");
+    fresh.setAttribute("data-src-end", "111");
+    fresh.innerHTML = `<p data-src-start="24" data-src-end="111">★「一句话」</p>`;
+    // Host is still first child; append fresh as next sibling (React-like).
+    parent.appendChild(fresh);
+
+    const beforeHide = [...doc.querySelectorAll("blockquote")].filter(
+      (b) => b.style.display !== "none" && !b.hasAttribute("hidden")
+    );
+    expect(beforeHide.length).toBeGreaterThanOrEqual(2); // host + fresh twin
+
+    hideVisualAnchorsBySrcRange(article, 22, 111);
+    // Only the CE host should remain "shown"; fresh twin is hidden.
+    expect(fresh.style.display).toBe("none");
+    expect(fresh.getAttribute("data-lh-visual-anchor-hidden")).toBe("1");
+    const stillShown = [...doc.querySelectorAll("blockquote")].filter(
+      (b) =>
+        b.style.display !== "none" &&
+        !b.hasAttribute("data-lh-visual-anchor-hidden")
+    );
+    expect(stillShown).toHaveLength(1);
+    expect(stillShown[0]!.getAttribute("data-lh-inline-editor")).toBe("visual");
+    expect(
+      [...doc.querySelectorAll("[data-lh-inline-editor=visual]")]
+    ).toHaveLength(1);
+
+    mounted.dispose();
+    // Stale dispose removed host; sweep any leftover visual hosts.
+    removeOrphanVisualHosts(article);
+    expect(doc.querySelectorAll("[data-lh-inline-editor=visual]")).toHaveLength(0);
+    // One React blockquote remains.
+    expect(doc.querySelectorAll("blockquote")).toHaveLength(1);
   });
 });
 

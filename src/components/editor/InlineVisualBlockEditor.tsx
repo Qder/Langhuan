@@ -7,6 +7,7 @@ import {
 } from "@/lib/mdVisualSerialize";
 import {
   caretEdgeInBlock,
+  hideVisualAnchorsBySrcRange,
   isCaretAtVisualBlockStart,
   mountIsolatedVisualHost,
   placeCaretPlain,
@@ -20,6 +21,14 @@ export type InlineVisualBlockEditorProps = {
   anchorEl: HTMLElement;
   originalSlice: string;
   blockType: VisualBlockType;
+  /** Source offsets — re-hide remounted React twins after save/body rewrite. */
+  srcStart: number;
+  srcEnd: number;
+  /**
+   * Bumps when preview markdown remounts (body / doc.updatedAt).
+   * Re-runs twin-hide + disconnect→commit.
+   */
+  remountEpoch: string | number;
   clientX?: number;
   clientY?: number;
   /** Prefer over clientX/Y when reopening after split/merge/nav. */
@@ -49,6 +58,9 @@ export function InlineVisualBlockEditor({
   anchorEl,
   originalSlice,
   blockType,
+  srcStart,
+  srcEnd,
+  remountEpoch,
   clientX,
   clientY,
   caretAt,
@@ -60,6 +72,7 @@ export function InlineVisualBlockEditor({
   onNavigate,
 }: InlineVisualBlockEditorProps) {
   const committedRef = React.useRef(false);
+  const hostRef = React.useRef<HTMLElement | null>(null);
   const onCommitRef = React.useRef(onCommit);
   const onCancelRef = React.useRef(onCancel);
   const onSplitRef = React.useRef(onSplit);
@@ -79,6 +92,7 @@ export function InlineVisualBlockEditor({
     const mounted = mountIsolatedVisualHost(anchorEl);
     if (!mounted) return;
     const { host: el, dispose } = mounted;
+    hostRef.current = el;
 
     if (caretAt != null) {
       placeCaretPlain(el, caretAt);
@@ -291,17 +305,44 @@ export function InlineVisualBlockEditor({
       el.removeEventListener("beforeinput", onBeforeInput, true);
       el.removeEventListener("keydown", onKeyDown, true);
       el.removeEventListener("blur", onBlur);
+      hostRef.current = null;
       dispose();
     };
-  }, [
-    anchorEl,
-    blockType,
-    originalSlice,
-    clientX,
-    clientY,
-    caretAt,
-    suppressBlurRef,
-  ]);
+    // remount host only when the React anchor identity / slice changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [anchorEl, blockType, originalSlice, clientX, clientY, caretAt, suppressBlurRef]);
+
+  // After save / body rewrite: MarkdownBody may remount a visible twin while
+  // the isolated CE host is still implanted. Re-hide by src range; if the
+  // original anchor is gone, flush-commit so only one card stays.
+  React.useLayoutEffect(() => {
+    const host = hostRef.current;
+    if (!host || !host.isConnected) return;
+    const article =
+      host.closest("article") ??
+      document.getElementById("reader-scroll") ??
+      host.parentElement;
+    if (!article) return;
+
+    hideVisualAnchorsBySrcRange(article, srcStart, srcEnd);
+
+    if (!anchorEl.isConnected && !committedRef.current) {
+      if (suppressBlurRef) suppressBlurRef.current = true;
+      committedRef.current = true;
+      try {
+        onCommitRef.current(
+          serializeVisualBlock({
+            originalSlice,
+            blockType,
+            element: host,
+          })
+        );
+      } catch {
+        onCancelRef.current();
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- epoch drives remount reaction
+  }, [remountEpoch, srcStart, srcEnd, anchorEl, originalSlice, blockType, suppressBlurRef]);
 
   return null;
 }

@@ -739,6 +739,15 @@ html.dark .prose-langhuan .katex {
   display: none !important;
 }
 
+/* Sibling hide: host is always insertBefore(anchor). React reconcile can wipe
+   [hidden] / inline display on the React-owned node — adjacent-sibling stays.
+   Prevents twin-paint for blockquote/list cards (clone + restored original). */
+[data-lh-inline-editor="visual"] + [data-src-start],
+[data-lh-inline-editor="1"] + [data-src-start],
+[data-lh-inline-editor="code"] + [data-src-start] {
+  display: none !important;
+}
+
 /* Preview visual (contenteditable) 鈥?caret only, no accent box */
 .prose-langhuan .lh-visual-editing,
 .lh-visual-editing {

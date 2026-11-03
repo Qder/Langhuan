@@ -95,6 +95,7 @@ import {
 import {
   isMergeBoundaryType,
   mergeVisualSlices,
+  removeOrphanVisualHosts,
   type SplitResult,
 } from "@/lib/previewVisualCaret";
 
@@ -947,6 +948,9 @@ export function MarkdownReader({ doc }: { doc: Document }) {
         if (opts?.openNext) pendingOpenRef.current = opts.openNext;
         return;
       }
+      // Consume session immediately so blur/click cannot double-apply replaceRange
+      // (which painted twin blockquote cards when offsets were applied twice).
+      inlineEditRef.current = null;
       const cur = getContent(doc.id);
 
       // Append: compute EOF range at commit time so Esc/empty blur does not dirty the doc.
@@ -1070,18 +1074,27 @@ export function MarkdownReader({ doc }: { doc: Document }) {
   const cancelInlineEdit = React.useCallback(() => {
     suppressBlurCommitRef.current = true;
     pendingOpenRef.current = null;
+    inlineEditRef.current = null;
     setInlineEdit(null);
   }, []);
 
-  // Save / documents rewrite remounts MarkdownBody while a seamless code host may
-  // still be implanted. If the session already ended, sweep leftover hosts so we
-  // never paint Esc-chrome beside a fresh 复制 CodeBlock.
+  // Save / documents rewrite remounts MarkdownBody while a seamless code / visual
+  // host may still be implanted. If that session already ended, sweep leftover
+  // hosts so we never paint chrome beside a fresh twin card/fence.
   React.useLayoutEffect(() => {
     const root = articleRef.current;
     if (!root) return;
     const ed = inlineEditRef.current;
-    if (ed?.kind === "block" && ed.mode === "code") return;
-    removeOrphanCodeFenceHosts(root);
+    if (ed?.kind === "block" && ed.mode === "code") {
+      /* code editor re-hides its own twins via remountEpoch */
+    } else {
+      removeOrphanCodeFenceHosts(root);
+    }
+    if (ed?.kind === "block" && ed.mode === "visual") {
+      /* visual editor re-hides its own twins via remountEpoch */
+    } else {
+      removeOrphanVisualHosts(root);
+    }
   }, [body, doc.updatedAt]);
 
   const beginBlockEdit = React.useCallback(
@@ -2439,6 +2452,9 @@ export function MarkdownReader({ doc }: { doc: Document }) {
               anchorEl={inlineEdit.el}
               originalSlice={inlineEdit.text}
               blockType={inlineEdit.blockType}
+              srcStart={inlineEdit.start}
+              srcEnd={inlineEdit.end}
+              remountEpoch={`${doc.updatedAt}:${body.length}:${body.slice(0, 32)}`}
               clientX={inlineEdit.clientX}
               clientY={inlineEdit.clientY}
               caretAt={inlineEdit.caretAt}

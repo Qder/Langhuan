@@ -578,7 +578,7 @@ export type IsolatedVisualHost = {
 };
 
 /** Hide React-owned anchor while the isolated CE host is up. */
-function hideVisualAnchor(anchorEl: HTMLElement): void {
+export function hideVisualAnchor(anchorEl: HTMLElement): void {
   anchorEl.setAttribute("hidden", "");
   anchorEl.setAttribute("aria-hidden", "true");
   anchorEl.setAttribute("data-lh-visual-anchor-hidden", "1");
@@ -588,7 +588,7 @@ function hideVisualAnchor(anchorEl: HTMLElement): void {
   anchorEl.style.setProperty("display", "none", "important");
 }
 
-function showVisualAnchor(anchorEl: HTMLElement): void {
+export function showVisualAnchor(anchorEl: HTMLElement): void {
   anchorEl.removeAttribute("hidden");
   anchorEl.removeAttribute("aria-hidden");
   anchorEl.removeAttribute("data-lh-visual-anchor-hidden");
@@ -608,21 +608,68 @@ function stripSrcRangeAttrs(root: HTMLElement): void {
   });
 }
 
-/** Drop orphan visual hosts left beside an anchor (StrictMode / interrupted dispose). */
-function removeOrphanVisualHosts(parent: HTMLElement, anchorEl: HTMLElement): void {
-  for (const node of Array.from(parent.children)) {
-    if (node === anchorEl) continue;
-    // Avoid instanceof HTMLElement — vitest/jsdom realms differ from global.
-    if (node.nodeType !== 1) continue;
-    const el = node as HTMLElement;
-    if (el.getAttribute("data-lh-inline-editor") === "visual") {
-      try {
-        node.remove();
-      } catch {
-        /* ignore */
+/**
+ * Drop orphan visual hosts left beside an anchor (StrictMode / interrupted dispose).
+ * When `anchorEl` is omitted, sweep every visual host under `parent` (body remount).
+ */
+export function removeOrphanVisualHosts(
+  parent: ParentNode,
+  anchorEl?: HTMLElement | null
+): number {
+  let n = 0;
+  if (anchorEl && anchorEl.parentElement === parent) {
+    for (const node of Array.from((parent as HTMLElement).children)) {
+      if (node === anchorEl) continue;
+      if (node.nodeType !== 1) continue;
+      const el = node as HTMLElement;
+      if (el.getAttribute("data-lh-inline-editor") === "visual") {
+        try {
+          node.remove();
+          n++;
+        } catch {
+          /* ignore */
+        }
       }
     }
+    return n;
   }
+  for (const node of Array.from(
+    parent.querySelectorAll<HTMLElement>('[data-lh-inline-editor="visual"]')
+  )) {
+    try {
+      node.remove();
+      n++;
+    } catch {
+      /* ignore */
+    }
+  }
+  return n;
+}
+
+/**
+ * Re-hide React-owned nodes that match the active visual edit src range.
+ * Used after MarkdownBody remounts a fresh twin while the CE host is still up.
+ */
+export function hideVisualAnchorsBySrcRange(
+  scope: ParentNode,
+  srcStart: number,
+  srcEnd: number
+): HTMLElement[] {
+  const hidden: HTMLElement[] = [];
+  const nodes = scope.querySelectorAll<HTMLElement>("[data-src-start]");
+  for (const el of Array.from(nodes)) {
+    if (el.getAttribute("data-lh-inline-editor") === "visual") continue;
+    if (el.closest('[data-lh-inline-editor="visual"]')) continue;
+    // Prefer block-level twins (blockquote / li / p / heading / callout).
+    // Skip nested line spans inside an already-matched ancestor we will hide.
+    const s = Number(el.getAttribute("data-src-start"));
+    const e = Number(el.getAttribute("data-src-end") || s);
+    if (s !== srcStart) continue;
+    if (Number.isFinite(srcEnd) && Number.isFinite(e) && e !== srcEnd) continue;
+    hideVisualAnchor(el);
+    hidden.push(el);
+  }
+  return hidden;
 }
 
 export function mountIsolatedVisualHost(

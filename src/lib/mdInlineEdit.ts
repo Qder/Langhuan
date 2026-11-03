@@ -393,7 +393,8 @@ const LINE_SPAN_TAG = "SPAN";
 /**
  * Resolve the editable block element from a click target.
  * Prefers outer code/mermaid wrappers over per-line spans;
- * climbs to the nearest ancestor with data-src-start.
+ * prefers outer li / blockquote / .callout over nested paragraph stamps;
+ * climbs to the nearest ancestor with data-src-start (not TABLE).
  */
 export function findEditableSrcBlock(
   target: Element | null,
@@ -414,6 +415,17 @@ export function findEditableSrcBlock(
       "[data-src-start]"
     ) as HTMLElement | null;
     if (parent && root.contains(parent)) el = parent;
+  }
+
+  // Prefer outer list-item / blockquote / callout over nested paragraph stamps.
+  // Clicking ★ card body used to mount a <p> clone *inside* the card while a
+  // remount/reconcile could also paint the outer card → twin cards. Edit the
+  // outer block as one unit. Do NOT climb to TABLE (cells stay per-cell).
+  const outer = el.closest(
+    "li[data-src-start], blockquote[data-src-start], .callout[data-src-start]"
+  ) as HTMLElement | null;
+  if (outer && outer !== el && root.contains(outer) && outer.contains(el)) {
+    el = outer;
   }
 
   const start = Number(el.getAttribute("data-src-start"));

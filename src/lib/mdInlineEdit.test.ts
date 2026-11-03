@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  findEditableSrcBlock,
   findGapInsertAt,
   guessCursorInSlice,
   isClientYBelowLastSrcBlock,
@@ -12,6 +13,7 @@ import {
   replaceRange,
   trailingNewline,
 } from "./mdInlineEdit";
+import { JSDOM } from "jsdom";
 
 describe("trailingNewline", () => {
   it("detects \\n and \\r\\n", () => {
@@ -393,5 +395,48 @@ describe("listGapHitRects", () => {
     expect(rects[1]!.placeBefore).toBe(false);
     expect(rects[1]!.insertAt).toBe(5);
     expect(rects[1]!.height).toBeGreaterThanOrEqual(14);
+  });
+});
+
+describe("findEditableSrcBlock", () => {
+  it("prefers outer blockquote over nested paragraph stamps", () => {
+    const dom = new JSDOM(`<!doctype html><article>
+      <blockquote data-src-start="22" data-src-end="111">
+        <p data-src-start="24" data-src-end="111">★「一句话」</p>
+      </blockquote>
+    </article>`);
+    const root = dom.window.document.querySelector("article")!;
+    const p = root.querySelector("p")!;
+    const found = findEditableSrcBlock(p, root);
+    expect(found).not.toBeNull();
+    expect(found!.el.tagName).toBe("BLOCKQUOTE");
+    expect(found!.start).toBe(22);
+    expect(found!.end).toBe(111);
+  });
+
+  it("prefers outer li over nested link stamps", () => {
+    const dom = new JSDOM(`<!doctype html><article>
+      <ul><li data-src-start="0" data-src-end="20">
+        <a data-src-start="2" data-src-end="8">0. 目录</a>
+      </li></ul>
+    </article>`);
+    const root = dom.window.document.querySelector("article")!;
+    const a = root.querySelector("a")!;
+    const found = findEditableSrcBlock(a, root);
+    expect(found!.el.tagName).toBe("LI");
+    expect(found!.start).toBe(0);
+  });
+
+  it("does not climb to TABLE — keeps TD cell range", () => {
+    const dom = new JSDOM(`<!doctype html><article>
+      <table data-src-start="0" data-src-end="80">
+        <tr><td data-src-start="10" data-src-end="20">理由</td></tr>
+      </table>
+    </article>`);
+    const root = dom.window.document.querySelector("article")!;
+    const td = root.querySelector("td")!;
+    const found = findEditableSrcBlock(td, root);
+    expect(found!.el.tagName).toBe("TD");
+    expect(found!.start).toBe(10);
   });
 });
