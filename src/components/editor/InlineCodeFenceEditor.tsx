@@ -165,6 +165,7 @@ export function InlineCodeFenceEditor({
 
     const host = document.createElement("div");
     host.setAttribute("data-lh-inline-editor", "code");
+    host.setAttribute("data-lh-editing", "1");
     host.setAttribute("data-lh-code-edit-start", String(srcStart));
     host.setAttribute("data-lh-code-edit-end", String(srcEnd));
     host.className = "lh-inline-edit-slot my-0";

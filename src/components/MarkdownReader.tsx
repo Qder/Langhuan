@@ -220,12 +220,10 @@ function InsertBetweenPortal({
 
 function WikiText({
   text,
-  docs,
   onOpen,
   currentPath,
 }: {
   text: string;
-  docs: Document[];
   onOpen: (id: string) => void;
   currentPath: string;
 }) {
@@ -243,7 +241,6 @@ function WikiText({
               key={i}
               target={parsed.target}
               heading={parsed.heading}
-              docs={docs}
               onOpen={onOpen}
             />
           );
@@ -255,7 +252,6 @@ function WikiText({
             name={parsed.target}
             label={label}
             heading={parsed.heading}
-            docs={docs}
             onOpen={onOpen}
             currentPath={currentPath}
           />
@@ -267,16 +263,15 @@ function WikiText({
 
 function walkChildren(
   children: React.ReactNode,
-  docs: Document[],
   onOpen: (id: string) => void,
   currentPath: string
 ): React.ReactNode {
   return React.Children.map(children, (child) => {
     if (typeof child === "string")
-      return <WikiText text={child} docs={docs} onOpen={onOpen} currentPath={currentPath} />;
+      return <WikiText text={child} onOpen={onOpen} currentPath={currentPath} />;
     if (React.isValidElement<{ children?: React.ReactNode }>(child) && child.props.children) {
       return React.cloneElement(child, {
-        children: walkChildren(child.props.children, docs, onOpen, currentPath),
+        children: walkChildren(child.props.children, onOpen, currentPath),
       });
     }
     return child;
@@ -364,317 +359,356 @@ type HastNode = {
 
 const MD_REMARK_PLUGINS = [remarkGfm, remarkMath];
 
+/** Resolve media against the live library without baking documents into components. */
+function MdPreviewImage({
+  src,
+  alt,
+  title,
+  docPath,
+}: {
+  src?: string;
+  alt?: string;
+  title?: string;
+  docPath: string;
+}) {
+  const documents = useStore((s) => s.documents);
+  const assets = useStore((s) => s.assets);
+  const resolved = resolveMediaSrc(src, docPath, documents, assets);
+  if (resolved.kind === "external" || resolved.kind === "data") {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={resolved.src}
+        alt={alt || ""}
+        title={title}
+        className="lh-md-img"
+      />
+    );
+  }
+  if (resolved.kind === "asset") {
+    return (
+      <AssetImage
+        assetId={resolved.assetId}
+        path={resolved.path}
+        alt={alt || ""}
+        title={title}
+        className="lh-md-img"
+      />
+    );
+  }
+  return (
+    <span
+      className="lh-broken-img"
+      title={resolved.reason}
+      role="img"
+      aria-label={alt || "缺失图片"}
+    >
+      <span className="lh-broken-img-label">图片未找到</span>
+      <span className="lh-broken-img-path">{resolved.path || "(空路径)"}</span>
+      <span className="lh-broken-img-reason">{resolved.reason}</span>
+    </span>
+  );
+}
+
+function MdLibLink({
+  href,
+  docPath,
+  openDoc,
+  children,
+  ...props
+}: {
+  href?: string;
+  docPath: string;
+  openDoc: (id: string) => void;
+  children?: React.ReactNode;
+} & Record<string, unknown>) {
+  const documents = useStore((s) => s.documents);
+  const resolved = resolveLibraryHref(href, docPath, documents);
+  if (resolved.kind === "doc") {
+    return (
+      <button
+        type="button"
+        className="lh-lib-link"
+        onClick={() => openDoc(resolved.doc.id)}
+      >
+        {children}
+      </button>
+    );
+  }
+  if (
+    resolved.kind === "missing" &&
+    href &&
+    !/^(https?:|mailto:|#)/i.test(String(href))
+  ) {
+    return (
+      <span className="lh-lib-link missing" title={`未找到 ${resolved.path}`}>
+        {children}
+      </span>
+    );
+  }
+  return (
+    <a
+      href={href}
+      target={typeof href === "string" && href.startsWith("http") ? "_blank" : undefined}
+      rel={
+        typeof href === "string" && href.startsWith("http")
+          ? "noreferrer noopener"
+          : undefined
+      }
+      {...(props as React.AnchorHTMLAttributes<HTMLAnchorElement>)}
+    >
+      {children}
+    </a>
+  );
+}
+
 type MarkdownBodyProps = {
   body: string;
   fmOffset: number;
   fmLineOffset: number;
-  documents: Document[];
   openDoc: (id: string) => void;
-  assets: import("@/lib/types").AssetMeta[];
   docPath: string;
 };
 
-const MarkdownBody = React.memo(function MarkdownBody({
-  body,
-  fmOffset,
-  fmLineOffset,
-  documents,
-  openDoc,
-  assets,
-  docPath,
-}: MarkdownBodyProps) {
-  probeRender("MarkdownBody");
+const MarkdownBody = React.memo(
+  function MarkdownBody({
+    body,
+    fmOffset,
+    fmLineOffset,
+    openDoc,
+    docPath,
+  }: MarkdownBodyProps) {
+    probeRender("MarkdownBody");
 
-  const rehypePlugins = React.useMemo(
-    () => [
-      rehypeKatex,
-      rehypeSlug,
-      rehypeRaw,
-      // Bug 3: stamp data-src-* BEFORE sanitize/highlight drop positions.
-      rehypeSrcPositions(fmOffset, fmLineOffset),
-      // Typora-friendly: recover `**|A|…**` that CommonMark left-flanking rejects.
-      rehypeRecoverEmphasis,
-      [rehypeSanitize, mdSanitizeSchema] as [typeof rehypeSanitize, typeof mdSanitizeSchema],
-      [rehypeHighlight, { plainText: ["mermaid"] }] as [typeof rehypeHighlight, { plainText: string[] }],
-    ],
-    [fmOffset, fmLineOffset]
-  );
+    const rehypePlugins = React.useMemo(
+      () => [
+        rehypeKatex,
+        rehypeSlug,
+        rehypeRaw,
+        // Bug 3: stamp data-src-* BEFORE sanitize/highlight drop positions.
+        rehypeSrcPositions(fmOffset, fmLineOffset),
+        // Typora-friendly: recover `**|A|…**` that CommonMark left-flanking rejects.
+        rehypeRecoverEmphasis,
+        [rehypeSanitize, mdSanitizeSchema] as [typeof rehypeSanitize, typeof mdSanitizeSchema],
+        [rehypeHighlight, { plainText: ["mermaid"] }] as [typeof rehypeHighlight, { plainText: string[] }],
+      ],
+      [fmOffset, fmLineOffset]
+    );
 
-  const withSrc = (
-    Tag: keyof React.JSX.IntrinsicElements,
-    node: HastNode | undefined,
-    props: Record<string, unknown>,
-    children: React.ReactNode
-  ) => {
-    const hastProps = (node as { properties?: Record<string, unknown> } | undefined)?.properties;
-    const fromHast =
-      hastProps &&
-      typeof hastProps["data-src-start"] === "number" &&
-      typeof hastProps["data-src-end"] === "number"
-        ? {
-            "data-src-start": hastProps["data-src-start"] as number,
-            "data-src-end": hastProps["data-src-end"] as number,
-            ...(typeof hastProps["data-src-line"] === "number"
-              ? { "data-src-line": hastProps["data-src-line"] as number }
-              : {}),
+    const withSrc = (
+      Tag: keyof React.JSX.IntrinsicElements,
+      node: HastNode | undefined,
+      props: Record<string, unknown>,
+      children: React.ReactNode
+    ) => {
+      const hastProps = (node as { properties?: Record<string, unknown> } | undefined)?.properties;
+      const fromHast =
+        hastProps &&
+        typeof hastProps["data-src-start"] === "number" &&
+        typeof hastProps["data-src-end"] === "number"
+          ? {
+              "data-src-start": hastProps["data-src-start"] as number,
+              "data-src-end": hastProps["data-src-end"] as number,
+              ...(typeof hastProps["data-src-line"] === "number"
+                ? { "data-src-line": hastProps["data-src-line"] as number }
+                : {}),
+            }
+          : null;
+      const fromProps =
+        typeof props["data-src-start"] === "number" &&
+        typeof props["data-src-end"] === "number"
+          ? {
+              "data-src-start": props["data-src-start"] as number,
+              "data-src-end": props["data-src-end"] as number,
+              ...(typeof props["data-src-line"] === "number"
+                ? { "data-src-line": props["data-src-line"] as number }
+                : {}),
+            }
+          : null;
+      const attrs = fromHast || fromProps || srcAttrs(fmOffset, node);
+      return React.createElement(Tag, { ...props, ...attrs }, children);
+    };
+
+    const components = React.useMemo(
+      () => ({
+        p: ({ node, children, ...props }: { node?: HastNode; children?: React.ReactNode } & Record<string, unknown>) => {
+          const walked = walkChildren(children, openDoc, docPath);
+          // 一整段只有一张图、且写了 alt：当插页（图注走 figcaption），否则按普通段落
+          const caption = soleImageCaption(children);
+          if (caption) {
+            return withSrc(
+              "figure",
+              node,
+              { ...props, className: "lh-md-figure" },
+              [
+                walked,
+                <figcaption key="cap" className="lh-md-figcaption">
+                  {caption}
+                </figcaption>,
+              ]
+            );
           }
-        : null;
-    const fromProps =
-      typeof props["data-src-start"] === "number" &&
-      typeof props["data-src-end"] === "number"
-        ? {
-            "data-src-start": props["data-src-start"] as number,
-            "data-src-end": props["data-src-end"] as number,
-            ...(typeof props["data-src-line"] === "number"
-              ? { "data-src-line": props["data-src-line"] as number }
-              : {}),
-          }
-        : null;
-    const attrs = fromHast || fromProps || srcAttrs(fmOffset, node);
-    return React.createElement(Tag, { ...props, ...attrs }, children);
-  };
-
-  const components = React.useMemo(
-    () => ({
-      p: ({ node, children, ...props }: { node?: HastNode; children?: React.ReactNode } & Record<string, unknown>) => {
-        const body = walkChildren(children, documents, openDoc, docPath);
-        // 一整段只有一张图、且写了 alt：当插页（图注走 figcaption），否则按普通段落
-        const caption = soleImageCaption(children);
-        if (caption) {
-          return withSrc(
-            "figure",
-            node,
-            { ...props, className: "lh-md-figure" },
-            [
-              body,
-              <figcaption key="cap" className="lh-md-figcaption">
-                {caption}
-              </figcaption>,
-            ]
-          );
-        }
-        return withSrc("p", node, props, body);
-      },
-      li: ({ node, children, ...props }: { node?: HastNode; children?: React.ReactNode } & Record<string, unknown>) =>
-        withSrc("li", node, props, walkChildren(children, documents, openDoc, docPath)),
-      td: ({ node, children, ...props }: { node?: HastNode; children?: React.ReactNode } & Record<string, unknown>) =>
-        withSrc("td", node, props, walkChildren(children, documents, openDoc, docPath)),
-      th: ({ node, children, ...props }: { node?: HastNode; children?: React.ReactNode } & Record<string, unknown>) =>
-        withSrc("th", node, props, walkChildren(children, documents, openDoc, docPath)),
-      tr: ({ node, children, ...props }: { node?: HastNode; children?: React.ReactNode } & Record<string, unknown>) =>
-        withSrc("tr", node, props, children),
-      // 表格当插页：外壳负责横向滚动，列多也不会把 740px 的版心撑破。
-      // data-src-* 仍留在 <table> 上 —— 点选编辑靠它定位，外壳不掺和。
-      table: ({ node, children, ...props }: { node?: HastNode; children?: React.ReactNode } & Record<string, unknown>) => (
-        <div className="lh-md-table-wrap">
-          {withSrc("table", node, props, children)}
-        </div>
-      ),
-      blockquote: ({ node, children, ...props }: { node?: HastNode; children?: React.ReactNode } & Record<string, unknown>) => {
-        const { kind, title, rest } = calloutKindFromChildren(children);
-        const attrs = srcAttrs(fmOffset, node);
-        if (kind) {
-          const Icon = kind === "tip" ? Lightbulb : kind === "warn" ? TriangleAlert : Info;
-          return (
-            <div className={`callout ${kind}`} {...attrs}>
-              <div className="callout-title">
-                <Icon className="h-4 w-4" />
-                {title}
-              </div>
-              <div>{rest}</div>
-            </div>
-          );
-        }
-        return (
-          <blockquote {...(props as React.HTMLAttributes<HTMLQuoteElement>)} {...attrs}>
-            {walkChildren(children, documents, openDoc, docPath)}
-          </blockquote>
-        );
-      },
-      h1: ({ node, children, id, ...props }: { node?: HastNode; children?: React.ReactNode; id?: string } & Record<string, unknown>) =>
-        withSrc(
-          "h1",
-          node,
-          { ...(props as object), id } as Record<string, unknown>,
-          walkChildren(children, documents, openDoc, docPath)
+          return withSrc("p", node, props, walked);
+        },
+        li: ({ node, children, ...props }: { node?: HastNode; children?: React.ReactNode } & Record<string, unknown>) =>
+          withSrc("li", node, props, walkChildren(children, openDoc, docPath)),
+        td: ({ node, children, ...props }: { node?: HastNode; children?: React.ReactNode } & Record<string, unknown>) =>
+          withSrc("td", node, props, walkChildren(children, openDoc, docPath)),
+        th: ({ node, children, ...props }: { node?: HastNode; children?: React.ReactNode } & Record<string, unknown>) =>
+          withSrc("th", node, props, walkChildren(children, openDoc, docPath)),
+        tr: ({ node, children, ...props }: { node?: HastNode; children?: React.ReactNode } & Record<string, unknown>) =>
+          withSrc("tr", node, props, children),
+        // 表格当插页：外壳负责横向滚动，列多也不会把 740px 的版心撑破。
+        // data-src-* 仍留在 <table> 上 —— 点选编辑靠它定位，外壳不掺和。
+        table: ({ node, children, ...props }: { node?: HastNode; children?: React.ReactNode } & Record<string, unknown>) => (
+          <div className="lh-md-table-wrap">
+            {withSrc("table", node, props, children)}
+          </div>
         ),
-      h2: ({ node, children, id, ...props }: { node?: HastNode; children?: React.ReactNode; id?: string } & Record<string, unknown>) =>
-        withSrc(
-          "h2",
-          node,
-          { ...(props as object), id } as Record<string, unknown>,
-          walkChildren(children, documents, openDoc, docPath)
-        ),
-      h3: ({ node, children, id, ...props }: { node?: HastNode; children?: React.ReactNode; id?: string } & Record<string, unknown>) =>
-        withSrc(
-          "h3",
-          node,
-          { ...(props as object), id } as Record<string, unknown>,
-          walkChildren(children, documents, openDoc, docPath)
-        ),
-      pre: ({ node, children }: { node?: HastNode; children?: React.ReactNode }) => {
-        void node;
-        return <>{children}</>;
-      },
-      code: ({ node, className, children, ...props }: { node?: HastNode; className?: string; children?: React.ReactNode; inline?: boolean } & Record<string, unknown>) => {
-        const inline = props.inline;
-        const isBlock =
-          inline === false ||
-          (typeof className === "string" && /(^|\s)language-/.test(className));
-        const attrs = srcAttrs(fmOffset, node);
-        if (isBlock) {
-          if (isMermaidLanguage(className)) {
+        blockquote: ({ node, children, ...props }: { node?: HastNode; children?: React.ReactNode } & Record<string, unknown>) => {
+          const { kind, title, rest } = calloutKindFromChildren(children);
+          const attrs = srcAttrs(fmOffset, node);
+          if (kind) {
+            const Icon = kind === "tip" ? Lightbulb : kind === "warn" ? TriangleAlert : Info;
             return (
-              <MermaidBlock
+              <div className={`callout ${kind}`} {...attrs}>
+                <div className="callout-title">
+                  <Icon className="h-4 w-4" />
+                  {title}
+                </div>
+                <div>{rest}</div>
+              </div>
+            );
+          }
+          return (
+            <blockquote {...(props as React.HTMLAttributes<HTMLQuoteElement>)} {...attrs}>
+              {walkChildren(children, openDoc, docPath)}
+            </blockquote>
+          );
+        },
+        h1: ({ node, children, id, ...props }: { node?: HastNode; children?: React.ReactNode; id?: string } & Record<string, unknown>) =>
+          withSrc(
+            "h1",
+            node,
+            { ...(props as object), id } as Record<string, unknown>,
+            walkChildren(children, openDoc, docPath)
+          ),
+        h2: ({ node, children, id, ...props }: { node?: HastNode; children?: React.ReactNode; id?: string } & Record<string, unknown>) =>
+          withSrc(
+            "h2",
+            node,
+            { ...(props as object), id } as Record<string, unknown>,
+            walkChildren(children, openDoc, docPath)
+          ),
+        h3: ({ node, children, id, ...props }: { node?: HastNode; children?: React.ReactNode; id?: string } & Record<string, unknown>) =>
+          withSrc(
+            "h3",
+            node,
+            { ...(props as object), id } as Record<string, unknown>,
+            walkChildren(children, openDoc, docPath)
+          ),
+        pre: ({ node, children }: { node?: HastNode; children?: React.ReactNode }) => {
+          void node;
+          return <>{children}</>;
+        },
+        code: ({ node, className, children, ...props }: { node?: HastNode; className?: string; children?: React.ReactNode; inline?: boolean } & Record<string, unknown>) => {
+          const inline = props.inline;
+          const isBlock =
+            inline === false ||
+            (typeof className === "string" && /(^|\s)language-/.test(className));
+          const attrs = srcAttrs(fmOffset, node);
+          if (isBlock) {
+            if (isMermaidLanguage(className)) {
+              return (
+                <MermaidBlock
+                  className={className}
+                  srcStart={attrs["data-src-start"]}
+                  srcEnd={attrs["data-src-end"]}
+                >
+                  {children}
+                </MermaidBlock>
+              );
+            }
+            return (
+              <CodeBlock
                 className={className}
                 srcStart={attrs["data-src-start"]}
                 srcEnd={attrs["data-src-end"]}
               >
                 {children}
-              </MermaidBlock>
+              </CodeBlock>
             );
           }
           return (
-            <CodeBlock
-              className={className}
-              srcStart={attrs["data-src-start"]}
-              srcEnd={attrs["data-src-end"]}
-            >
+            <code className={className} {...props}>
               {children}
-            </CodeBlock>
+            </code>
           );
-        }
-        return (
-          <code className={className} {...props}>
+        },
+        img: ({ src, alt, title }: { src?: string; alt?: string; title?: string }) => (
+          <MdPreviewImage src={src} alt={alt} title={title} docPath={docPath} />
+        ),
+        a: ({ href, children, ...props }: { href?: string; children?: React.ReactNode } & Record<string, unknown>) => (
+          <MdLibLink href={href} docPath={docPath} openDoc={openDoc} {...props}>
             {children}
-          </code>
-        );
-      },
-      img: ({ src, alt, title }: { src?: string; alt?: string; title?: string }) => {
-        const resolved = resolveMediaSrc(src, docPath, documents, assets);
-        if (resolved.kind === "external" || resolved.kind === "data") {
-          return (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={resolved.src}
-              alt={alt || ""}
-              title={title}
-              className="lh-md-img"
-            />
-          );
-        }
-        if (resolved.kind === "asset") {
-          return (
-            <AssetImage
-              assetId={resolved.assetId}
-              path={resolved.path}
-              alt={alt || ""}
-              title={title}
-              className="lh-md-img"
-            />
-          );
-        }
-        return (
-          <span
-            className="lh-broken-img"
-            title={resolved.reason}
-            role="img"
-            aria-label={alt || "缺失图片"}
-          >
-            <span className="lh-broken-img-label">图片未找到</span>
-            <span className="lh-broken-img-path">{resolved.path || "(空路径)"}</span>
-            <span className="lh-broken-img-reason">{resolved.reason}</span>
-          </span>
-        );
-      },
-      a: ({ href, children, ...props }: { href?: string; children?: React.ReactNode } & Record<string, unknown>) => {
-        const resolved = resolveLibraryHref(href, docPath, documents);
-        if (resolved.kind === "doc") {
-          return (
-            <button
-              type="button"
-              className="lh-lib-link"
-              onClick={() => openDoc(resolved.doc.id)}
-            >
-              {children}
-            </button>
-          );
-        }
-        if (
-          resolved.kind === "missing" &&
-          href &&
-          !/^(https?:|mailto:|#)/i.test(String(href))
-        ) {
-          return (
-            <span className="lh-lib-link missing" title={`未找到 ${resolved.path}`}>
-              {children}
-            </span>
-          );
-        }
-        return (
-          <a
-            href={href}
-            target={typeof href === "string" && href.startsWith("http") ? "_blank" : undefined}
-            rel={
-              typeof href === "string" && href.startsWith("http")
-                ? "noreferrer noopener"
-                : undefined
-            }
-            {...(props as React.AnchorHTMLAttributes<HTMLAnchorElement>)}
-          >
-            {children}
-          </a>
-        );
-      },
-      div: ({ className, children, ...props }: { className?: string; children?: React.ReactNode } & Record<string, unknown>) => {
-        if (typeof className === "string" && className.includes("callout")) {
-          const kind = className.includes("tip")
-            ? "tip"
-            : className.includes("warn")
-              ? "warn"
-              : "note";
-          const Icon = kind === "tip" ? Lightbulb : kind === "warn" ? TriangleAlert : Info;
-          const kids = React.Children.toArray(children);
-          const titleEl = kids.find(
-            (c) =>
-              React.isValidElement(c) &&
-              (c.props as { className?: string }).className?.includes("callout-title")
-          );
-          const rest = kids.filter((c) => c !== titleEl);
-          return (
-            <div className={`callout ${kind}`}>
-              <div className="callout-title">
-                <Icon className="h-4 w-4" />
-                {titleEl && React.isValidElement(titleEl)
-                  ? (titleEl.props as { children?: React.ReactNode }).children
-                  : kind}
+          </MdLibLink>
+        ),
+        div: ({ className, children, ...props }: { className?: string; children?: React.ReactNode } & Record<string, unknown>) => {
+          if (typeof className === "string" && className.includes("callout")) {
+            const kind = className.includes("tip")
+              ? "tip"
+              : className.includes("warn")
+                ? "warn"
+                : "note";
+            const Icon = kind === "tip" ? Lightbulb : kind === "warn" ? TriangleAlert : Info;
+            const kids = React.Children.toArray(children);
+            const titleEl = kids.find(
+              (c) =>
+                React.isValidElement(c) &&
+                (c.props as { className?: string }).className?.includes("callout-title")
+            );
+            const rest = kids.filter((c) => c !== titleEl);
+            return (
+              <div className={`callout ${kind}`}>
+                <div className="callout-title">
+                  <Icon className="h-4 w-4" />
+                  {titleEl && React.isValidElement(titleEl)
+                    ? (titleEl.props as { children?: React.ReactNode }).children
+                    : kind}
+                </div>
+                <div>{rest}</div>
               </div>
-              <div>{rest}</div>
+            );
+          }
+          return (
+            <div className={className} {...props}>
+              {children}
             </div>
           );
-        }
-        return (
-          <div className={className} {...props}>
-            {children}
-          </div>
-        );
-      },
-    }),
-    // withSrc closes over fmOffset; documents/openDoc/assets/docPath used in handlers
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [fmOffset, documents, openDoc, assets, docPath]
-  );
+        },
+      }),
+      // Intentionally omit documents/assets — resolvers live in child components.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      [fmOffset, openDoc, docPath]
+    );
 
-  return (
-    <ReactMarkdown
-      remarkPlugins={MD_REMARK_PLUGINS}
-      rehypePlugins={rehypePlugins as never}
-      components={components as never}
-    >
-      {body}
-    </ReactMarkdown>
-  );
-});
+    return (
+      <ReactMarkdown
+        remarkPlugins={MD_REMARK_PLUGINS}
+        rehypePlugins={rehypePlugins as never}
+        components={components as never}
+      >
+        {body}
+      </ReactMarkdown>
+    );
+  },
+  (prev, next) =>
+    prev.body === next.body &&
+    prev.fmOffset === next.fmOffset &&
+    prev.fmLineOffset === next.fmLineOffset &&
+    prev.docPath === next.docPath &&
+    prev.openDoc === next.openDoc
+);
 
 /** Absolute hit strips between annotated blocks (collapsed HTML whitespace). */
 function PreviewGapHitLayer({
@@ -760,7 +794,6 @@ export function MarkdownReader({ doc }: { doc: Document }) {
   const outlineRailOpen = useStore((s) => s.outlineRailOpen);
   const readingPrefs = useStore((s) => s.readingPrefs);
   const mdFocusMode = useStore((s) => s.mdFocusMode);
-  const assets = useStore((s) => s.assets);
   const assetsForDoc = useStore((s) => s.assetsForDoc);
   const annotations = useStore((s) => s.annotations);
   const addAnnotation = useStore((s) => s.addAnnotation);
@@ -1081,24 +1114,34 @@ export function MarkdownReader({ doc }: { doc: Document }) {
     setInlineEdit(null);
   }, []);
 
-  // Save / documents rewrite remounts MarkdownBody while a seamless code / visual
-  // host may still be implanted. If that session already ended, sweep leftover
-  // hosts so we never paint chrome beside a fresh twin card/fence.
+  // Before paint: clear orphan inline-edit hosts when no matching session is
+  // active. Sibling CSS ([data-lh-inline-editor] + [data-src-start]) would
+  // otherwise hide freshly rendered blocks for a frame after remount.
+  // Runs every layout so a body-unchanged remount still gets a sync sweep.
   React.useLayoutEffect(() => {
     const root = articleRef.current;
     if (!root) return;
     const ed = inlineEditRef.current;
-    if (ed?.kind === "block" && ed.mode === "code") {
-      /* code editor re-hides its own twins via remountEpoch */
-    } else {
-      removeOrphanCodeFenceHosts(root);
+    const keepCode = ed?.kind === "block" && ed.mode === "code";
+    const keepVisual = ed?.kind === "block" && ed.mode === "visual";
+    const keepSource = ed?.kind === "block" && ed.mode === "source";
+    if (!keepCode) removeOrphanCodeFenceHosts(root);
+    if (!keepVisual) removeOrphanVisualHosts(root);
+    if (!keepSource) {
+      // Only implanted source slots (InlineMdBlockEditor), never append/insert UI.
+      for (const node of Array.from(
+        root.querySelectorAll<HTMLElement>(
+          '[data-lh-inline-editor="1"].lh-inline-edit-slot'
+        )
+      )) {
+        try {
+          node.remove();
+        } catch {
+          /* ignore */
+        }
+      }
     }
-    if (ed?.kind === "block" && ed.mode === "visual") {
-      /* visual editor re-hides its own twins via remountEpoch */
-    } else {
-      removeOrphanVisualHosts(root);
-    }
-  }, [body, doc.updatedAt]);
+  });
 
   const beginBlockEdit = React.useCallback(
     (
@@ -2340,7 +2383,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
         >
         <article
           ref={articleRef}
-          className="prose-langhuan relative w-full min-w-0 animate-enter"
+          className="prose-langhuan relative w-full min-w-0"
           style={{
             maxWidth: readingPrefs.lineWidth,
             fontSize: readingPrefs.fontSize,
@@ -2451,9 +2494,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
             body={body}
             fmOffset={fmOffset}
             fmLineOffset={fmLineOffset}
-            documents={documents}
             openDoc={openDoc}
-            assets={assets}
             docPath={doc.path}
           />
           {viewMode === "preview" &&

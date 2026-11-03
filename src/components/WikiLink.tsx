@@ -18,19 +18,18 @@ export function WikiLink({
   name,
   label,
   heading,
-  docs,
   onOpen,
   currentPath,
 }: {
   name: string;
   label: string;
   heading?: string;
-  docs: Document[];
   onOpen: (id: string) => void;
   /** Path of the document that contains this link (same-folder create). */
   currentPath?: string;
 }) {
-  const target = resolveWikiTarget(docs, name);
+  // Fine-grained: re-resolve when library changes without remounting react-markdown.
+  const target = useStore((s) => resolveWikiTarget(s.documents, name));
   const createDoc = useStore((s) => s.createDoc);
   const setStatus = useStore((s) => s.setStatus);
   const [peek, setPeek] = React.useState<PeekState | null>(null);

@@ -88,7 +88,26 @@ export function DocWorkspace({ docId }: { docId?: string }) {
     if (isMixed) setMixedMounted(true);
   }, [isMixed]);
 
-  if (!active) return null;
+  // Prefs may restore activeId before content/ library hydrates — show paper
+  // skeleton instead of a blank main (avoids have→gone→fade when MarkdownReader mounts).
+  if (!active) {
+    if (resolvedId) {
+      return (
+        <div
+          className="h-full min-h-0 overflow-hidden p-8 md:px-12 space-y-4"
+          aria-busy="true"
+          aria-label="正在载入文档"
+        >
+          <div className="skeleton h-8 w-1/3 max-w-xs" />
+          <div className="skeleton h-4 w-2/3 max-w-md" />
+          <div className="skeleton h-40 w-full max-w-3xl" />
+          <div className="skeleton h-24 w-full max-w-3xl" />
+          <div className="skeleton h-24 w-full max-w-3xl" />
+        </div>
+      );
+    }
+    return null;
+  }
 
   const reader =
     active.type === "html" ? (

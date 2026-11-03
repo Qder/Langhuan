@@ -96,9 +96,11 @@ export function AppShell() {
     return () => window.clearTimeout(t);
   }, [autosaveEnabled, activeIdForSave, drafts, isDirty]);
 
+  // Emergency only: persist/onRehydrate should set hydrated after hydrateFromContent.
+  // Keep a long fallback so a hung /api/library cannot soft-lock the shell forever.
   React.useEffect(() => {
     if (!hydrated) {
-      const t = window.setTimeout(() => setHydrated(true), 50);
+      const t = window.setTimeout(() => setHydrated(true), 8000);
       return () => window.clearTimeout(t);
     }
   }, [hydrated, setHydrated]);

@@ -693,6 +693,7 @@ export function mountIsolatedVisualHost(
   host.setAttribute("contenteditable", "true");
   host.setAttribute("spellcheck", "true");
   host.setAttribute("data-lh-inline-editor", "visual");
+  host.setAttribute("data-lh-editing", "1");
   host.classList.add("lh-visual-editing");
 
   // Hide anchor *before* inserting the clone so there is never a twin-visible frame.

@@ -7,7 +7,7 @@ import { resolveWikiTarget } from "@/lib/search";
 import { parseFrontmatter } from "@/lib/tags";
 import { extractOutline } from "@/lib/outline";
 import { titleOf, cn } from "@/lib/utils";
-import type { Document } from "@/lib/types";
+import { useStore } from "@/lib/store";
 
 function sectionBody(md: string, heading?: string): string {
   const { body } = parseFrontmatter(md);
@@ -51,15 +51,13 @@ function sectionBody(md: string, heading?: string): string {
 export function WikiEmbed({
   target,
   heading,
-  docs,
   onOpen,
 }: {
   target: string;
   heading?: string;
-  docs: Document[];
   onOpen: (id: string) => void;
 }) {
-  const doc = resolveWikiTarget(docs, target);
+  const doc = useStore((s) => resolveWikiTarget(s.documents, target));
   if (!doc) {
     return (
       <div className="lh-wiki-embed missing my-3 rounded-xl border border-dashed border-[var(--border)] px-3 py-2 text-sm text-[var(--muted)]">

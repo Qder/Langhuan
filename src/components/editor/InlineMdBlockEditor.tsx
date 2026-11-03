@@ -39,6 +39,7 @@ export function InlineMdBlockEditor({
     if (!parent) return;
     const host = document.createElement("div");
     host.setAttribute("data-lh-inline-editor", "1");
+    host.setAttribute("data-lh-editing", "1");
     host.className = "lh-inline-edit-slot my-0";
     // Hide first so slot + original never both paint.
     anchorEl.setAttribute("hidden", "");

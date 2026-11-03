@@ -365,7 +365,8 @@ body {
     box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
   }
   .animate-enter {
-    animation: enter 280ms ease both;
+    /* forwards only — `both` pins opacity:0 before the first frame (preview flicker). */
+    animation: enter 280ms ease forwards;
   }
   @keyframes enter {
     from {
@@ -741,10 +742,11 @@ html.dark .prose-langhuan .katex {
 
 /* Sibling hide: host is always insertBefore(anchor). React reconcile can wipe
    [hidden] / inline display on the React-owned node — adjacent-sibling stays.
-   Prevents twin-paint for blockquote/list cards (clone + restored original). */
-[data-lh-inline-editor="visual"] + [data-src-start],
-[data-lh-inline-editor="1"] + [data-src-start],
-[data-lh-inline-editor="code"] + [data-src-start] {
+   Requires data-lh-editing so orphan hosts left after remount cannot hide the
+   freshly rendered twin until the layout sweep removes them. */
+[data-lh-inline-editor="visual"][data-lh-editing="1"] + [data-src-start],
+[data-lh-inline-editor="1"][data-lh-editing="1"] + [data-src-start],
+[data-lh-inline-editor="code"][data-lh-editing="1"] + [data-src-start] {
   display: none !important;
 }
 
