@@ -3,6 +3,7 @@ import { JSDOM } from "jsdom";
 import { replaceRange } from "./mdInlineEdit";
 import {
   classifyMdBlock,
+  countTopLevelListItems,
   isSourceEditType,
   isVisualEditableType,
   parseTableCellSlice,
@@ -191,6 +192,32 @@ describe("serializeVisualBlock listItem", () => {
         element: node,
       })
     ).toBe("- [x] done\n");
+  });
+
+  it("does not collapse a multi-item UL slice on empty-li save/blur", () => {
+    // Fig1→Fig2: empty teal dot above 速记 was resolved to the whole <ul>
+    // range; serializeListItem used to keep only the first marker and wipe z:.
+    const multi = "- x: 均约束;\n- y: 自由;\n- z: 不是闭式。\n- \n";
+    expect(countTopLevelListItems(multi)).toBe(4);
+    const emptyLi = el("<li></li>");
+    const next = serializeVisualBlock({
+      originalSlice: multi,
+      blockType: "listItem",
+      element: emptyLi,
+    });
+    expect(next).toBe(multi);
+    expect(next).toContain("z: 不是闭式。");
+  });
+
+  it("still edits a single list item when slice is one item", () => {
+    const node = el("<li></li>");
+    expect(
+      serializeVisualBlock({
+        originalSlice: "- \n",
+        blockType: "listItem",
+        element: node,
+      })
+    ).toBe("- \n");
   });
 });
 

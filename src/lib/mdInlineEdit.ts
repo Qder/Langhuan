@@ -410,11 +410,13 @@ const LINE_SPAN_TAG = "SPAN";
  * Resolve the editable block element from a click target.
  * Prefers outer code/mermaid wrappers over per-line spans;
  * prefers outer li / blockquote / .callout over nested paragraph stamps;
+ * never returns UL/OL (multi-item ranges collapse on visual serialize);
  * climbs to the nearest ancestor with data-src-start (not TABLE).
  */
 export function findEditableSrcBlock(
   target: Element | null,
-  root: Element
+  root: Element,
+  opts?: { clientY?: number }
 ): { el: HTMLElement; start: number; end: number } | null {
   if (!target || !root.contains(target)) return null;
   let el = (target as Element).closest("[data-src-start]") as HTMLElement | null;
@@ -444,12 +446,58 @@ export function findEditableSrcBlock(
     el = outer;
   }
 
+  // UL/OL stamps span every item. Visual listItem serialize only keeps the first
+  // marker — editing the wrapper wiped siblings on blur/⌘S (empty teal-dot case).
+  if (el.tagName === "UL" || el.tagName === "OL") {
+    const picked = pickListItemFromList(el, target as Element, opts?.clientY);
+    if (picked) el = picked;
+  }
+
   const start = Number(el.getAttribute("data-src-start"));
   const end = Number(el.getAttribute("data-src-end") || start);
   if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) {
     return null;
   }
   return { el, start, end };
+}
+
+/** Prefer a single annotated LI inside a list wrapper. */
+function pickListItemFromList(
+  listEl: HTMLElement,
+  target: Element,
+  clientY?: number
+): HTMLElement | null {
+  const fromTarget = target.closest("li") as HTMLElement | null;
+  if (
+    fromTarget &&
+    listEl.contains(fromTarget) &&
+    fromTarget.hasAttribute("data-src-start")
+  ) {
+    return fromTarget;
+  }
+  const items = Array.from(
+    listEl.querySelectorAll<HTMLElement>(":scope > li[data-src-start]")
+  );
+  if (!items.length) return null;
+  if (typeof clientY === "number") {
+    let best: HTMLElement | null = null;
+    let bestDist = Infinity;
+    for (const li of items) {
+      const r = li.getBoundingClientRect();
+      const mid = (r.top + r.bottom) / 2;
+      const dist =
+        clientY < r.top ? r.top - clientY : clientY > r.bottom ? clientY - r.bottom : 0;
+      const score = dist + Math.abs(clientY - mid) * 0.01;
+      if (score < bestDist) {
+        bestDist = score;
+        best = li;
+      }
+    }
+    if (best) return best;
+  }
+  // Trailing empty item sits in the UL padding below the last text item — common
+  // near --- / 速记. Without a Y hint, prefer the last annotated LI.
+  return items[items.length - 1] ?? null;
 }
 
 /**

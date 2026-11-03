@@ -1155,6 +1155,16 @@ export function MarkdownReader({ doc }: { doc: Document }) {
         caretAt?: "start" | "end" | number;
       }
     ) => {
+      // Never open visual edit on a UL/OL wrapper — serializeListItem would
+      // collapse sibling items on blur/⌘S (速记上方空圆点保存变样).
+      if (el.tagName === "UL" || el.tagName === "OL") {
+        const root = articleRef.current ?? el;
+        const found = findEditableSrcBlock(el, root, { clientY: click?.clientY });
+        if (!found || (found.el.tagName !== "LI" && found.el.tagName !== "li")) return;
+        el = found.el;
+        start = found.start;
+        end = found.end;
+      }
       const cur = getContent(doc.id);
       const slice = cur.slice(start, end);
       const blockType = resolvePreviewBlockType(slice, el);
@@ -1820,7 +1830,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
           }
         }
         const found =
-          onAppendZone || gapHit ? null : findEditableSrcBlock(t, root);
+          onAppendZone || gapHit ? null : findEditableSrcBlock(t, root, { clientY: e.clientY });
         if (!found) {
           // Empty doc, append zone, or click below the last block → append.
           // Click in the visual gap between two blocks → mid-doc insert.
@@ -1980,13 +1990,18 @@ export function MarkdownReader({ doc }: { doc: Document }) {
         // still show label in status; soft highlight only useful in split/source
       }
       const t = e.target as HTMLElement | null;
-      const el = t?.closest?.<HTMLElement>("[data-src-start]");
+      let el = t?.closest?.<HTMLElement>("[data-src-start]");
       if (!el || !root.contains(el)) {
         if (lastEl) {
           lastEl = null;
           clearHoverReveal();
         }
         return;
+      }
+      // Match click resolve: never surface the whole UL/OL range in the status strip.
+      if (el.tagName === "UL" || el.tagName === "OL") {
+        const found = findEditableSrcBlock(t, root, { clientY: e.clientY });
+        if (found) el = found.el;
       }
       if (el === lastEl) return;
       lastEl = el;

@@ -441,6 +441,25 @@ describe("findEditableSrcBlock", () => {
     expect(found!.el.tagName).toBe("TD");
     expect(found!.start).toBe(10);
   });
+
+  it("never returns UL — empty li / ul chrome resolves to a single LI", () => {
+    const dom = new JSDOM(`<!doctype html><article>
+      <ul data-src-start="0" data-src-end="40">
+        <li data-src-start="0" data-src-end="12">x: 约束</li>
+        <li data-src-start="13" data-src-end="30">z: 不是闭式。</li>
+        <li data-src-start="31" data-src-end="33"></li>
+      </ul>
+    </article>`);
+    const root = dom.window.document.querySelector("article")!;
+    const ul = root.querySelector("ul")!;
+    const empty = root.querySelectorAll("li")[2]!;
+    const fromEmpty = findEditableSrcBlock(empty, root);
+    expect(fromEmpty!.el.tagName).toBe("LI");
+    expect(fromEmpty!.start).toBe(31);
+    const fromUl = findEditableSrcBlock(ul, root);
+    expect(fromUl!.el.tagName).toBe("LI");
+    expect(fromUl!.start).toBe(31); // trailing empty near 速记
+  });
 });
 
 describe("listAnnotatedSrcBlocks vs listGapSrcBlocks — empty li", () => {

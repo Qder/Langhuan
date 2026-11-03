@@ -311,7 +311,23 @@ function serializeHeading(originalSlice: string, element: Element): string {
 const LIST_FIRST =
   /^(\s*)([-*+]|\d+[.)])(\s+)(\[[ xX]\]\s+)?(.*)$/;
 
+/** Count top-level list markers in a slice (continuation lines do not count). */
+export function countTopLevelListItems(slice: string): number {
+  const core = slice.replace(/\r?\n$/, "");
+  let n = 0;
+  for (const line of core.split(/\r?\n/)) {
+    if (LIST_FIRST.test(line)) n += 1;
+  }
+  return n;
+}
+
 function serializeListItem(originalSlice: string, element: Element): string {
+  // Safety: a UL/OL-scoped originalSlice must never collapse to one "- …" line.
+  // (Click/hover used to resolve empty-li chrome to the wrapper; blur/⌘S then
+  // wiped sibling items like the z: line above 速记.)
+  if (countTopLevelListItems(originalSlice) > 1) {
+    return originalSlice;
+  }
   const nl = trailingNewline(originalSlice);
   const core = nl ? originalSlice.slice(0, -nl.length) : originalSlice;
   const lines = core.split(/\r?\n/);
