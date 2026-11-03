@@ -19,7 +19,7 @@ export function IdeTabBar() {
 
   return (
     <div
-      className="flex items-stretch gap-0.5 overflow-x-auto border-b border-[var(--chrome-border)] bg-[var(--chrome)] px-1 shrink-0"
+      className="lh-ide-tabbar flex items-stretch gap-0 overflow-x-auto border-b border-[var(--chrome-border)] bg-[var(--chrome)] px-1 shrink-0"
       role="tablist"
       aria-label="IDE 打开的文件"
     >
@@ -32,10 +32,10 @@ export function IdeTabBar() {
             role="tab"
             aria-selected={active}
             className={cn(
-              "group flex items-center gap-1.5 max-w-[200px] h-9 px-2.5 text-xs font-ui border-b-2 cursor-pointer",
+              "lh-ide-tab group relative flex items-center gap-1.5 max-w-[200px] h-9 px-3 text-xs font-ui border-b-2 border-r border-r-[color-mix(in_srgb,var(--chrome-border)_80%,transparent)] cursor-pointer transition-colors",
               active
-                ? "border-[var(--accent)] text-[var(--fg)] bg-[var(--bg)]"
-                : "border-transparent text-[var(--muted)] hover:text-[var(--fg)] hover:bg-[var(--hover)]"
+                ? "lh-ide-tab-active border-b-[var(--accent)] text-[var(--fg)] bg-[var(--bg)] font-medium"
+                : "lh-ide-tab-inactive border-b-transparent text-[var(--muted)] hover:text-[var(--fg)] hover:bg-[var(--hover)]"
             )}
             onClick={() => useIdeStore.setState({ activePath: t.path })}
             title={t.path}
