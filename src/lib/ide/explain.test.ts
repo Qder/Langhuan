@@ -6,6 +6,7 @@ import {
   collectScannedFileIndex,
   mockExplainHasCitationTo,
   planExplainSelectionRequest,
+  javaImportToSuffix,
   listNearbyImports,
   planNearbyExplainFiles,
   IDE_EXPLAIN_MAX_FULL_LINES,
@@ -169,6 +170,19 @@ describe("planExplainSelectionRequest / selection payloads", () => {
   });
 });
 
+describe("javaImportToSuffix", () => {
+  it("maps package type to .java suffix", () => {
+    expect(javaImportToSuffix("com.demo.Foo")).toBe("com/demo/Foo.java");
+  });
+
+  it("skips JDK packages and star imports", () => {
+    expect(javaImportToSuffix("java.util.List")).toBeNull();
+    expect(javaImportToSuffix("javax.swing.JFrame")).toBeNull();
+    expect(javaImportToSuffix("jakarta.servlet.Servlet")).toBeNull();
+    expect(javaImportToSuffix("com.foo.*")).toBeNull();
+  });
+});
+
 describe("listNearbyImports / planNearbyExplainFiles", () => {
   it("plans only relative ./B.java and skips java.util.List", () => {
     const content = [
@@ -192,6 +206,51 @@ describe("listNearbyImports / planNearbyExplainFiles", () => {
     expect(hits).toEqual(["pkg/a.ts", "pkg/b.ts", "pkg/c.ts"]);
   });
 
+  it("plans unique Java package import from fileIndex", () => {
+    const content = ["import com.demo.Foo;", "class A {}"].join("\n");
+    const index = ["src/main/java/com/demo/Foo.java"];
+    expect(listNearbyImports("src/main/java/com/campus/A.java", content, index)).toEqual([
+      "src/main/java/com/demo/Foo.java",
+    ]);
+  });
+
+  it("does not collect java.util.List even when List.java exists", () => {
+    const content = "import java.util.List;\nclass A {}";
+    expect(
+      listNearbyImports("src/A.java", content, ["src/List.java", "java/util/List.java"])
+    ).toEqual([]);
+  });
+
+  it("skips Java package import when two Foo.java paths match", () => {
+    const content = "import com.demo.Foo;\nclass A {}";
+    expect(
+      listNearbyImports("src/A.java", content, [
+        "a/com/demo/Foo.java",
+        "b/com/demo/Foo.java",
+      ])
+    ).toEqual([]);
+  });
+
+  it("does not collect star imports", () => {
+    const content = "import com.foo.*;\nclass A {}";
+    expect(
+      listNearbyImports("src/A.java", content, ["src/main/java/com/foo/Bar.java"])
+    ).toEqual([]);
+  });
+
+  it("fills remaining slots with Java after relative imports", () => {
+    const content = [
+      'import "./B.java";',
+      "import com.demo.Foo;",
+      "import java.util.List;",
+    ].join("\n");
+    expect(
+      listNearbyImports("src/A.java", content, [
+        "src/main/java/com/demo/Foo.java",
+      ])
+    ).toEqual(["src/B.java", "src/main/java/com/demo/Foo.java"]);
+  });
+
   it("planNearbyExplainFiles reads B and reports skipped", () => {
     const content = 'import "./B.java";\nimport "./Missing.java";\nimport java.util.List;';
     const { files, skipped } = planNearbyExplainFiles({
@@ -203,5 +262,20 @@ describe("listNearbyImports / planNearbyExplainFiles", () => {
     });
     expect(files.map((f) => f.path)).toEqual(["src/B.java"]);
     expect(skipped).toEqual(["src/Missing.java"]);
+  });
+
+  it("planNearbyExplainFiles includes unique Java package neighbor", () => {
+    const content = "import com.demo.Foo;\nclass A {}";
+    const { files, skipped } = planNearbyExplainFiles({
+      path: "src/A.java",
+      content,
+      enabled: true,
+      alreadyPaths: ["src/A.java"],
+      fileIndex: ["src/main/java/com/demo/Foo.java"],
+      readContent: (p) =>
+        p === "src/main/java/com/demo/Foo.java" ? "package com.demo;\nclass Foo {}" : null,
+    });
+    expect(files.map((f) => f.path)).toEqual(["src/main/java/com/demo/Foo.java"]);
+    expect(skipped).toEqual([]);
   });
 });

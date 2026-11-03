@@ -14,7 +14,7 @@ export const IDE_EXPLAIN_HISTORY_MAX = 20;
 export const IDE_EXPLAIN_FILE_INDEX_MAX = 200;
 /** When scanned files are below this, optionally BFS from root (still capped). */
 export const IDE_EXPLAIN_FILE_INDEX_BFS_THRESHOLD = 30;
-/** Max neighbor files from relative imports (plus current = ≤4). */
+/** Max neighbor files from relative + unique Java package imports (plus current = ≤4). */
 export const IDE_EXPLAIN_NEIGHBOR_MAX = 3;
 /** Neighbor bodies over 400 lines: send only this many head lines. */
 export const IDE_EXPLAIN_NEIGHBOR_HEAD_LINES = 160;
@@ -274,13 +274,65 @@ export function resolveImportAgainstFile(
   return out ? normalizeIdeRelPath(out) : null;
 }
 
+/** JDK / EE / internal packages never map to course project sources. */
+const JAVA_SKIP_PACKAGE_PREFIXES = [
+  "java.",
+  "javax.",
+  "jakarta.",
+  "jdk.",
+  "sun.",
+] as const;
+
 /**
- * Collect up to 3 project-relative paths from relative imports in `content`.
- * Skips package names (`java.util.List`, bare `react`). Neighbor must look like text.
+ * `com.demo.Foo` → `com/demo/Foo.java`. Returns null for wildcards, blanks, or skipped JDK packages.
+ * Does not parse `import com.foo.*;`.
+ */
+export function javaImportToSuffix(typeName: string): string | null {
+  const raw = typeName.trim();
+  if (!raw || raw.includes("*") || raw.includes("/") || raw.includes("\\")) {
+    return null;
+  }
+  // Must look like pkg.Type (at least one dot); reject bare identifiers.
+  if (!/^[A-Za-z_][\w]*(?:\.[A-Za-z_][\w]*)+$/.test(raw)) return null;
+  const lower = raw.toLowerCase();
+  if (JAVA_SKIP_PACKAGE_PREFIXES.some((p) => lower.startsWith(p))) return null;
+  return raw.replace(/\./g, "/") + ".java";
+}
+
+/** Exact-or-suffix match in fileIndex; only when uniquely one hit. */
+export function matchUniqueJavaImportPath(
+  suffix: string,
+  fileIndex: string[] | undefined
+): string | null {
+  if (!suffix || !fileIndex || fileIndex.length === 0) return null;
+  const needle = normalizeIdeRelPath(suffix);
+  const hits: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of fileIndex) {
+    const p = normalizeIdeRelPath(raw);
+    if (!p || seen.has(p)) continue;
+    if (p === needle || p.endsWith("/" + needle)) {
+      seen.add(p);
+      hits.push(p);
+      if (hits.length > 1) return null;
+    }
+  }
+  return hits.length === 1 ? hits[0]! : null;
+}
+
+/**
+ * Collect up to 3 project-relative neighbor paths from imports in `content`.
+ * Relative `./` `../` / `#include "..."` first; then Java package imports when
+ * `fileIndex` has exactly one path ending with the package suffix (e.g. `com/demo/Foo.java`).
+ * Skips JDK packages (`java.util.List`), star imports, and ambiguous duplicates.
  * Documented truncation for neighbors: ≤400 lines full; else head 160 lines
  * (see truncateNeighborExplainContent).
  */
-export function listNearbyImports(path: string, content: string): string[] {
+export function listNearbyImports(
+  path: string,
+  content: string,
+  fileIndex?: string[]
+): string[] {
   if (!content) return [];
   const specs: string[] = [];
   const push = (raw: string) => {
@@ -293,40 +345,59 @@ export function listNearbyImports(path: string, content: string): string[] {
   {
     const re = /\bfrom\s+['"](\.\.?\/[^'"]+)['"]/g;
     let m: RegExpExecArray | null;
-    while ((m = re.exec(content))) push(m[1]);
+    while ((m = re.exec(content))) push(m[1]!);
   }
   // import './x' / import "./Foo.java"  (side-effect / bare string import)
   {
     const re = /\bimport\s+['"](\.\.?\/[^'"]+)['"]/g;
     let m: RegExpExecArray | null;
-    while ((m = re.exec(content))) push(m[1]);
+    while ((m = re.exec(content))) push(m[1]!);
   }
   // require('./x')
   {
     const re = /\brequire\s*\(\s*['"](\.\.?\/[^'"]+)['"]\s*\)/g;
     let m: RegExpExecArray | null;
-    while ((m = re.exec(content))) push(m[1]);
+    while ((m = re.exec(content))) push(m[1]!);
   }
   // #include "x.h" (not <system>)
   {
     const re = /#include\s+"([^"]+)"/g;
     let m: RegExpExecArray | null;
-    while ((m = re.exec(content))) push(m[1]);
+    while ((m = re.exec(content))) push(m[1]!);
   }
 
   const seen = new Set<string>();
   const out: string[] = [];
   const self = normalizeIdeRelPath(path);
-  for (const spec of specs) {
-    const resolved = resolveImportAgainstFile(path, spec);
-    if (!resolved || resolved === self) continue;
-    if (resolved.split("/").some((seg) => shouldIgnoreName(seg))) continue;
-    if (!isLikelyTextPath(resolved)) continue;
-    if (seen.has(resolved)) continue;
+  const pushResolved = (resolved: string | null) => {
+    if (!resolved || resolved === self) return false;
+    if (resolved.split("/").some((seg) => shouldIgnoreName(seg))) return false;
+    if (!isLikelyTextPath(resolved)) return false;
+    if (seen.has(resolved)) return false;
     seen.add(resolved);
     out.push(resolved);
+    return true;
+  };
+
+  for (const spec of specs) {
     if (out.length >= IDE_EXPLAIN_NEIGHBOR_MAX) break;
+    pushResolved(resolveImportAgainstFile(path, spec));
   }
+
+  // Java package imports fill remaining slots (relative already preferred).
+  if (out.length < IDE_EXPLAIN_NEIGHBOR_MAX && fileIndex && fileIndex.length > 0) {
+    const javaRe = /\bimport\s+([A-Za-z_][\w]*(?:\.[A-Za-z_][\w]*)+)\s*;/g;
+    let m: RegExpExecArray | null;
+    while (
+      (m = javaRe.exec(content)) &&
+      out.length < IDE_EXPLAIN_NEIGHBOR_MAX
+    ) {
+      const suffix = javaImportToSuffix(m[1]!);
+      if (!suffix) continue;
+      pushResolved(matchUniqueJavaImportPath(suffix, fileIndex));
+    }
+  }
+
   return out;
 }
 
@@ -357,13 +428,15 @@ export function planNearbyExplainFiles(opts: {
   content: string;
   enabled: boolean;
   alreadyPaths?: string[];
+  /** Scanned paths for unique Java package-import matching. */
+  fileIndex?: string[];
   readContent: (relPath: string) => string | null;
 }): { files: IdeExplainFilePayload[]; skipped: string[] } {
   if (!opts.enabled) return { files: [], skipped: [] };
   const already = new Set(
     (opts.alreadyPaths || []).map((p) => normalizeIdeRelPath(p))
   );
-  const planned = listNearbyImports(opts.path, opts.content);
+  const planned = listNearbyImports(opts.path, opts.content, opts.fileIndex);
   const files: IdeExplainFilePayload[] = [];
   const skipped: string[] = [];
   for (const rel of planned) {

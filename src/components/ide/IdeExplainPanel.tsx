@@ -289,11 +289,23 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
           })
         : [];
 
-    // Relative-import neighbors (≤3). Truncation: ≤400 lines full; else head 160.
+    // Need scanned paths before Java package-import matching.
+    const fileIndex = await collectFileIndexWithOptionalBfs({
+      session,
+      children,
+      listDir: listIdeDir,
+    });
+
+    // Neighbors ≤3: relative imports first, then unique Java package hits.
+    // Truncation: ≤400 lines full; else head 160.
     if (activeTab && includeNearby && (useFile || useSel)) {
       const already = new Set(files.map((f) => f.path));
       const skipped: string[] = [];
-      for (const rel of listNearbyImports(activeTab.path, activeTab.draft)) {
+      for (const rel of listNearbyImports(
+        activeTab.path,
+        activeTab.draft,
+        fileIndex
+      )) {
         if (already.has(rel)) continue;
         const open = tabs.find((t) => t.path === rel);
         let body: string | null = open ? open.draft : null;
@@ -318,12 +330,6 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
         );
       }
     }
-
-    const fileIndex = await collectFileIndexWithOptionalBfs({
-      session,
-      children,
-      listDir: listIdeDir,
-    });
 
     const userMsg: IdeExplainMessage = {
       id: newId(),
