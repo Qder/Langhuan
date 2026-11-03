@@ -23,6 +23,16 @@ import {
 import { useIdeStore } from "@/lib/ide/store";
 import { languageIdFromPath } from "@/lib/ide/language";
 import { languageSupportFor } from "@/lib/ide/languageSupport";
+import {
+  collectFileIndexWithOptionalBfs,
+  collectScannedFileIndex,
+} from "@/lib/ide/explain";
+import {
+  findDefinitionLine,
+  planGotoDefinition,
+  wordAtOffset,
+} from "@/lib/ide/gotoDefinition";
+import { listIdeDir, readIdeFile } from "@/lib/ide/ideFs";
 import { isDarkTheme } from "@/lib/theme";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
@@ -32,7 +42,12 @@ import {
   revealRangeInView,
 } from "@/components/editor/locateHighlight";
 
-type CtxMenu = { x: number; y: number; hasSelection: boolean };
+type CtxMenu = {
+  x: number;
+  y: number;
+  hasSelection: boolean;
+  word: string | null;
+};
 
 export function IdeEditor({ path }: { path: string }) {
   const hostRef = React.useRef<HTMLDivElement>(null);
@@ -48,10 +63,19 @@ export function IdeEditor({ path }: { path: string }) {
   const pendingReveal = useIdeStore((s) => s.pendingReveal);
   const clearPendingReveal = useIdeStore((s) => s.clearPendingReveal);
   const requestExplainSelection = useIdeStore((s) => s.requestExplainSelection);
+  const session = useIdeStore((s) => s.session);
+  const children = useIdeStore((s) => s.children);
+  const tabs = useIdeStore((s) => s.tabs);
+  const openFile = useIdeStore((s) => s.openFile);
+  const setStatus = useIdeStore((s) => s.setStatus);
   const theme = useStore((s) => s.theme);
   const dark = isDarkTheme(theme);
 
   const [ctxMenu, setCtxMenu] = React.useState<CtxMenu | null>(null);
+  const [defCandidates, setDefCandidates] = React.useState<
+    { word: string; paths: string[] } | null
+  >(null);
+  const gotoDefRef = React.useRef<(word: string | null) => void>(() => {});
 
   React.useEffect(() => {
     const host = hostRef.current;
@@ -132,11 +156,32 @@ export function IdeEditor({ path }: { path: string }) {
           contextmenu: (event, view) => {
             event.preventDefault();
             const sel = view.state.selection.main;
+            const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
+            let word: string | null = null;
+            if (pos != null) {
+              const line = view.state.doc.lineAt(pos);
+              word = wordAtOffset(line.text, pos - line.from);
+            }
+            if (!word && !sel.empty) {
+              const t = view.state.doc.sliceString(sel.from, sel.to).trim();
+              word = wordAtOffset(t, 0) ?? (t.match(/^[A-Za-z_][A-Za-z0-9_]*$/) ? t : null);
+            }
             setCtxMenu({
               x: event.clientX,
               y: event.clientY,
               hasSelection: !sel.empty,
+              word,
             });
+            return true;
+          },
+          click: (event, view) => {
+            if (!event.altKey) return false;
+            event.preventDefault();
+            const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
+            if (pos == null) return true;
+            const line = view.state.doc.lineAt(pos);
+            const word = wordAtOffset(line.text, pos - line.from);
+            gotoDefRef.current(word);
             return true;
           },
         }),
@@ -268,6 +313,71 @@ export function IdeEditor({ path }: { path: string }) {
     };
   }, [ctxMenu]);
 
+  const openDefinition = React.useCallback(
+    async (targetPath: string, word: string) => {
+      setDefCandidates(null);
+      let body: string | null =
+        tabs.find((t) => t.path === targetPath)?.draft ?? null;
+      if (body == null && session) {
+        try {
+          body = await readIdeFile(session, targetPath);
+        } catch {
+          body = null;
+        }
+      }
+      const line = findDefinitionLine(body ?? "", word);
+      const ok = await openFile(targetPath, { line });
+      if (!ok) setStatus(`打不开 ${targetPath}`);
+    },
+    [tabs, session, openFile, setStatus]
+  );
+
+  const runGotoDefinition = React.useCallback(
+    async (word: string | null) => {
+      setCtxMenu(null);
+      if (!word) {
+        setStatus("找不到定义");
+        return;
+      }
+      if (!session) {
+        setStatus("先打开文件夹");
+        return;
+      }
+      let index = collectScannedFileIndex(children);
+      if (index.length < 30) {
+        index = await collectFileIndexWithOptionalBfs({
+          session,
+          children,
+          listDir: listIdeDir,
+        });
+      }
+      const plan = planGotoDefinition({
+        word,
+        currentPath: path,
+        fileIndex: index,
+      });
+      if (plan.kind === "miss") {
+        setStatus("找不到定义");
+        setDefCandidates(null);
+        return;
+      }
+      if (plan.kind === "candidates") {
+        setDefCandidates({ word, paths: plan.candidates });
+        setStatus(`多个同名文件，请选择（${plan.candidates.length}）`);
+        return;
+      }
+      await openDefinition(plan.path, word);
+    },
+    [session, children, path, setStatus, openDefinition]
+  );
+
+  React.useEffect(() => {
+    gotoDefRef.current = (word) => {
+      void runGotoDefinition(word);
+    };
+  }, [runGotoDefinition]);
+
+
   const copySelection = () => {
     const view = viewRef.current;
     setCtxMenu(null);
@@ -298,6 +408,17 @@ export function IdeEditor({ path }: { path: string }) {
           <button
             type="button"
             role="menuitem"
+            disabled={!ctxMenu.word}
+            className={cn(
+              "w-full text-left px-3 py-1.5 hover:bg-[var(--hover)] disabled:opacity-40 disabled:hover:bg-transparent"
+            )}
+            onClick={() => void runGotoDefinition(ctxMenu.word)}
+          >
+            转到定义
+          </button>
+          <button
+            type="button"
+            role="menuitem"
             disabled={!ctxMenu.hasSelection}
             className={cn(
               "w-full text-left px-3 py-1.5 hover:bg-[var(--hover)] disabled:opacity-40 disabled:hover:bg-transparent"
@@ -317,6 +438,34 @@ export function IdeEditor({ path }: { path: string }) {
           >
             复制
           </button>
+        </div>
+      )}
+      {defCandidates && (
+        <div
+          className="absolute z-40 left-3 top-3 right-3 max-w-md rounded-xl border border-[var(--border)] bg-[var(--chrome)] shadow-xl p-2 font-ui text-sm"
+          role="listbox"
+          aria-label="转到定义候选"
+        >
+          <div className="flex items-center justify-between px-1 pb-1.5 text-xs text-[var(--muted)]">
+            <span>选择定义（{defCandidates.word}）</span>
+            <button
+              type="button"
+              className="hover:text-[var(--fg)]"
+              onClick={() => setDefCandidates(null)}
+            >
+              关闭
+            </button>
+          </div>
+          {defCandidates.paths.map((p) => (
+            <button
+              key={p}
+              type="button"
+              className="w-full text-left px-2 py-1.5 rounded-md hover:bg-[var(--hover)] truncate"
+              onClick={() => void openDefinition(p, defCandidates.word)}
+            >
+              {p}
+            </button>
+          ))}
         </div>
       )}
     </div>

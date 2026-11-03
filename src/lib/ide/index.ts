@@ -47,3 +47,10 @@ export {
   planQuickOpenCandidates,
 } from "./quickOpen";
 export { parseGotoLine, type GotoLineResult } from "./gotoLine";
+export {
+  findDefinitionLine,
+  isGotoDefinitionIdentifier,
+  planGotoDefinition,
+  wordAtOffset,
+  type GotoDefinitionPlan,
+} from "./gotoDefinition";
