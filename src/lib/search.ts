@@ -3,6 +3,7 @@ import { extractWikiLinks } from "./wikilink";
 import { getDocMeta } from "./docMeta";
 import { basename, titleOf } from "./utils";
 import type { SearchHit } from "./search/types";
+import { parseSearchQuery, segmentTerms } from "./searchQuery";
 import { searchDocumentsLegacy } from "./search/legacy";
 import { searchWithIndex } from "./search/queryEngine";
 import {
@@ -26,6 +27,40 @@ export function searchDocuments(docs: Document[], query: string): SearchHit[] {
     return searchWithIndex(getSearchIndex(), docs, query);
   }
   return searchDocumentsLegacy(docs, query);
+}
+
+
+/**
+ * First case-insensitive exact hit of the ⌘K query inside document content.
+ * Title/path-only hits (needle not in content) → null; open without reveal.
+ * Does not change search ranking — only plans locate after open.
+ */
+export function planSearchOpenReveal(
+  content: string,
+  query: string
+): { start: number; end: number } | null {
+  if (!content || !query.trim()) return null;
+  const parsed = parseSearchQuery(query);
+  const needles: string[] = [];
+  const push = (s: string) => {
+    const v = s.trim();
+    if (!v) return;
+    if (!needles.some((n) => n.toLowerCase() === v.toLowerCase())) needles.push(v);
+  };
+  push(parsed.text);
+  for (const t of segmentTerms(parsed.text)) push(t);
+  for (const ph of parsed.phrases) push(ph);
+  if (!needles.length) return null;
+
+  const lower = content.toLowerCase();
+  let best: { start: number; end: number } | null = null;
+  for (const n of needles) {
+    const idx = lower.indexOf(n.toLowerCase());
+    if (idx < 0) continue;
+    const end = idx + n.length;
+    if (!best || idx < best.start) best = { start: idx, end };
+  }
+  return best;
 }
 
 export type BacklinkHit = {

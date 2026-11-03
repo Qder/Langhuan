@@ -5,7 +5,7 @@ import { Tag, BookOpenCheck, Archive, HeartPulse, Replace, BookmarkPlus, Calenda
 import { Dialog } from "./ui/dialog";
 import { useStore } from "@/lib/store";
 import { themeLabel } from "@/lib/theme";
-import { searchDocuments } from "@/lib/search";
+import { planSearchOpenReveal, searchDocuments } from "@/lib/search";
 import { renderSnippetMarks } from "@/lib/search/highlight";
 import { titleOf, cn } from "@/lib/utils";
 import { importClipboardAs } from "@/lib/clipboardImport";
@@ -17,6 +17,8 @@ export function CommandPalette() {
   const setOpen = useStore((s) => s.setCommandOpen);
   const documents = useStore((s) => s.documents);
   const openDoc = useStore((s) => s.requestOpenDoc);
+  const applyLocateResult = useStore((s) => s.applyLocateResult);
+  const requestPreviewLocate = useStore((s) => s.requestPreviewLocate);
   const openHome = useStore((s) => s.requestOpenHome);
   const createDoc = useStore((s) => s.createDoc);
   const setStatus = useStore((s) => s.setStatus);
@@ -421,7 +423,23 @@ export function CommandPalette() {
         label: titleOf(h.path),
         hint: renderSnippetMarks(h.snippet, h.marks),
         icon: h.type === "html" ? <Globe className="h-4 w-4 text-[var(--teal)]" /> : <FileText className="h-4 w-4" />,
-        run: () => openDoc(h.id),
+        run: () => {
+          openDoc(h.id);
+          const doc = documents.find((d) => d.id === h.id);
+          if (!doc) return;
+          const reveal = planSearchOpenReveal(doc.content, q);
+          if (!reveal) return;
+          applyLocateResult(
+            {
+              start: reveal.start,
+              end: reveal.end,
+              precision: "exact",
+              message: `搜索命中 · ${titleOf(doc.path)}`,
+            },
+            { select: true, focus: true, highlight: true, center: true }
+          );
+          requestPreviewLocate(reveal.start, { scroll: true, announce: true });
+        },
       });
     }
     if (hits.length === 0) {
