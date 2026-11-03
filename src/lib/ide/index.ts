@@ -48,9 +48,14 @@ export {
 } from "./quickOpen";
 export { parseGotoLine, type GotoLineResult } from "./gotoLine";
 export {
+  candidatePathsForMethodSearch,
   findDefinitionLine,
+  findDefinitionLineOrNull,
   isGotoDefinitionIdentifier,
   planGotoDefinition,
+  resolveJavaTypeOfIdentifier,
+  searchMethodDefinition,
+  symbolAtOffset,
   wordAtOffset,
   type GotoDefinitionPlan,
 } from "./gotoDefinition";

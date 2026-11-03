@@ -30,6 +30,8 @@ import {
 import {
   findDefinitionLine,
   planGotoDefinition,
+  searchMethodDefinition,
+  symbolAtOffset,
   wordAtOffset,
 } from "@/lib/ide/gotoDefinition";
 import { IDE_FIND_EVENT, IDE_GOTO_DEF_EVENT } from "@/lib/ide/ideEvents";
@@ -48,6 +50,7 @@ type CtxMenu = {
   y: number;
   hasSelection: boolean;
   word: string | null;
+  receiver: string | null;
 };
 
 export function IdeEditor({ path }: { path: string }) {
@@ -76,7 +79,9 @@ export function IdeEditor({ path }: { path: string }) {
   const [defCandidates, setDefCandidates] = React.useState<
     { word: string; paths: string[] } | null
   >(null);
-  const gotoDefRef = React.useRef<(word: string | null) => void>(() => {});
+  const gotoDefRef = React.useRef<
+    (query: { word: string; receiver: string | null } | null) => void
+  >(() => {});
 
   React.useEffect(() => {
     const host = hostRef.current;
@@ -95,17 +100,18 @@ export function IdeEditor({ path }: { path: string }) {
           key: "F12",
           run: (view) => {
             const sel = view.state.selection.main;
-            let word: string | null = null;
+            let query: { word: string; receiver: string | null } | null = null;
             if (!sel.empty) {
-              const t = view.state.doc.sliceString(sel.from, sel.to).trim();
-              word =
-                wordAtOffset(t, 0) ??
-                (t.match(/^[A-Za-z_][A-Za-z0-9_]*$/) ? t : null);
+              const picked = view.state.doc.sliceString(sel.from, sel.to).trim();
+              const w =
+                wordAtOffset(picked, 0) ??
+                (picked.match(/^[A-Za-z_][A-Za-z0-9_]*$/) ? picked : null);
+              query = w ? { word: w, receiver: null } : null;
             } else {
               const line = view.state.doc.lineAt(sel.head);
-              word = wordAtOffset(line.text, sel.head - line.from);
+              query = symbolAtOffset(line.text, sel.head - line.from);
             }
-            gotoDefRef.current(word);
+            gotoDefRef.current(query);
             return true;
           },
         },
@@ -179,19 +185,27 @@ export function IdeEditor({ path }: { path: string }) {
             const sel = view.state.selection.main;
             const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
             let word: string | null = null;
+            let receiver: string | null = null;
             if (pos != null) {
               const line = view.state.doc.lineAt(pos);
-              word = wordAtOffset(line.text, pos - line.from);
+              const sym = symbolAtOffset(line.text, pos - line.from);
+              if (sym) {
+                word = sym.word;
+                receiver = sym.receiver;
+              }
             }
             if (!word && !sel.empty) {
-              const t = view.state.doc.sliceString(sel.from, sel.to).trim();
-              word = wordAtOffset(t, 0) ?? (t.match(/^[A-Za-z_][A-Za-z0-9_]*$/) ? t : null);
+              const picked = view.state.doc.sliceString(sel.from, sel.to).trim();
+              word =
+                wordAtOffset(picked, 0) ??
+                (picked.match(/^[A-Za-z_][A-Za-z0-9_]*$/) ? picked : null);
             }
             setCtxMenu({
               x: event.clientX,
               y: event.clientY,
               hasSelection: !sel.empty,
               word,
+              receiver,
             });
             return true;
           },
@@ -202,8 +216,7 @@ export function IdeEditor({ path }: { path: string }) {
             const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
             if (pos == null) return true;
             const line = view.state.doc.lineAt(pos);
-            const word = wordAtOffset(line.text, pos - line.from);
-            gotoDefRef.current(word);
+            gotoDefRef.current(symbolAtOffset(line.text, pos - line.from));
             return true;
           },
         }),
@@ -355,9 +368,9 @@ export function IdeEditor({ path }: { path: string }) {
   );
 
   const runGotoDefinition = React.useCallback(
-    async (word: string | null) => {
+    async (query: { word: string; receiver: string | null } | null) => {
       setCtxMenu(null);
-      if (!word) {
+      if (!query?.word) {
         setStatus("找不到定义");
         return;
       }
@@ -365,6 +378,8 @@ export function IdeEditor({ path }: { path: string }) {
         setStatus("先打开文件夹");
         return;
       }
+      const word = query.word;
+      const receiver = query.receiver;
       let index = collectScannedFileIndex(children);
       if (index.length < 30) {
         index = await collectFileIndexWithOptionalBfs({
@@ -373,29 +388,48 @@ export function IdeEditor({ path }: { path: string }) {
           listDir: listIdeDir,
         });
       }
-      const plan = planGotoDefinition({
+      const currentContent =
+        tabs.find((t) => t.path === path)?.draft ??
+        viewRef.current?.state.doc.toString() ??
+        "";
+      let plan = planGotoDefinition({
         word,
+        receiver,
         currentPath: path,
         fileIndex: index,
+        currentContent,
       });
+      // Fallback: scan Mapper/Dao/xml (+ other java) for unique method / id=
+      if (plan.kind === "miss") {
+        setStatus("正在查找定义…");
+        plan = await searchMethodDefinition({
+          word,
+          fileIndex: index,
+          readFile: async (rel) => {
+            const open = tabs.find((t) => t.path === rel)?.draft;
+            if (open != null) return open;
+            return readIdeFile(session, rel);
+          },
+        });
+      }
       if (plan.kind === "miss") {
         setStatus("找不到定义");
         setDefCandidates(null);
         return;
       }
       if (plan.kind === "candidates") {
-        setDefCandidates({ word, paths: plan.candidates });
-        setStatus(`多个同名文件，请选择（${plan.candidates.length}）`);
+        setDefCandidates({ word: plan.symbol, paths: plan.candidates });
+        setStatus(`多个同名定义，请选择（${plan.candidates.length}）`);
         return;
       }
-      await openDefinition(plan.path, word);
+      await openDefinition(plan.path, plan.symbol);
     },
-    [session, children, path, setStatus, openDefinition]
+    [session, children, path, tabs, setStatus, openDefinition]
   );
 
   React.useEffect(() => {
-    gotoDefRef.current = (word) => {
-      void runGotoDefinition(word);
+    gotoDefRef.current = (query) => {
+      void runGotoDefinition(query);
     };
   }, [runGotoDefinition]);
 
@@ -415,17 +449,18 @@ export function IdeEditor({ path }: { path: string }) {
       }
       view.focus();
       const sel = view.state.selection.main;
-      let word: string | null = null;
+      let query: { word: string; receiver: string | null } | null = null;
       if (!sel.empty) {
-        const t = view.state.doc.sliceString(sel.from, sel.to).trim();
-        word =
-          wordAtOffset(t, 0) ??
-          (t.match(/^[A-Za-z_][A-Za-z0-9_]*$/) ? t : null);
+        const picked = view.state.doc.sliceString(sel.from, sel.to).trim();
+        const w =
+          wordAtOffset(picked, 0) ??
+          (picked.match(/^[A-Za-z_][A-Za-z0-9_]*$/) ? picked : null);
+        query = w ? { word: w, receiver: null } : null;
       } else {
         const line = view.state.doc.lineAt(sel.head);
-        word = wordAtOffset(line.text, sel.head - line.from);
+        query = symbolAtOffset(line.text, sel.head - line.from);
       }
-      void runGotoDefinition(word);
+      void runGotoDefinition(query);
     };
     window.addEventListener(IDE_FIND_EVENT, onFind);
     window.addEventListener(IDE_GOTO_DEF_EVENT, onGoto);
@@ -469,7 +504,13 @@ export function IdeEditor({ path }: { path: string }) {
             className={cn(
               "w-full text-left px-3 py-1.5 hover:bg-[var(--hover)] disabled:opacity-40 disabled:hover:bg-transparent"
             )}
-            onClick={() => void runGotoDefinition(ctxMenu.word)}
+            onClick={() =>
+              void runGotoDefinition(
+                ctxMenu.word
+                  ? { word: ctxMenu.word, receiver: ctxMenu.receiver }
+                  : null
+              )
+            }
           >
             转到定义 (F12)
           </button>
