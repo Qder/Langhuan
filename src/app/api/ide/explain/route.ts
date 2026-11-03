@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
+  assembleExplainUserContent,
   buildMockExplainMarkdown,
   IDE_EXPLAIN_SYSTEM_PROMPT,
   type IdeExplainFilePayload,
@@ -11,6 +12,8 @@ export const dynamic = "force-dynamic";
 type Body = {
   question?: string;
   files?: IdeExplainFilePayload[];
+  /** Path-only project file list (no bodies). */
+  fileIndex?: string[];
   locale?: string;
   /** Optional client-provided key (IDE settings); never logged. */
   apiKey?: string;
@@ -50,14 +53,6 @@ function mockStream(text: string): ReadableStream<Uint8Array> {
   });
 }
 
-function userContent(question: string, files: IdeExplainFilePayload[]): string {
-  const blocks = files.map((f) => {
-    const start = f.startLine ?? 1;
-    return `文件：${f.path}（从第 ${start} 行起）\n\`\`\`\n${f.content}\n\`\`\``;
-  });
-  return [`问题：${question || "请讲解当前文件"}`, ...blocks].join("\n\n");
-}
-
 export async function POST(req: NextRequest) {
   let body: Body;
   try {
@@ -67,11 +62,17 @@ export async function POST(req: NextRequest) {
   }
 
   const question = (body.question || "").trim() || "请讲解当前文件";
-  const files = Array.isArray(body.files) ? body.files.slice(0, 3) : [];
+  const files = Array.isArray(body.files) ? body.files.slice(0, 4) : [];
+  const fileIndex = Array.isArray(body.fileIndex)
+    ? body.fileIndex
+        .map((p) => String(p || "").trim())
+        .filter(Boolean)
+        .slice(0, 200)
+    : [];
   const key = pickKey(body);
 
   if (!key) {
-    const text = buildMockExplainMarkdown({ question, files });
+    const text = buildMockExplainMarkdown({ question, files, fileIndex });
     return new Response(mockStream(text), {
       status: 200,
       headers: {
@@ -86,7 +87,10 @@ export async function POST(req: NextRequest) {
   const model = pickModel(body);
   const messages = [
     { role: "system", content: IDE_EXPLAIN_SYSTEM_PROMPT },
-    { role: "user", content: userContent(question, files) },
+    {
+      role: "user",
+      content: assembleExplainUserContent(question, files, fileIndex),
+    },
   ];
 
   try {

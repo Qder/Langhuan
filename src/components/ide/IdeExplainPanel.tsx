@@ -15,8 +15,10 @@ import {
 import {
   buildExplainFilePayloads,
   citationsFromMarkdown,
+  collectFileIndexWithOptionalBfs,
   type IdeExplainMessage,
 } from "@/lib/ide/explain";
+import { listIdeDir } from "@/lib/ide/ideFs";
 import { useMediaQuery } from "@/lib/useMediaQuery";
 import { cn } from "@/lib/utils";
 
@@ -234,6 +236,12 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
           })
         : [];
 
+    const fileIndex = await collectFileIndexWithOptionalBfs({
+      session,
+      children,
+      listDir: listIdeDir,
+    });
+
     const userMsg: IdeExplainMessage = {
       id: newId(),
       role: "user",
@@ -260,6 +268,7 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
       const body: Record<string, unknown> = {
         question: q,
         files,
+        fileIndex,
         locale: "zh",
       };
       if (explainSettings.apiKey.trim()) body.apiKey = explainSettings.apiKey.trim();

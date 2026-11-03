@@ -4,10 +4,15 @@
  */
 
 import { parseIdeCitations, normalizeIdeRelPath } from "./citations";
+import type { IdeFsEntry, IdeFolderSession } from "./ideFs";
+import { shouldIgnoreName } from "./ignore";
 
 export const IDE_EXPLAIN_MAX_FULL_LINES = 400;
 export const IDE_EXPLAIN_CONTEXT_PAD = 80;
 export const IDE_EXPLAIN_HISTORY_MAX = 20;
+export const IDE_EXPLAIN_FILE_INDEX_MAX = 200;
+/** When scanned files are below this, optionally BFS from root (still capped). */
+export const IDE_EXPLAIN_FILE_INDEX_BFS_THRESHOLD = 30;
 
 export type IdeExplainFilePayload = {
   path: string;
@@ -35,6 +40,7 @@ export type IdeExplainMessage = {
 
 export const IDE_EXPLAIN_SYSTEM_PROMPT = `你是本工程的讲解助教，只解释知识点，不改代码、不输出 git patch、不编造工程里没有的路径。
 每个关键结论请用 [[相对路径:行号]] 或 [[相对路径:起始行-结束行]] 标出源码位置（路径用工程相对路径，含目录）。
+引用必须来自用户消息里的「工程已扫描文件路径」清单，或当前附带的 files 正文；禁止编造清单与 files 之外的路径。
 用简洁中文回答。`;
 
 /**
@@ -90,10 +96,108 @@ export function buildExplainFilePayloads(opts: {
   ];
 }
 
+/**
+ * Collect project-relative file paths from already-scanned explorer children.
+ * Paths only — never file bodies. Honors ignore names on any path segment.
+ */
+export function collectScannedFileIndex(
+  children: Record<string, IdeFsEntry[]>,
+  max = IDE_EXPLAIN_FILE_INDEX_MAX
+): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const entries of Object.values(children)) {
+    for (const e of entries) {
+      if (e.kind !== "file") continue;
+      const p = normalizeIdeRelPath(e.path);
+      if (!p) continue;
+      if (p.split("/").some((seg) => shouldIgnoreName(seg))) continue;
+      if (seen.has(p)) continue;
+      seen.add(p);
+      out.push(p);
+      if (out.length >= max) {
+        return out.sort((a, b) => a.localeCompare(b, "en"));
+      }
+    }
+  }
+  return out.sort((a, b) => a.localeCompare(b, "en"));
+}
+
+/**
+ * If scanned files are sparse, breadth-first list more dirs (ignore + max).
+ * On failure, returns the scanned fallback. Does not read file contents.
+ */
+export async function collectFileIndexWithOptionalBfs(opts: {
+  session: IdeFolderSession;
+  children: Record<string, IdeFsEntry[]>;
+  listDir: (session: IdeFolderSession, relDir: string) => Promise<IdeFsEntry[]>;
+  max?: number;
+  bfsThreshold?: number;
+}): Promise<string[]> {
+  const max = opts.max ?? IDE_EXPLAIN_FILE_INDEX_MAX;
+  const threshold = opts.bfsThreshold ?? IDE_EXPLAIN_FILE_INDEX_BFS_THRESHOLD;
+  const fallback = collectScannedFileIndex(opts.children, max);
+  if (fallback.length >= threshold || fallback.length >= max) return fallback;
+
+  try {
+    const files = new Set(fallback);
+    const queued: string[] = [""];
+    const listed = new Set<string>(Object.keys(opts.children));
+    let qi = 0;
+    while (qi < queued.length && files.size < max) {
+      const dir = queued[qi++]!;
+      let entries: IdeFsEntry[];
+      if (opts.children[dir]) {
+        entries = opts.children[dir]!;
+      } else {
+        entries = await opts.listDir(opts.session, dir);
+        listed.add(dir);
+      }
+      for (const e of entries) {
+        if (e.kind === "directory") {
+          if (shouldIgnoreName(e.name)) continue;
+          const d = normalizeIdeRelPath(e.path);
+          if (!listed.has(d) && !queued.includes(d)) queued.push(d);
+        } else if (e.kind === "file") {
+          const p = normalizeIdeRelPath(e.path);
+          if (!p || p.split("/").some((seg) => shouldIgnoreName(seg))) continue;
+          files.add(p);
+          if (files.size >= max) break;
+        }
+      }
+    }
+    return [...files].sort((a, b) => a.localeCompare(b, "en")).slice(0, max);
+  } catch {
+    return fallback;
+  }
+}
+
+/** User message body for explain API (files + optional path-only index). */
+export function assembleExplainUserContent(
+  question: string,
+  files: IdeExplainFilePayload[],
+  fileIndex?: string[]
+): string {
+  const blocks = files.map((f) => {
+    const start = f.startLine ?? 1;
+    return `文件：${f.path}（从第 ${start} 行起）\n\`\`\`\n${f.content}\n\`\`\``;
+  });
+  const indexBlock =
+    fileIndex && fileIndex.length > 0
+      ? `工程已扫描文件路径（仅路径、无正文，共 ${fileIndex.length} 条）：\n` +
+        fileIndex.map((p) => `- ${p}`).join("\n")
+      : "";
+  return [`问题：${question || "请讲解当前文件"}`, indexBlock, ...blocks]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
 /** Deterministic mock explain that always cites the given path with a line. */
 export function buildMockExplainMarkdown(opts: {
   question: string;
   files: IdeExplainFilePayload[];
+  /** Path-only index; when a second file exists, mock also cites it at line 1. */
+  fileIndex?: string[];
 }): string {
   const primary = opts.files[0];
   const path = primary?.path || "src/Main.java";
@@ -112,14 +216,24 @@ export function buildMockExplainMarkdown(opts: {
   const endLine = Math.min(line + 2, startLine + Math.max(0, lines.length - 1));
   const leaf = path.split("/").pop() || path;
   const q = (opts.question || "").trim() || "这个文件在讲什么";
+  const primaryNorm = normalizeIdeRelPath(path);
+  const second = (opts.fileIndex || [])
+    .map((p) => normalizeIdeRelPath(p))
+    .find((p) => p && p !== primaryNorm);
 
-  return [
+  const parts = [
     `这是针对「${q}」的本地示例讲解（未配置 API）。`,
     `文件 [[${path}:${line}]]（\`${leaf}\`）是当前上下文的入口；可以从这一带的定义读起。`,
     `若这段逻辑跨了几行，请看 [[${path}:${line}-${endLine}]]：先分清输入、状态和出口，再对照调用方。`,
     `点上面的路径芯片会打开工程里的真实文件并滚到对应行；编造路径不会静默乱开。`,
     `配置 \`OPENAI_API_KEY\`（或 IDE 设置里的 Key）后，这里会换成模型流式答复，引用格式不变。`,
-  ].join("\n\n");
+  ];
+  if (second) {
+    parts.push(
+      `清单里还有 [[${second}:1]]，可对照阅读（示例讲解顺带引用第二个已扫描文件）。`
+    );
+  }
+  return parts.join("\n\n");
 }
 
 export function mockExplainHasCitationTo(
