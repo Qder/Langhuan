@@ -6,6 +6,8 @@ import {
   collectScannedFileIndex,
   mockExplainHasCitationTo,
   planExplainSelectionRequest,
+  listNearbyImports,
+  planNearbyExplainFiles,
   IDE_EXPLAIN_MAX_FULL_LINES,
 } from "./explain";
 import { parseIdeCitations } from "./citations";
@@ -164,5 +166,42 @@ describe("planExplainSelectionRequest / selection payloads", () => {
         text: "",
       })
     ).toBeNull();
+  });
+});
+
+describe("listNearbyImports / planNearbyExplainFiles", () => {
+  it("plans only relative ./B.java and skips java.util.List", () => {
+    const content = [
+      "import java.util.List;",
+      "import \"./B.java\";",
+      "import \"./C.java\";",
+      "",
+      "class A { List x; }",
+    ].join("\n");
+    expect(listNearbyImports("src/A.java", content)).toEqual([
+      "src/B.java",
+      "src/C.java",
+    ]);
+  });
+
+  it("truncates to 3 relative imports", () => {
+    const hits = listNearbyImports(
+      "pkg/Main.ts",
+      ["import \"./a.ts\";", "import \"./b.ts\";", "import \"./c.ts\";", "import \"./d.ts\";"].join("\n")
+    );
+    expect(hits).toEqual(["pkg/a.ts", "pkg/b.ts", "pkg/c.ts"]);
+  });
+
+  it("planNearbyExplainFiles reads B and reports skipped", () => {
+    const content = 'import "./B.java";\nimport "./Missing.java";\nimport java.util.List;';
+    const { files, skipped } = planNearbyExplainFiles({
+      path: "src/A.java",
+      content,
+      enabled: true,
+      alreadyPaths: ["src/A.java"],
+      readContent: (p) => (p === "src/B.java" ? "class B {}" : null),
+    });
+    expect(files.map((f) => f.path)).toEqual(["src/B.java"]);
+    expect(skipped).toEqual(["src/Missing.java"]);
   });
 });

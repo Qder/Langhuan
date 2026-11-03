@@ -30,6 +30,9 @@ export {
   buildMockExplainMarkdown,
   collectScannedFileIndex,
   planExplainSelectionRequest,
+  listNearbyImports,
+  planNearbyExplainFiles,
+  truncateNeighborExplainContent,
   IDE_EXPLAIN_SYSTEM_PROMPT,
 } from "./explain";
 export {

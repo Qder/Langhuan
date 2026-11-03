@@ -17,9 +17,11 @@ import {
   buildExplainFilePayloads,
   citationsFromMarkdown,
   collectFileIndexWithOptionalBfs,
+  listNearbyImports,
+  truncateNeighborExplainContent,
   type IdeExplainMessage,
 } from "@/lib/ide/explain";
-import { listIdeDir } from "@/lib/ide/ideFs";
+import { listIdeDir, readIdeFile } from "@/lib/ide/ideFs";
 import { useMediaQuery } from "@/lib/useMediaQuery";
 import { cn } from "@/lib/utils";
 
@@ -180,6 +182,7 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
   const [question, setQuestion] = React.useState("");
   const [includeFile, setIncludeFile] = React.useState(true);
   const [includeSelection, setIncludeSelection] = React.useState(false);
+  const [includeNearby, setIncludeNearby] = React.useState(true);
   const [busy, setBusy] = React.useState(false);
   const [isMock, setIsMock] = React.useState(false);
   const [showSettings, setShowSettings] = React.useState(false);
@@ -271,7 +274,7 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
     const useFile = opts?.includeFile ?? includeFile;
     const useSel = opts?.includeSelection ?? includeSelection;
 
-    const files =
+    let files =
       activeTab && (useFile || useSel)
         ? buildExplainFilePayloads({
             path: activeTab.path,
@@ -285,6 +288,36 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
               selection && selection.path === activeTab.path ? selection : null,
           })
         : [];
+
+    // Relative-import neighbors (≤3). Truncation: ≤400 lines full; else head 160.
+    if (activeTab && includeNearby && (useFile || useSel)) {
+      const already = new Set(files.map((f) => f.path));
+      const skipped: string[] = [];
+      for (const rel of listNearbyImports(activeTab.path, activeTab.draft)) {
+        if (already.has(rel)) continue;
+        const open = tabs.find((t) => t.path === rel);
+        let body: string | null = open ? open.draft : null;
+        if (body == null) {
+          try {
+            body = await readIdeFile(session, rel);
+          } catch {
+            skipped.push(rel);
+            continue;
+          }
+        }
+        const trimmed = truncateNeighborExplainContent(body);
+        files = [
+          ...files,
+          { path: rel, content: trimmed.content, startLine: trimmed.startLine },
+        ];
+        already.add(rel);
+      }
+      if (skipped.length > 0) {
+        setStatus(
+          `未读到 ${skipped.slice(0, 3).join("、")}${skipped.length > 3 ? "…" : ""}，仍只用当前文件`
+        );
+      }
+    }
 
     const fileIndex = await collectFileIndexWithOptionalBfs({
       session,
@@ -580,6 +613,14 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
               disabled={!selection || selection.path !== activePath}
             />
             当前选区
+          </label>
+          <label className="inline-flex items-center gap-1.5">
+            <input
+              type="checkbox"
+              checked={includeNearby}
+              onChange={(e) => setIncludeNearby(e.target.checked)}
+            />
+            带上相关文件
           </label>
         </div>
         <div className="flex gap-1.5 items-end">

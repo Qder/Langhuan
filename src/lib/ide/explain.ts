@@ -5,6 +5,7 @@
 
 import { parseIdeCitations, normalizeIdeRelPath } from "./citations";
 import type { IdeFsEntry, IdeFolderSession } from "./ideFs";
+import { isLikelyTextPath } from "./ideFs";
 import { shouldIgnoreName } from "./ignore";
 
 export const IDE_EXPLAIN_MAX_FULL_LINES = 400;
@@ -13,6 +14,10 @@ export const IDE_EXPLAIN_HISTORY_MAX = 20;
 export const IDE_EXPLAIN_FILE_INDEX_MAX = 200;
 /** When scanned files are below this, optionally BFS from root (still capped). */
 export const IDE_EXPLAIN_FILE_INDEX_BFS_THRESHOLD = 30;
+/** Max neighbor files from relative imports (plus current = ≤4). */
+export const IDE_EXPLAIN_NEIGHBOR_MAX = 3;
+/** Neighbor bodies over 400 lines: send only this many head lines. */
+export const IDE_EXPLAIN_NEIGHBOR_HEAD_LINES = 160;
 
 export type IdeExplainFilePayload = {
   path: string;
@@ -234,6 +239,145 @@ export function buildMockExplainMarkdown(opts: {
     );
   }
   return parts.join("\n\n");
+}
+
+
+/** Resolve `./` / `../` (or same-dir include) against the importer file path. */
+export function resolveImportAgainstFile(
+  fromFile: string,
+  spec: string
+): string | null {
+  const base = normalizeIdeRelPath(fromFile);
+  const rel = spec.trim().replace(/\\/g, "/");
+  if (!rel || rel.includes("://")) return null;
+  // Strip trailing slash-only junk
+  if (rel.endsWith("/")) return null;
+
+  const dir = base.includes("/") ? base.slice(0, base.lastIndexOf("/")) : "";
+  const parts: string[] = dir ? dir.split("/") : [];
+  const segs = rel.split("/");
+  // Bare "foo.h" from #include → same directory
+  if (!rel.startsWith("./") && !rel.startsWith("../") && !rel.startsWith("/")) {
+    segs.unshift(".");
+  }
+  for (const seg of segs) {
+    if (seg === "." || seg === "") continue;
+    if (seg === "..") {
+      if (parts.length === 0) return null;
+      parts.pop();
+      continue;
+    }
+    if (shouldIgnoreName(seg)) return null;
+    parts.push(seg);
+  }
+  const out = parts.join("/");
+  return out ? normalizeIdeRelPath(out) : null;
+}
+
+/**
+ * Collect up to 3 project-relative paths from relative imports in `content`.
+ * Skips package names (`java.util.List`, bare `react`). Neighbor must look like text.
+ * Documented truncation for neighbors: ≤400 lines full; else head 160 lines
+ * (see truncateNeighborExplainContent).
+ */
+export function listNearbyImports(path: string, content: string): string[] {
+  if (!content) return [];
+  const specs: string[] = [];
+  const push = (raw: string) => {
+    const s = raw.trim();
+    if (!s) return;
+    specs.push(s);
+  };
+
+  // from './x' / from "./x"
+  {
+    const re = /\bfrom\s+['"](\.\.?\/[^'"]+)['"]/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(content))) push(m[1]);
+  }
+  // import './x' / import "./Foo.java"  (side-effect / bare string import)
+  {
+    const re = /\bimport\s+['"](\.\.?\/[^'"]+)['"]/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(content))) push(m[1]);
+  }
+  // require('./x')
+  {
+    const re = /\brequire\s*\(\s*['"](\.\.?\/[^'"]+)['"]\s*\)/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(content))) push(m[1]);
+  }
+  // #include "x.h" (not <system>)
+  {
+    const re = /#include\s+"([^"]+)"/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(content))) push(m[1]);
+  }
+
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const self = normalizeIdeRelPath(path);
+  for (const spec of specs) {
+    const resolved = resolveImportAgainstFile(path, spec);
+    if (!resolved || resolved === self) continue;
+    if (resolved.split("/").some((seg) => shouldIgnoreName(seg))) continue;
+    if (!isLikelyTextPath(resolved)) continue;
+    if (seen.has(resolved)) continue;
+    seen.add(resolved);
+    out.push(resolved);
+    if (out.length >= IDE_EXPLAIN_NEIGHBOR_MAX) break;
+  }
+  return out;
+}
+
+/** Truncate a neighbor file body for explain (choice: head 160 when >400 lines). */
+export function truncateNeighborExplainContent(content: string): {
+  content: string;
+  startLine: number;
+} {
+  const lines = content.split("\n");
+  if (lines.length <= IDE_EXPLAIN_MAX_FULL_LINES) {
+    return { content, startLine: 1 };
+  }
+  const head = Math.min(IDE_EXPLAIN_NEIGHBOR_HEAD_LINES, lines.length);
+  return {
+    content:
+      lines.slice(0, head).join("\n") +
+      `\n\n/* … 邻文件已截断，全文 ${lines.length} 行（仅送头 ${head} 行）… */`,
+    startLine: 1,
+  };
+}
+
+/**
+ * Plan neighbor payloads from imports. Pure: does not read disk.
+ * `readContent(path)` returns body or null; failures are listed in `skipped`.
+ */
+export function planNearbyExplainFiles(opts: {
+  path: string;
+  content: string;
+  enabled: boolean;
+  alreadyPaths?: string[];
+  readContent: (relPath: string) => string | null;
+}): { files: IdeExplainFilePayload[]; skipped: string[] } {
+  if (!opts.enabled) return { files: [], skipped: [] };
+  const already = new Set(
+    (opts.alreadyPaths || []).map((p) => normalizeIdeRelPath(p))
+  );
+  const planned = listNearbyImports(opts.path, opts.content);
+  const files: IdeExplainFilePayload[] = [];
+  const skipped: string[] = [];
+  for (const rel of planned) {
+    if (already.has(rel)) continue;
+    const body = opts.readContent(rel);
+    if (body == null) {
+      skipped.push(rel);
+      continue;
+    }
+    const trimmed = truncateNeighborExplainContent(body);
+    files.push({ path: rel, content: trimmed.content, startLine: trimmed.startLine });
+    already.add(rel);
+  }
+  return { files, skipped };
 }
 
 /** Right-click「讲解选区」: no-op when selection is empty / missing. */
