@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  fenceChipLabel,
   locateSnippetInFiles,
+  overlaySnippetCorpus,
   parseExplainFences,
+  snippetInCitedRange,
   SNIPPET_MIN_COLLAPSED_CHARS,
 } from "./snippetLocate";
 import { parseIdeCitations } from "./citations";
@@ -69,37 +72,44 @@ describe("locateSnippetInFiles", () => {
 
   it("unique substring → line numbers", () => {
     const r = locateSnippetInFiles("public class A {\n  void run() {}", [file]);
-    expect(r).toEqual({
+    expect(r).toMatchObject({
       ok: true,
       path: "src/A.java",
       line: 3,
       endLine: 4,
       precision: "exact",
     });
+    if (r.ok) {
+      expect(r.hits).toHaveLength(1);
+      expect(r.hits[0]).toMatchObject({ path: "src/A.java", line: 3, endLine: 4 });
+    }
   });
 
-  it("duplicate substring → candidates, no guess", () => {
+  it("duplicate substring → every hit, in order", () => {
     const token = "UNIQUE_MARK_TOKEN";
     const r = locateSnippetInFiles(token, [
       { path: "a.txt", content: `${token}\nkeep\n${token}`, startLine: 1 },
     ]);
-    expect(r.ok).toBe(false);
-    if (!r.ok) {
-      expect(r.reason).toBe("ambiguous");
-      expect(r.candidates).toEqual(["a.txt"]);
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.hits).toHaveLength(2);
+      expect(r.hits[0]).toMatchObject({ path: "a.txt", line: 1 });
+      expect(r.hits[1]).toMatchObject({ path: "a.txt", line: 3 });
     }
   });
 
-  it("same snippet in two files → candidates", () => {
+  it("same snippet in two files → both hits", () => {
     const body = "function hello() { return 1; }";
     const r = locateSnippetInFiles(body, [
       { path: "src/a.ts", content: `x\n${body}\n`, startLine: 1 },
       { path: "src/b.ts", content: `${body}\n`, startLine: 1 },
     ]);
-    expect(r.ok).toBe(false);
-    if (!r.ok) {
-      expect(r.reason).toBe("ambiguous");
-      expect(r.candidates.sort()).toEqual(["src/a.ts", "src/b.ts"]);
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.hits.map((h) => `${h.path}:${h.line}`).sort()).toEqual([
+        "src/a.ts:2",
+        "src/b.ts:1",
+      ]);
     }
   });
 
@@ -123,6 +133,50 @@ describe("locateSnippetInFiles", () => {
       ok: false,
       reason: "too-short",
     });
+  });
+
+  it("snippetInCitedRange only accepts the cited window", () => {
+    const file = {
+      path: "src/A.java",
+      content: "package demo;\n\npublic class A {\n  void run() {}\n}\n",
+      startLine: 1,
+    };
+    expect(snippetInCitedRange("public class A {", file, 3, 4)).toBe(true);
+    expect(snippetInCitedRange("public class A {", file, 1, 1)).toBe(false);
+  });
+
+  it("overlay prefers the later full file", () => {
+    const out = overlaySnippetCorpus(
+      [{ path: "src/A.java", content: "head", startLine: 1 }],
+      [{ path: "src/A.java", content: "full body", startLine: 1 }]
+    );
+    expect(out).toEqual([
+      { path: "src/A.java", content: "full body", startLine: 1 },
+    ]);
+  });
+
+  it("fenceChipLabel uses path:line or the first source line", () => {
+    expect(
+      fenceChipLabel({
+        lang: "java",
+        info: "",
+        body: "public class A {}",
+        index: 0,
+        endIndex: 0,
+        path: "src/foo/Bar.java",
+        line: 12,
+        endLine: 40,
+      })
+    ).toBe("Bar.java:12-40");
+    expect(
+      fenceChipLabel({
+        lang: "",
+        info: "",
+        body: "  void run() {}\n",
+        index: 0,
+        endIndex: 0,
+      })
+    ).toBe("void run() {}");
   });
 
   it("respects startLine offset of a sliced payload", () => {

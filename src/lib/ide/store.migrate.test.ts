@@ -95,4 +95,36 @@ describe("migrateIdePersistedState", () => {
     });
     expect(messy.explainBySession).toEqual({});
   });
+
+  it("keeps explain file snapshots used for fence locate", () => {
+    const out = migrateIdePersistedState(
+      {
+        recent: [],
+        explorerOpen: true,
+        explainOpen: false,
+        explainBySession: {
+          sid: [
+            {
+              id: "a1",
+              role: "assistant",
+              content: "见代码",
+              createdAt: 2,
+              files: [
+                {
+                  path: "src/A.java",
+                  content: "class A {}",
+                  startLine: 1,
+                },
+              ],
+            },
+          ],
+        },
+        explainSettings: { apiKey: "", baseUrl: "", model: "" },
+      },
+      IDE_STORE_PERSIST_VERSION
+    );
+    expect(out.explainBySession.sid?.[0]?.files).toEqual([
+      { path: "src/A.java", content: "class A {}", startLine: 1 },
+    ]);
+  });
 });

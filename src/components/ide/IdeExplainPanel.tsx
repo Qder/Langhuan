@@ -19,12 +19,11 @@ import {
   collectFileIndexWithOptionalBfs,
   listNearbyImports,
   truncateNeighborExplainContent,
-  type IdeExplainFilePayload,
   type IdeExplainMessage,
 } from "@/lib/ide/explain";
+import { locateExplainFence } from "@/lib/ide/snippetJump";
 import {
-  locateSnippetInFiles,
-  mergeSnippetCorpus,
+  fenceChipLabel,
   parseExplainFences,
   type ExplainFence,
 } from "@/lib/ide/snippetLocate";
@@ -106,32 +105,21 @@ function ExplainFenceCard({
   const clickable = typeof onFence === "function";
   const hint = fenceHint(synthetic);
   return (
-    <div
-      role={clickable ? "button" : undefined}
-      tabIndex={clickable ? 0 : undefined}
-      title={clickable ? hint : undefined}
-      onClick={clickable ? () => onFence!(synthetic) : undefined}
-      onKeyDown={
-        clickable
-          ? (e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                onFence!(synthetic);
-              }
-            }
-          : undefined
-      }
-      className={cn(
-        "my-2 rounded-lg border border-[var(--border)] overflow-hidden text-left",
-        clickable &&
-          "cursor-pointer hover:border-[color-mix(in_srgb,var(--accent)_55%,var(--border))]"
-      )}
-    >
+    <div className="my-2 rounded-lg border border-[var(--border)] overflow-hidden text-left">
       <div className="flex items-center justify-between gap-2 px-2 py-1 text-[10px] font-mono text-[var(--muted)] bg-[var(--hover)]">
         <span>{synthetic.lang || "code"}</span>
-        {clickable && <span className="text-[var(--accent)] truncate">{hint}</span>}
+        {clickable && (
+          <button
+            type="button"
+            title={hint}
+            onClick={() => onFence!(synthetic)}
+            className="shrink-0 text-[var(--accent)] truncate max-w-[70%] hover:underline"
+          >
+            {hint}
+          </button>
+        )}
       </div>
-      <pre className="m-0 px-2 py-2 overflow-x-auto text-[12px] leading-5 font-mono">
+      <pre className="m-0 px-2 py-2 overflow-x-auto text-[12px] leading-5 font-mono select-text">
         <code>{text}</code>
       </pre>
     </div>
@@ -289,7 +277,7 @@ function ExplainFooterCitations({
               "hover:bg-[color-mix(in_srgb,var(--accent)_28%,transparent)] border border-[color-mix(in_srgb,var(--accent)_35%,transparent)]"
             )}
           >
-            代码块{extraFences.length > 1 ? i + 1 : ""}
+            {fenceChipLabel(f)}
           </button>
         ))}
       </div>
@@ -326,11 +314,11 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
   const [busy, setBusy] = React.useState(false);
   const [isMock, setIsMock] = React.useState(false);
   const [showSettings, setShowSettings] = React.useState(false);
-  const [candidates, setCandidates] = React.useState<string[]>([]);
+  const [candidates, setCandidates] = React.useState<
+    Array<{ path: string; line?: number; endLine?: number }>
+  >([]);
   const abortRef = React.useRef<AbortController | null>(null);
-  const corpusByMsgRef = React.useRef<Record<string, IdeExplainFilePayload[]>>(
-    {}
-  );
+  const cycleRef = React.useRef<{ key: string; index: number } | null>(null);
   const listRef = React.useRef<HTMLDivElement>(null);
   const sendRef = React.useRef<
     (preset?: string, opts?: { includeFile?: boolean; includeSelection?: boolean }) => Promise<void>
@@ -350,7 +338,7 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
       const lineOpts = { line: c.line, endLine: c.endLine };
 
       const failWith = (list: string[]) => {
-        setCandidates(list);
+        setCandidates(list.map((path) => ({ path })));
         if (list.length === 0) {
           setStatus(`工程里找不到 ${c.path}`);
         } else {
@@ -404,71 +392,89 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
         content: t.draft,
         startLine: 1,
       }));
-      const corpus = mergeSnippetCorpus(
-        msgId ? corpusByMsgRef.current[msgId] : undefined,
-        tabFiles
-      );
+      const sid = useIdeStore.getState().session?.id;
+      const snapshot =
+        msgId && sid
+          ? useIdeStore.getState().explainBySession[sid]?.find((m) => m.id === msgId)
+              ?.files
+          : undefined;
 
-      if (f.path && f.line != null) {
-        await jumpCitation({
-          path: f.path,
-          line: f.line,
-          endLine: f.endLine,
-          raw: f.body,
-          index: f.index,
-          endIndex: f.endIndex,
-        });
-        return;
-      }
+      const located = await locateExplainFence({
+        fence: f,
+        snapshot,
+        tabs: tabFiles,
+        readFile: session
+          ? async (path) => readIdeFile(session, path)
+          : undefined,
+      });
 
-      const located = locateSnippetInFiles(f.body, corpus);
-      if (located.ok) {
-        setCandidates([]);
-        const ok = await openFile(located.path, {
-          line: located.line,
-          endLine: located.endLine,
-        });
-        if (!ok) {
-          setStatus(`工程里找不到 ${located.path}`);
+      if (!located.ok) {
+        cycleRef.current = null;
+        if (f.path && f.line == null) {
+          await jumpCitation({
+            path: f.path,
+            line: f.line,
+            endLine: f.endLine,
+            raw: f.body,
+            index: f.index,
+            endIndex: f.endIndex,
+          });
           return;
         }
-        const how = located.precision === "exact" ? "精确" : "忽略空白";
-        setStatus(
-          `已定位 ${located.path}:${located.line}（${how}）`
-        );
-        return;
-      }
-
-      if (f.path) {
-        await jumpCitation({
-          path: f.path,
-          line: f.line,
-          endLine: f.endLine,
-          raw: f.body,
-          index: f.index,
-          endIndex: f.endIndex,
-        });
-        return;
-      }
-
-      if (located.reason === "ambiguous") {
-        setCandidates(located.candidates);
-        setStatus(
-          located.candidates.length === 1
-            ? "这段代码在文件里出现多次，请点候选或改选更长的片段"
-            : `多处命中：${located.candidates.join("、")}`
-        );
-        return;
-      }
-      if (located.reason === "too-short" || located.reason === "empty") {
+        if (f.path && f.line != null) {
+          setCandidates([
+            { path: f.path, line: f.line, endLine: f.endLine },
+          ]);
+          setStatus(
+            `代码块与 ${f.path}:${f.line} 对不上；点候选仍可打开文件`
+          );
+          return;
+        }
+        if (located.reason === "too-short" || located.reason === "empty") {
+          setCandidates([]);
+          setStatus("代码块太短，无法可靠定位");
+          return;
+        }
         setCandidates([]);
-        setStatus("代码块太短，无法可靠定位");
+        setStatus("工程里找不到这段代码");
         return;
       }
-      setCandidates([]);
-      setStatus("工程里找不到这段代码");
+
+      const hits = located.hits;
+      const key = `${msgId ?? ""}:${f.index}:${f.body}`;
+      let index = 0;
+      if (hits.length > 1 && cycleRef.current?.key === key) {
+        index = (cycleRef.current.index + 1) % hits.length;
+      }
+      cycleRef.current = { key, index };
+      const hit = hits[index]!;
+      setCandidates(
+        hits.length > 1
+          ? hits.map((h) => ({
+              path: h.path,
+              line: h.line,
+              endLine: h.endLine,
+            }))
+          : []
+      );
+      const ok = await openFile(hit.path, {
+        line: hit.line,
+        endLine: hit.endLine,
+      });
+      if (!ok) {
+        setStatus(`工程里找不到 ${hit.path}`);
+        return;
+      }
+      const how = hit.precision === "exact" ? "精确" : "忽略空白";
+      if (hits.length > 1) {
+        setStatus(
+          `已定位 ${hit.path}:${hit.line}（${index + 1}/${hits.length}，再点下一处）`
+        );
+      } else {
+        setStatus(`已定位 ${hit.path}:${hit.line}（${how}）`);
+      }
     },
-    [jumpCitation, openFile, setStatus, tabs]
+    [jumpCitation, openFile, session, setStatus, tabs]
   );
 
   const stop = () => {
@@ -555,13 +561,13 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
       createdAt: Date.now(),
     };
     const assistantId = newId();
-    corpusByMsgRef.current[assistantId] = files;
     pushExplainMessage(userMsg);
     pushExplainMessage({
       id: assistantId,
       role: "assistant",
       content: "",
       createdAt: Date.now(),
+      files: files.map((f) => ({ ...f })),
     });
     setQuestion("");
     setBusy(true);
@@ -804,19 +810,24 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
 
         {candidates.length > 0 && (
           <div className="rounded-xl border border-dashed border-[var(--border)] px-2.5 py-2 text-xs font-ui">
-            <div className="text-[var(--muted)] mb-1">同名候选（点开）：</div>
+            <div className="text-[var(--muted)] mb-1">候选（点开）：</div>
             <div className="flex flex-col gap-1">
-              {candidates.map((p) => (
+              {candidates.map((p, i) => (
                 <button
-                  key={p}
+                  key={`${p.path}:${p.line ?? ""}:${i}`}
                   type="button"
                   className="text-left text-[var(--accent)] hover:underline font-mono"
                   onClick={() => {
                     setCandidates([]);
-                    void openFile(p);
+                    void openFile(p.path, { line: p.line, endLine: p.endLine });
                   }}
                 >
-                  {p}
+                  {p.path}
+                  {p.line != null
+                    ? p.endLine != null && p.endLine !== p.line
+                      ? `:${p.line}-${p.endLine}`
+                      : `:${p.line}`
+                    : ""}
                 </button>
               ))}
             </div>

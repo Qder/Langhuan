@@ -5,6 +5,7 @@ import {
   buildMockExplainMarkdown,
   collectScannedFileIndex,
   mockExplainHasCitationTo,
+  normalizeExplainFilePayloads,
   planExplainSelectionRequest,
   javaImportToSuffix,
   listNearbyImports,
@@ -277,5 +278,21 @@ describe("listNearbyImports / planNearbyExplainFiles", () => {
     });
     expect(files.map((f) => f.path)).toEqual(["src/main/java/com/demo/Foo.java"]);
     expect(skipped).toEqual([]);
+  });
+});
+
+describe("normalizeExplainFilePayloads", () => {
+  it("keeps path/content/startLine and drops junk", () => {
+    expect(
+      normalizeExplainFilePayloads([
+        { path: "./src/A.java", content: "class A {}", startLine: 4 },
+        { path: "", content: "x" },
+        null,
+        { path: "src/B.java" },
+      ])
+    ).toEqual([
+      { path: "src/A.java", content: "class A {}", startLine: 4 },
+      { path: "src/B.java", content: "", startLine: 1 },
+    ]);
   });
 });

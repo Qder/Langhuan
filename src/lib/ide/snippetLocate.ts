@@ -1,6 +1,7 @@
 /**
  * Locate an explain-panel code fence against attached / open file bodies.
  * Does not invent paths; unique substring first, then whitespace-collapsed.
+ * Multiple hits are returned in order — the UI cycles, it does not guess.
  */
 
 import {
@@ -28,18 +29,27 @@ export type SnippetFile = {
   startLine?: number;
 };
 
-export type SnippetLocateOk = {
-  ok: true;
+export type SnippetHit = {
   path: string;
   line: number;
   endLine: number;
   precision: "exact" | "whitespace";
 };
 
+export type SnippetLocateOk = {
+  ok: true;
+  path: string;
+  line: number;
+  endLine: number;
+  precision: "exact" | "whitespace";
+  hits: SnippetHit[];
+};
+
 export type SnippetLocateMiss = {
   ok: false;
-  reason: "empty" | "too-short" | "ambiguous" | "miss";
+  reason: "empty" | "too-short" | "miss";
   candidates: string[];
+  hits: [];
 };
 
 export type SnippetLocateResult = SnippetLocateOk | SnippetLocateMiss;
@@ -134,22 +144,29 @@ type RawHit = {
   precision: "exact" | "whitespace";
 };
 
-function toResult(hits: RawHit[]): SnippetLocateResult {
-  if (hits.length === 0) return { ok: false, reason: "miss", candidates: [] };
-  const paths = [...new Set(hits.map((h) => h.path))];
-  if (hits.length > 1) {
-    return { ok: false, reason: "ambiguous", candidates: paths.slice(0, 5) };
-  }
-  const h = hits[0]!;
+function toHit(h: RawHit): SnippetHit {
   const line = lineAtOffset(h.content, h.start, h.startLine);
   const last = Math.max(h.start, h.end - 1);
   const endLine = lineAtOffset(h.content, last, h.startLine);
   return {
-    ok: true,
     path: h.path,
     line,
     endLine: Math.max(line, endLine),
     precision: h.precision,
+  };
+}
+
+function toResult(hits: RawHit[]): SnippetLocateResult {
+  if (hits.length === 0) return { ok: false, reason: "miss", candidates: [], hits: [] };
+  const mapped = hits.map(toHit);
+  const first = mapped[0]!;
+  return {
+    ok: true,
+    path: first.path,
+    line: first.line,
+    endLine: first.endLine,
+    precision: first.precision,
+    hits: mapped,
   };
 }
 
@@ -171,18 +188,18 @@ function dedupeFiles(files: SnippetFile[]): SnippetFile[] {
 
 /**
  * Unique substring locate. Exact match first; then whitespace-collapsed.
- * Multiple hits (same or different files) → ambiguous, do not guess.
+ * Several hits are all returned in document order (caller cycles).
  */
 export function locateSnippetInFiles(
   snippet: string,
   files: SnippetFile[]
 ): SnippetLocateResult {
   const needle = normalizeSnippetBody(snippet).trim();
-  if (!needle) return { ok: false, reason: "empty", candidates: [] };
+  if (!needle) return { ok: false, reason: "empty", candidates: [], hits: [] };
 
   const collapsedNeedle = collapseWs(needle).text;
   if (collapsedNeedle.length < SNIPPET_MIN_COLLAPSED_CHARS) {
-    return { ok: false, reason: "too-short", candidates: [] };
+    return { ok: false, reason: "too-short", candidates: [], hits: [] };
   }
 
   const corpus = dedupeFiles(files);
@@ -200,7 +217,7 @@ export function locateSnippetInFiles(
     }
   }
   const exact = toResult(exactHits);
-  if (exact.ok || exact.reason === "ambiguous") return exact;
+  if (exact.ok) return exact;
 
   const wsHits: RawHit[] = [];
   for (const f of corpus) {
@@ -222,10 +239,61 @@ export function locateSnippetInFiles(
   return toResult(wsHits);
 }
 
+/**
+ * True when `snippet` occurs inside the cited 1-based line range of `file`.
+ * Uses the same exact-then-whitespace rules as locate.
+ */
+export function snippetInCitedRange(
+  snippet: string,
+  file: SnippetFile,
+  line: number,
+  endLine?: number
+): boolean {
+  const startLine = file.startLine ?? 1;
+  const lines = file.content.replace(/\r\n/g, "\n").split("\n");
+  const from = Math.max(1, Math.floor(line));
+  const to = Math.max(from, Math.floor(endLine ?? line));
+  const sliceFrom = Math.max(0, from - startLine);
+  const sliceTo = Math.min(lines.length, to - startLine + 1);
+  if (sliceFrom >= sliceTo) return false;
+  const window = lines.slice(sliceFrom, sliceTo).join("\n");
+  const r = locateSnippetInFiles(snippet, [
+    {
+      path: file.path,
+      content: window,
+      startLine: startLine + sliceFrom,
+    },
+  ]);
+  return r.ok;
+}
+
 /** Merge message corpus then open tabs; first path wins. */
 export function mergeSnippetCorpus(
   primary: SnippetFile[] | undefined,
   tabs: SnippetFile[] | undefined
 ): SnippetFile[] {
   return dedupeFiles([...(primary || []), ...(tabs || [])]);
+}
+
+/** Overlay paths replace earlier entries (full file over truncated snapshot). */
+export function overlaySnippetCorpus(
+  base: SnippetFile[],
+  overlay: SnippetFile[]
+): SnippetFile[] {
+  return dedupeFiles([...overlay, ...base]);
+}
+
+/** Footer / chrome label: path:line, or the first non-empty source line. */
+export function fenceChipLabel(f: ExplainFence, max = 28): string {
+  if (f.path) {
+    const base = f.path.split("/").pop() || f.path;
+    if (f.line == null) return base;
+    if (f.endLine != null && f.endLine !== f.line) {
+      return `${base}:${f.line}-${f.endLine}`;
+    }
+    return `${base}:${f.line}`;
+  }
+  const first = f.body.split("\n").find((l) => l.trim())?.trim() || "代码块";
+  if (first.length <= max) return first;
+  return `${first.slice(0, Math.max(1, max - 1))}…`;
 }

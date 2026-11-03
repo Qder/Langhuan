@@ -26,13 +26,18 @@ export {
   type IdePendingReveal,
 } from "./citations";
 export {
+  fenceChipLabel,
   locateSnippetInFiles,
   mergeSnippetCorpus,
+  overlaySnippetCorpus,
   parseExplainFences,
+  snippetInCitedRange,
   type ExplainFence,
   type SnippetFile,
+  type SnippetHit,
   type SnippetLocateResult,
 } from "./snippetLocate";
+export { locateExplainFence, type ReadSnippetFile } from "./snippetJump";
 export {
   assembleExplainUserContent,
   buildExplainFilePayloads,

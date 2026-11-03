@@ -39,9 +39,35 @@ export type IdeExplainMessage = {
   content: string;
   /** Parsed citation paths snapshot (no secrets). */
   citations?: Array<{ path: string; line?: number; endLine?: number }>;
+  /** Files sent with this turn — used to locate fences after reload. */
+  files?: IdeExplainFilePayload[];
   mock?: boolean;
   createdAt: number;
 };
+
+/** Keep persist blobs from inventing file payloads. */
+export function normalizeExplainFilePayloads(
+  raw: unknown
+): IdeExplainFilePayload[] | undefined {
+  if (!Array.isArray(raw) || raw.length === 0) return undefined;
+  const out: IdeExplainFilePayload[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const rec = item as Record<string, unknown>;
+    const path =
+      typeof rec.path === "string" ? normalizeIdeRelPath(rec.path) : "";
+    if (!path) continue;
+    const content = typeof rec.content === "string" ? rec.content : "";
+    const startLine =
+      typeof rec.startLine === "number" &&
+      Number.isFinite(rec.startLine) &&
+      rec.startLine >= 1
+        ? Math.floor(rec.startLine)
+        : 1;
+    out.push({ path, content, startLine });
+  }
+  return out.length ? out : undefined;
+}
 
 export const IDE_EXPLAIN_SYSTEM_PROMPT = `你是本工程的讲解助教，只解释知识点，不改代码、不输出 git patch、不编造工程里没有的路径。
 每个关键结论请用 [[相对路径:行号]] 或 [[相对路径:起始行-结束行]] 标出源码位置（路径用工程相对路径，含目录）。

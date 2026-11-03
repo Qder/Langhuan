@@ -6,6 +6,7 @@
 import { IDE_RECENT_MAX, type IdeRecentProjectMeta } from "./recentProjects";
 import {
   IDE_EXPLAIN_HISTORY_MAX,
+  normalizeExplainFilePayloads,
   type IdeExplainMessage,
 } from "./explain";
 
@@ -62,7 +63,40 @@ function normalizeExplainBySession(
   const out: Record<string, IdeExplainMessage[]> = {};
   for (const [key, val] of Object.entries(raw as Record<string, unknown>)) {
     if (!key || !Array.isArray(val)) continue;
-    out[key] = val.slice(-IDE_EXPLAIN_HISTORY_MAX) as IdeExplainMessage[];
+    const msgs: IdeExplainMessage[] = [];
+    for (const item of val.slice(-IDE_EXPLAIN_HISTORY_MAX)) {
+      if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+      const rec = item as Record<string, unknown>;
+      const id = typeof rec.id === "string" ? rec.id : "";
+      const role = rec.role === "assistant" ? "assistant" : rec.role === "user" ? "user" : "";
+      const content = typeof rec.content === "string" ? rec.content : "";
+      if (!id || !role) continue;
+      const files = normalizeExplainFilePayloads(rec.files);
+      const citations = Array.isArray(rec.citations)
+        ? rec.citations.flatMap((c) => {
+            if (!c || typeof c !== "object" || Array.isArray(c)) return [];
+            const row = c as Record<string, unknown>;
+            if (typeof row.path !== "string" || !row.path) return [];
+            return [
+              {
+                path: row.path,
+                line: typeof row.line === "number" ? row.line : undefined,
+                endLine: typeof row.endLine === "number" ? row.endLine : undefined,
+              },
+            ];
+          })
+        : undefined;
+      msgs.push({
+        id,
+        role,
+        content,
+        createdAt: typeof rec.createdAt === "number" ? rec.createdAt : 0,
+        mock: rec.mock === true ? true : undefined,
+        files,
+        citations: citations?.length ? citations : undefined,
+      });
+    }
+    if (msgs.length) out[key] = msgs;
   }
   return out;
 }
