@@ -131,29 +131,128 @@ export function planOutlineJump(
   };
 }
 
-/** Resolve heading by id, falling back to a query inside the scroll root. */
-export function findOutlineHeadingEl(
-  id: string,
-  scrollRoot?: HTMLElement | null
+/** rehype-sanitize default clobber prefix (legacy DOM ids). */
+export const OUTLINE_ID_CLOBBER_PREFIX = "user-content-";
+
+/** Collapse whitespace, strip zero-width, ASCII case-fold for outline text match. */
+export function normalizeOutlineMatchText(raw: string): string {
+  return raw
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function cssEscapeId(id: string): string {
+  if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
+    return CSS.escape(id);
+  }
+  return id.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+function queryHeadingById(
+  scope: ParentNode,
+  id: string
 ): HTMLElement | null {
   if (!id) return null;
-  const direct = document.getElementById(id);
-  if (direct) return direct;
-  if (!scrollRoot) return null;
   try {
-    const esc =
-      typeof CSS !== "undefined" && typeof CSS.escape === "function"
-        ? CSS.escape(id)
-        : id.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+    const esc = cssEscapeId(id);
     return (
-      scrollRoot.querySelector<HTMLElement>(`#${esc}`) ||
-      scrollRoot.querySelector<HTMLElement>(
-        `h1[id="${esc}"],h2[id="${esc}"],h3[id="${esc}"]`
+      scope.querySelector<HTMLElement>(`#${esc}`) ||
+      scope.querySelector<HTMLElement>(
+        `h1[id="${esc}"],h2[id="${esc}"],h3[id="${esc}"],h4[id="${esc}"],h5[id="${esc}"],h6[id="${esc}"]`
       )
     );
   } catch {
     return null;
   }
+}
+
+/**
+ * Resolve heading by id (and sanitize clobber prefix), then text fallback.
+ * Prefer exact id; among text matches prefer id equals/endsWith outline id.
+ */
+export function findOutlineHeadingEl(
+  id: string,
+  scrollRoot?: HTMLElement | null,
+  text?: string
+): HTMLElement | null {
+  const prefixed =
+    id && !id.startsWith(OUTLINE_ID_CLOBBER_PREFIX)
+      ? `${OUTLINE_ID_CLOBBER_PREFIX}${id}`
+      : "";
+
+  const tryIds = [id, prefixed].filter(Boolean);
+  for (const cand of tryIds) {
+    const direct = document.getElementById(cand);
+    if (direct) return direct;
+  }
+
+  const scope: ParentNode = scrollRoot ?? document;
+  for (const cand of tryIds) {
+    const hit = queryHeadingById(scope, cand);
+    if (hit) return hit;
+  }
+
+  const want = text ? normalizeOutlineMatchText(text) : "";
+  if (!want) return null;
+
+  const nodes = scope.querySelectorAll<HTMLElement>(
+    "h1,h2,h3,h4,h5,h6,[data-src-start]"
+  );
+  const textHits: HTMLElement[] = [];
+  for (const el of nodes) {
+    const tag = el.tagName;
+    const isHeading = /^H[1-6]$/.test(tag);
+    // data-src-start blocks: only treat real headings (avoid every stamped p)
+    if (!isHeading) continue;
+    if (normalizeOutlineMatchText(el.textContent || "") === want) {
+      textHits.push(el);
+    }
+  }
+  if (textHits.length === 0) return null;
+  if (textHits.length === 1) return textHits[0]!;
+
+  const exact = textHits.find((el) => el.id === id || el.id === prefixed);
+  if (exact) return exact;
+  const ends = textHits.find(
+    (el) =>
+      !!el.id &&
+      (el.id.endsWith(id) ||
+        id.endsWith(el.id) ||
+        (prefixed && el.id.endsWith(prefixed)))
+  );
+  if (ends) return ends;
+  return textHits[0]!;
+}
+
+/**
+ * Prefer `#reader-scroll`, else closest ancestor / nearest overflow scroller.
+ */
+export function resolveOutlineScrollRoot(
+  headingEl?: HTMLElement | null
+): HTMLElement | null {
+  const byId = document.getElementById("reader-scroll");
+  if (byId) return byId;
+  if (!headingEl) return null;
+  const closest = headingEl.closest("#reader-scroll");
+  if (closest instanceof HTMLElement) return closest;
+  let p: HTMLElement | null = headingEl.parentElement;
+  while (p) {
+    const style = typeof window !== "undefined" ? window.getComputedStyle(p) : null;
+    const oy = style?.overflowY ?? "";
+    if (
+      (oy === "auto" || oy === "scroll" || oy === "overlay") &&
+      p.scrollHeight > p.clientHeight + 1
+    ) {
+      return p;
+    }
+    if (p.tagName === "ARTICLE" && p.parentElement) {
+      return p.parentElement;
+    }
+    p = p.parentElement;
+  }
+  return null;
 }
 
 /**

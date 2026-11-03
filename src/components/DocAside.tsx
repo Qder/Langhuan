@@ -3,10 +3,12 @@
 import * as React from "react";
 import { ChevronDown, Highlighter, Link2, Trash2 } from "lucide-react";
 import {
+  OUTLINE_JUMP_FLASH_MS,
   OUTLINE_SPY_THRESHOLD_PX,
   applyOutlineJump,
   findOutlineHeadingEl,
   planOutlineJump,
+  resolveOutlineScrollRoot,
   type OutlineHeading,
 } from "@/lib/outline";
 import type { Document } from "@/lib/types";
@@ -105,21 +107,37 @@ function TocTree({
                   e.preventDefault();
                   const id = n.heading.id;
                   onNavigateHeading?.(id);
-                  const root = document.getElementById("reader-scroll");
-                  const heading = findOutlineHeadingEl(id, root);
+                  const rootHint = document.getElementById("reader-scroll");
+                  const heading = findOutlineHeadingEl(
+                    id,
+                    rootHint,
+                    n.heading.text
+                  );
+                  if (!heading) {
+                    onMissingHeading?.(id);
+                    return;
+                  }
+                  const root =
+                    rootHint ?? resolveOutlineScrollRoot(heading);
                   const plan = planOutlineJump(
                     root,
                     heading,
                     OUTLINE_SPY_THRESHOLD_PX
                   );
-                  if (!plan.ok || !root) {
-                    onMissingHeading?.(id);
+                  if (plan.ok && root) {
+                    applyOutlineJump(root, plan, {
+                      smooth: true,
+                      headingEl: heading,
+                    });
                     return;
                   }
-                  applyOutlineJump(root, plan, {
-                    smooth: true,
-                    headingEl: heading,
-                  });
+                  // Last resort: nested overflow missing — native scroll + flash.
+                  heading.scrollIntoView({ behavior: "smooth", block: "start" });
+                  heading.classList.add("lh-preview-flash");
+                  window.setTimeout(
+                    () => heading.classList.remove("lh-preview-flash"),
+                    OUTLINE_JUMP_FLASH_MS
+                  );
                 }}
                 className={cn(
                   "min-w-0 flex-1 truncate rounded-lg px-1.5 py-1 hover:bg-[var(--hover)] transition-colors",

@@ -17,3 +17,9 @@ describe("mdSanitizeSchema", () => {
     expect(code.some((a) => Array.isArray(a) && a[0] === "className")).toBe(true);
   });
 });
+
+describe("mdSanitizeSchema clobberPrefix", () => {
+  it("does not prefix heading ids with user-content-", () => {
+    expect(mdSanitizeSchema.clobberPrefix).toBe("");
+  });
+});

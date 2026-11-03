@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { JSDOM } from "jsdom";
 import {
   extractOutline,
   outlineHeadingText,
@@ -6,6 +7,8 @@ import {
   headingViewportTops,
   scrollOffsetForHeading,
   planOutlineJump,
+  findOutlineHeadingEl,
+  normalizeOutlineMatchText,
   OUTLINE_SPY_THRESHOLD_PX,
 } from "./outline";
 
@@ -32,6 +35,16 @@ describe("extractOutline", () => {
     expect(o).toHaveLength(1);
     expect(o[0].text).toBe("加粗标题");
     expect(o[0].id).toBe("加粗标题");
+  });
+
+  it("slugs 4.1 主析取范式 PDNF for text-fallback pairing", () => {
+    const o = extractOutline("### 4.1 主析取范式 PDNF\n\nbody\n");
+    expect(o).toHaveLength(1);
+    expect(o[0].id).toBe("41-主析取范式-pdnf");
+    expect(o[0].text).toBe("4.1 主析取范式 PDNF");
+    expect(normalizeOutlineMatchText(o[0].text)).toBe(
+      normalizeOutlineMatchText("4.1 主析取范式 PDNF")
+    );
   });
 });
 
@@ -124,5 +137,69 @@ describe("scrollOffsetForHeading / planOutlineJump", () => {
       ok: false,
       reason: "no-heading",
     });
+  });
+});
+
+describe("findOutlineHeadingEl", () => {
+  const prevDoc = globalThis.document;
+  const prevCSS = (globalThis as { CSS?: unknown }).CSS;
+
+  afterEach(() => {
+    globalThis.document = prevDoc;
+    (globalThis as { CSS?: unknown }).CSS = prevCSS;
+  });
+
+  function mount(html: string) {
+    const dom = new JSDOM(`<!DOCTYPE html><html><body>${html}</body></html>`);
+    globalThis.document = dom.window.document;
+    (globalThis as { CSS?: { escape: (s: string) => string } }).CSS = {
+      escape: (s: string) => s.replace(/"/g, '\\"'),
+    };
+    return dom.window.document;
+  }
+
+  it("finds by id when present", () => {
+    const doc = mount(
+      `<div id="reader-scroll"><h3 id="41-主析取范式-pdnf">4.1 主析取范式 PDNF</h3></div>`
+    );
+    const root = doc.getElementById("reader-scroll");
+    const el = findOutlineHeadingEl("41-主析取范式-pdnf", root, "4.1 主析取范式 PDNF");
+    expect(el?.tagName).toBe("H3");
+    expect(el?.id).toBe("41-主析取范式-pdnf");
+  });
+
+  it("finds sanitize-clobbered user-content- id", () => {
+    const doc = mount(
+      `<div id="reader-scroll"><h3 id="user-content-41-主析取范式-pdnf">4.1 主析取范式 PDNF</h3></div>`
+    );
+    const root = doc.getElementById("reader-scroll");
+    const el = findOutlineHeadingEl("41-主析取范式-pdnf", root);
+    expect(el?.id).toBe("user-content-41-主析取范式-pdnf");
+  });
+
+  it("falls back to normalized text when id missing", () => {
+    const doc = mount(
+      `<div id="reader-scroll"><h3>4.1 主析取范式 PDNF</h3></div>`
+    );
+    const root = doc.getElementById("reader-scroll");
+    const el = findOutlineHeadingEl(
+      "41-主析取范式-pdnf",
+      root,
+      "4.1 主析取范式 PDNF"
+    );
+    expect(el?.textContent).toBe("4.1 主析取范式 PDNF");
+    expect(el?.id).toBe("");
+  });
+
+  it("prefers id match among duplicate text headings", () => {
+    const doc = mount(
+      `<div id="reader-scroll">
+        <h3>小结</h3>
+        <h3 id="小结-1">小结</h3>
+      </div>`
+    );
+    const root = doc.getElementById("reader-scroll");
+    const el = findOutlineHeadingEl("小结-1", root, "小结");
+    expect(el?.id).toBe("小结-1");
   });
 });

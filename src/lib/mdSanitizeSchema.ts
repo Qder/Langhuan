@@ -34,6 +34,8 @@ const katexTags = [
 
 export const mdSanitizeSchema: SanitizeOptions = {
   ...defaultSchema,
+  // Keep heading ids aligned with extractOutline / rehype-slug (no user-content-).
+  clobberPrefix: "",
   tagNames: [
     ...(defaultSchema.tagNames || []),
     ...katexTags,
