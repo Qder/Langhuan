@@ -36,6 +36,20 @@ import {
 } from "@/lib/ide/gotoDefinition";
 import { IDE_FIND_EVENT, IDE_GOTO_DEF_EVENT } from "@/lib/ide/ideEvents";
 import { listIdeDir, readIdeFile } from "@/lib/ide/ideFs";
+import {
+  findMapperInterfaceForXml,
+  findMapperXmlForMethod,
+  findMethodDeclarationLine,
+  javaTypeFqn,
+  looksLikeMapperInterface,
+  xmlMapperNamespace,
+  xmlStatementIdAtOffset,
+} from "@/lib/ide/mapperNav";
+import {
+  importSpecAtOffset,
+  findExportLineOrNull,
+  planTsImport,
+} from "@/lib/ide/tsImports";
 import { isDarkTheme } from "@/lib/theme";
 import {
   captureSnippetToLibrary,
@@ -55,7 +69,45 @@ type CtxMenu = {
   hasSelection: boolean;
   word: string | null;
   receiver: string | null;
+  /** 右击位置（1-based 行 / 0-based 列），供 XML id、import 说明符这类非标识符目标使用。 */
+  line: number;
+  column: number;
 };
+
+/**
+ * F12 的输入：光标处的标识符 + 可选的 `receiver.`，再加上原始的「光标所在位置」
+ * 上下文 —— 因为 MyBatis XML 的 `id="…"` 和 TS 的 import 说明符都不是标识符，
+ * 只看 word 会漏掉它们。
+ */
+type GotoDefQuery = {
+  word: string | null;
+  receiver: string | null;
+  /** 1-based 行号与行内偏移（0-based）。 */
+  line: number;
+  column: number;
+};
+
+/** 选区 / 光标 → F12 查询。选区优先用选中的单词。 */
+function buildGotoDefQuery(view: EditorView): GotoDefQuery {
+  const sel = view.state.selection.main;
+  const at = sel.empty ? sel.head : sel.from;
+  const line = view.state.doc.lineAt(at);
+  const column = at - line.from;
+  if (!sel.empty) {
+    const picked = view.state.doc.sliceString(sel.from, sel.to).trim();
+    const w =
+      wordAtOffset(picked, 0) ??
+      (picked.match(/^[A-Za-z_][A-Za-z0-9_]*$/) ? picked : null);
+    return { word: w, receiver: null, line: line.number, column };
+  }
+  const hit = symbolAtOffset(line.text, column);
+  return {
+    word: hit?.word ?? null,
+    receiver: hit?.receiver ?? null,
+    line: line.number,
+    column,
+  };
+}
 
 export function IdeEditor({ path }: { path: string }) {
   const hostRef = React.useRef<HTMLDivElement>(null);
@@ -84,7 +136,7 @@ export function IdeEditor({ path }: { path: string }) {
     { word: string; paths: string[] } | null
   >(null);
   const gotoDefRef = React.useRef<
-    (query: { word: string; receiver: string | null } | null) => void
+    (query: GotoDefQuery | null) => void
   >(() => {});
 
   React.useEffect(() => {
@@ -103,19 +155,7 @@ export function IdeEditor({ path }: { path: string }) {
         {
           key: "F12",
           run: (view) => {
-            const sel = view.state.selection.main;
-            let query: { word: string; receiver: string | null } | null = null;
-            if (!sel.empty) {
-              const picked = view.state.doc.sliceString(sel.from, sel.to).trim();
-              const w =
-                wordAtOffset(picked, 0) ??
-                (picked.match(/^[A-Za-z_][A-Za-z0-9_]*$/) ? picked : null);
-              query = w ? { word: w, receiver: null } : null;
-            } else {
-              const line = view.state.doc.lineAt(sel.head);
-              query = symbolAtOffset(line.text, sel.head - line.from);
-            }
-            gotoDefRef.current(query);
+            gotoDefRef.current(buildGotoDefQuery(view));
             return true;
           },
         },
@@ -204,12 +244,15 @@ export function IdeEditor({ path }: { path: string }) {
                 wordAtOffset(picked, 0) ??
                 (picked.match(/^[A-Za-z_][A-Za-z0-9_]*$/) ? picked : null);
             }
+            const ctxLine = pos != null ? view.state.doc.lineAt(pos) : null;
             setCtxMenu({
               x: event.clientX,
               y: event.clientY,
               hasSelection: !sel.empty,
               word,
               receiver,
+              line: ctxLine?.number ?? 1,
+              column: ctxLine && pos != null ? pos - ctxLine.from : 0,
             });
             return true;
           },
@@ -220,7 +263,13 @@ export function IdeEditor({ path }: { path: string }) {
             const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
             if (pos == null) return true;
             const line = view.state.doc.lineAt(pos);
-            gotoDefRef.current(symbolAtOffset(line.text, pos - line.from));
+            const hit = symbolAtOffset(line.text, pos - line.from);
+            gotoDefRef.current({
+              word: hit?.word ?? null,
+              receiver: hit?.receiver ?? null,
+              line: line.number,
+              column: pos - line.from,
+            });
             return true;
           },
         }),
@@ -371,37 +420,166 @@ export function IdeEditor({ path }: { path: string }) {
     [tabs, session, openFile, setStatus]
   );
 
+  /** 已知行号的跳转（XML id、import 目标、接口方法行）。 */
+  const openAtLine = React.useCallback(
+    async (targetPath: string, line: number) => {
+      setDefCandidates(null);
+      const ok = await openFile(targetPath, { line: Math.max(1, line) });
+      if (!ok) setStatus(`打不开 ${targetPath}`);
+      return ok;
+    },
+    [openFile, setStatus]
+  );
+
   const runGotoDefinition = React.useCallback(
-    async (query: { word: string; receiver: string | null } | null) => {
+    async (query: GotoDefQuery | null) => {
       setCtxMenu(null);
-      if (!query?.word) {
-        setStatus("找不到定义");
-        return;
-      }
       if (!session) {
         setStatus("先打开文件夹");
         return;
       }
-      const word = query.word;
-      const receiver = query.receiver;
-      let index = collectScannedFileIndex(children);
-      if (index.length < 30) {
-        index = await collectFileIndexWithOptionalBfs({
-          session,
-          children,
-          listDir: listIdeDir,
-        });
-      }
-      const currentContent =
+      const bufContent =
         tabs.find((t) => t.path === path)?.draft ??
         viewRef.current?.state.doc.toString() ??
         "";
+      const lines = bufContent.split("\n");
+      const lineIndex = Math.min(
+        Math.max(0, (query?.line ?? 1) - 1),
+        Math.max(0, lines.length - 1)
+      );
+      const lineText = lines[lineIndex] ?? "";
+      const column = query?.column ?? 0;
+      const readBody = async (rel: string) => {
+        const open = tabs.find((t) => t.path === rel)?.draft;
+        if (open != null) return open;
+        return readIdeFile(session, rel);
+      };
+
+      const index = await (async () => {
+        let scanned = collectScannedFileIndex(children);
+        if (scanned.length < 30) {
+          scanned = await collectFileIndexWithOptionalBfs({
+            session,
+            children,
+            listDir: listIdeDir,
+          });
+        }
+        return scanned;
+      })();
+
+      const lowerPath = path.toLowerCase();
+      const lang = languageIdFromPath(path);
+
+      // A) MyBatis XML: 光标在 <select id="foo"> 上 → 接口的同名方法。
+      //    这条只认 namespace，不认同名文件，避免跳到别的 Mapper 的 selectById。
+      if (lowerPath.endsWith(".xml")) {
+        const stmtId = xmlStatementIdAtOffset(lineText, column);
+        const namespace = xmlMapperNamespace(bufContent);
+        if (stmtId) {
+          if (!namespace) {
+            setStatus("这份 XML 没写 <mapper namespace>，无法确定对应接口（非 LSP）");
+            return;
+          }
+          setStatus("正在查找 Mapper 接口…");
+          const plan = await findMapperInterfaceForXml({
+            namespace,
+            statementId: stmtId,
+            fileIndex: index,
+            readFile: readBody,
+          });
+          if (plan.kind === "open") {
+            await openAtLine(plan.path, plan.line);
+            return;
+          }
+          if (plan.kind === "ambiguous") {
+            setDefCandidates({ word: stmtId, paths: plan.candidates });
+            setStatus(`未唯一命中：${plan.reason}（非 LSP）`);
+            return;
+          }
+          setStatus(`未找到 ${stmtId} 的接口方法：${plan.reason}（非 LSP）`);
+          return;
+        }
+      }
+
+      // B) TS/JS: 光标在 import/export/require 的路径上 → 目标文件。
+      //    只解析 ./ 与 ../；node_modules、路径别名一律明说做不到。
+      if (lang === "typescript" || lang === "tsx" || lang === "javascript" || lang === "jsx") {
+        const spec = importSpecAtOffset(lineText, column);
+        if (spec) {
+          const plan = planTsImport({ fromPath: path, spec: spec.spec, fileIndex: index });
+          if (plan.kind === "open") {
+            let body: string | null = null;
+            try {
+              body = await readBody(plan.path);
+            } catch {
+              body = null;
+            }
+            const importName =
+              lineText
+                .match(/^\s*(?:import|export)\s+(?:type\s+)?([A-Za-z_$][\w$]*)/)?.[1] ??
+              lineText.match(/\{([^}]*)\}/)?.[1]?.split(",")[0]?.trim().split(/\s+as\s+/)[0]?.trim() ??
+              null;
+            const line =
+              (body && importName && findExportLineOrNull(body, importName)) || 1;
+            await openAtLine(plan.path, line);
+            return;
+          }
+          setDefCandidates(null);
+          if (plan.kind === "ambiguous") {
+            setDefCandidates({ word: spec.spec, paths: plan.candidates });
+            setStatus(`未唯一命中：${plan.reason}`);
+            return;
+          }
+          setStatus(plan.reason);
+          return;
+        }
+      }
+
+      const word = query?.word ?? null;
+      if (!word) {
+        setStatus("光标处不是可跳转的名字（非 LSP 只支持标识符 / import 路径 / XML id）");
+        return;
+      }
+      const receiver = query?.receiver ?? null;
+
+      // C) Java Mapper 接口里的方法声明 → 同名 XML 语句 id。
+      //    namespace 必须与接口的 package+类名完全一致才跳，否则宁可不跳。
+      if (languageIdFromPath(path) === "java" && looksLikeMapperInterface(path, bufContent)) {
+        if (findMethodDeclarationLine(bufContent, word) != null) {
+          const fqn = javaTypeFqn(bufContent, path);
+          if (fqn) {
+            setStatus("正在查找对应的 XML 语句…");
+            const plan = await findMapperXmlForMethod({
+              mapperPath: path,
+              mapperFqn: fqn,
+              method: word,
+              fileIndex: index,
+              readFile: readBody,
+            });
+            if (plan.kind === "open") {
+              await openAtLine(plan.path, plan.line);
+              return;
+            }
+            if (plan.kind === "ambiguous") {
+              setDefCandidates({ word, paths: plan.candidates });
+              setStatus(`未唯一命中：${plan.reason}（非 LSP）`);
+              return;
+            }
+            // XML 侧对不上：退回到「本文件里的方法行」，并把原因讲清楚。
+            setStatus(`没有可跳的 XML：${plan.reason}（非 LSP）`);
+            await openDefinition(path, word);
+            return;
+          }
+        }
+      }
+
+      // D) 原有的文件名 / receiver 类型解析。
       let plan = planGotoDefinition({
         word,
         receiver,
         currentPath: path,
         fileIndex: index,
-        currentContent,
+        currentContent: bufContent,
       });
       // Fallback: scan Mapper/Dao/xml (+ other java) for unique method / id=
       if (plan.kind === "miss") {
@@ -409,16 +587,14 @@ export function IdeEditor({ path }: { path: string }) {
         plan = await searchMethodDefinition({
           word,
           fileIndex: index,
-          readFile: async (rel) => {
-            const open = tabs.find((t) => t.path === rel)?.draft;
-            if (open != null) return open;
-            return readIdeFile(session, rel);
-          },
+          readFile: readBody,
         });
       }
       if (plan.kind === "miss") {
-        setStatus("找不到定义");
         setDefCandidates(null);
+        setStatus(
+          `未找到定义「${word}」：不是本工程唯一文件名，也没落到唯一的 Mapper 方法（非 LSP）`
+        );
         return;
       }
       if (plan.kind === "candidates") {
@@ -426,9 +602,12 @@ export function IdeEditor({ path }: { path: string }) {
         setStatus(`多个同名定义，请选择（${plan.candidates.length}）`);
         return;
       }
+
+      // 调用点 / 文件名命中都停在 Java 方法行（定义本身）。XML 只在从接口出发时
+      // 才是目标 —— 从调用点直接跳 XML 会让人丢失「接口在哪」这层结构。
       await openDefinition(plan.path, plan.symbol);
     },
-    [session, children, path, tabs, setStatus, openDefinition]
+    [session, children, path, tabs, setStatus, openDefinition, openAtLine]
   );
 
   React.useEffect(() => {
@@ -452,19 +631,8 @@ export function IdeEditor({ path }: { path: string }) {
         return;
       }
       view.focus();
-      const sel = view.state.selection.main;
-      let query: { word: string; receiver: string | null } | null = null;
-      if (!sel.empty) {
-        const picked = view.state.doc.sliceString(sel.from, sel.to).trim();
-        const w =
-          wordAtOffset(picked, 0) ??
-          (picked.match(/^[A-Za-z_][A-Za-z0-9_]*$/) ? picked : null);
-        query = w ? { word: w, receiver: null } : null;
-      } else {
-        const line = view.state.doc.lineAt(sel.head);
-        query = symbolAtOffset(line.text, sel.head - line.from);
-      }
-      void runGotoDefinition(query);
+      // 同一个构造器也用于 F12 键位，保证右键菜单 / 快捷键 / 面板三处行为一致。
+      void runGotoDefinition(buildGotoDefQuery(view));
     };
     window.addEventListener(IDE_FIND_EVENT, onFind);
     window.addEventListener(IDE_GOTO_DEF_EVENT, onGoto);
@@ -531,11 +699,12 @@ export function IdeEditor({ path }: { path: string }) {
               "w-full text-left px-3 py-1.5 hover:bg-[var(--hover)] disabled:opacity-40 disabled:hover:bg-transparent"
             )}
             onClick={() =>
-              void runGotoDefinition(
-                ctxMenu.word
-                  ? { word: ctxMenu.word, receiver: ctxMenu.receiver }
-                  : null
-              )
+              void runGotoDefinition({
+                word: ctxMenu.word,
+                receiver: ctxMenu.receiver,
+                line: ctxMenu.line,
+                column: ctxMenu.column,
+              })
             }
           >
             转到定义 (F12)

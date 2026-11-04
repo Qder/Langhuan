@@ -4,6 +4,8 @@ import {
   findDefinitionLine,
   findDefinitionLineOrNull,
   isGotoDefinitionIdentifier,
+  javaImportsOf,
+  narrowHitsByJavaImport,
   planGotoDefinition,
   resolveJavaTypeOfIdentifier,
   symbolAtOffset,
@@ -24,6 +26,41 @@ describe("isGotoDefinitionIdentifier", () => {
 });
 
 describe("planGotoDefinition", () => {
+  it("resolves a receiver through the import when two Mappers share a name", () => {
+    const content = `
+package com.campus.food.service;
+import com.campus.food.mapper.MerchantMapper;
+public class MerchantServiceImpl {
+  private final MerchantMapper merchantMapper;
+  Merchant find(Long id) { return merchantMapper.selectById(id); }
+}
+`;
+    const plan = planGotoDefinition({
+      word: "selectById",
+      receiver: "merchantMapper",
+      currentPath: "merchant-service/src/main/java/com/campus/food/service/MerchantServiceImpl.java",
+      currentContent: content,
+      fileIndex: [
+        "merchant-service/src/main/java/com/campus/food/mapper/MerchantMapper.java",
+        "merchant-service/src/main/java/com/campus/other/MerchantMapper.java",
+      ],
+    });
+    expect(plan).toEqual({
+      kind: "open",
+      path: "merchant-service/src/main/java/com/campus/food/mapper/MerchantMapper.java",
+      symbol: "selectById",
+    });
+  });
+
+  it("stays ambiguous when the import does not disambiguate", () => {
+    const plan = planGotoDefinition({
+      word: "MerchantMapper",
+      currentPath: "src/Svc.java",
+      currentContent: "package com.neutral;\nclass Svc {}\n",
+      fileIndex: ["a/MerchantMapper.java", "b/MerchantMapper.java"],
+    });
+    expect(plan.kind).toBe("candidates");
+  });
   it("opens unique src/Foo.java for word Foo", () => {
     expect(
       planGotoDefinition({
@@ -103,8 +140,49 @@ public class MerchantServiceImpl {
   });
 });
 
-describe("resolveJavaTypeOfIdentifier", () => {
-  it("reads field type", () => {
+describe("javaImportsOf / narrowHitsByJavaImport", () => {
+  const HITS = [
+    "merchant-service/src/main/java/com/campus/food/mapper/MerchantMapper.java",
+    "merchant-service/src/main/java/com/campus/other/MerchantMapper.java",
+  ];
+
+  it("reads explicit imports", () => {
+    const imports = javaImportsOf(
+      "package x;\nimport com.campus.food.mapper.MerchantMapper;\nimport java.util.List;\n"
+    );
+    expect(imports.get("MerchantMapper")).toBe("com.campus.food.mapper.MerchantMapper");
+    expect(imports.get("List")).toBe("java.util.List");
+  });
+
+  it("narrows two same-named files down to the imported one", () => {
+    const content =
+      "package x;\nimport com.campus.food.mapper.MerchantMapper;\nclass Y { MerchantMapper m; }\n";
+    expect(narrowHitsByJavaImport(HITS, "MerchantMapper", content)).toEqual([HITS[0]]);
+  });
+
+  it("uses a wildcard import as a weaker hint", () => {
+    const content = "package x;\nimport com.campus.other.*;\nclass Y { MerchantMapper m; }\n";
+    expect(narrowHitsByJavaImport(HITS, "MerchantMapper", content)).toEqual([HITS[1]]);
+  });
+
+  it("leaves the list alone when nothing narrows it", () => {
+    expect(narrowHitsByJavaImport(HITS, "MerchantMapper", "package x;\n")).toEqual(HITS);
+  });
+
+  it("leaves the list alone when two conflicting imports exist", () => {
+    const content =
+      "import com.campus.food.mapper.MerchantMapper;\nimport com.campus.other.MerchantMapper;\n";
+    expect(narrowHitsByJavaImport(HITS, "MerchantMapper", content)).toEqual(HITS);
+  });
+
+  it("does not narrow a single hit", () => {
+    expect(narrowHitsByJavaImport([HITS[0]!], "MerchantMapper", "import a.B;")).toEqual([
+      HITS[0],
+    ]);
+  });
+});
+
+describe("resolveJavaTypeOfIdentifier", () => {  it("reads field type", () => {
     expect(
       resolveJavaTypeOfIdentifier(
         "private final MerchantMapper merchantMapper;",

@@ -1,5 +1,15 @@
 /**
- * Lightweight go-to-definition: basename + Java receiver/type resolve (not LSP).
+ * Lightweight go-to-definition: basename + Java receiver/type resolve.
+ *
+ * **This is not a language server.** There is no AST, no type checker, no
+ * compilation, no `node_modules` resolution. Every answer here comes from
+ * matching names against the file list and rereading a few candidate files with
+ * regexes — which is why the callers repeat the reason when nothing unique was
+ * found instead of guessing. The two other static jump families live next door:
+ * `mapperNav.ts` (Java Mapper ↔ MyBatis XML `id`) and `tsImports.ts` (relative
+ * TS/JS imports). Boundaries that this deliberately does not cross: overloads,
+ * generics, inheritance chains, `node_modules`, tsconfig `paths`, and anything
+ * that would need a real index.
  */
 
 import { normalizeIdeRelPath } from "./citations";
@@ -241,19 +251,81 @@ export function resolveJavaTypeOfIdentifier(
   return null;
 }
 
+/**
+ * `import com.campus.food.mapper.MerchantMapper;` → com.campus.food.mapper.MerchantMapper.
+ * Wildcard imports are reported as `com.x.*` so callers can use them as a weaker hint.
+ */
+export function javaImportsOf(content: string): Map<string, string> {
+  const out = new Map<string, string>();
+  if (!content) return out;
+  const re = /^\s*import\s+(?:static\s+)?([\w.]+(?:\.\*)?)\s*;/gm;
+  for (const m of content.matchAll(re)) {
+    const fqn = m[1]!;
+    const simple = fqn.split(".").pop()!;
+    if (simple === "*") {
+      // com.x.* — remember the package (without the `.*`) for the fallback test below.
+      out.set("*", fqn.slice(0, -2));
+      continue;
+    }
+    const prev = out.get(simple);
+    // Two explicit imports of the same simple name: ambiguous, drop the hint.
+    if (prev && prev !== fqn) out.set(simple, "");
+    else out.set(simple, fqn);
+  }
+  return out;
+}
+
+/**
+ * 同名文件有多个时，用 `import` 收窄。这是 Java 静态读码里最值钱的一步：
+ * 工程里同时存在 `com.a.MerchantMapper` 与 `com.b.MerchantMapper` 时，当前文件
+ * 的 import 已经写明了要哪个。收窄不到唯一就返回原样，交给上层报歧义。
+ */
+export function narrowHitsByJavaImport(
+  hits: string[],
+  typeName: string,
+  content: string
+): string[] {
+  if (hits.length <= 1 || !content) return hits;
+  const imports = javaImportsOf(content);
+  const fqn = imports.get(typeName);
+  if (fqn) {
+    const wanted = `/${fqn.replace(/\./g, "/")}.java`.toLowerCase();
+    const matched = hits.filter((h) => `/${h.toLowerCase()}`.endsWith(wanted));
+    if (matched.length === 1) return matched;
+    return hits;
+  }
+  const wildcard = imports.get("*");
+  if (wildcard) {
+    const dir = `/${wildcard.replace(/\./g, "/")}/`.toLowerCase();
+    const matched = hits.filter((h) => `/${h.toLowerCase()}`.includes(dir));
+    if (matched.length === 1) return matched;
+  }
+  return hits;
+}
+
 /** Unique TypeName.java (or ordered ext) in index. */
 export function findUniqueTypeFile(
   typeName: string,
   currentPath: string,
-  fileIndex: string[]
+  fileIndex: string[],
+  /** Current buffer — lets Java `import` break ties between same-named files. */
+  currentContent?: string | null
 ): string | null {
   if (!isGotoDefinitionIdentifier(typeName)) return null;
   const order = gotoDefExtOrder(currentPath);
   for (const ext of order) {
-    const hits = uniqueBasenameHits(fileIndex, typeName, [ext]);
+    const hits = narrowHitsByJavaImport(
+      uniqueBasenameHits(fileIndex, typeName, [ext]),
+      typeName,
+      currentContent ?? ""
+    );
     if (hits.length === 1) return hits[0]!;
   }
-  const hits = uniqueBasenameHits(fileIndex, typeName, GOTO_DEF_EXTS);
+  const hits = narrowHitsByJavaImport(
+    uniqueBasenameHits(fileIndex, typeName, GOTO_DEF_EXTS),
+    typeName,
+    currentContent ?? ""
+  );
   return hits.length === 1 ? hits[0]! : null;
 }
 
@@ -280,7 +352,12 @@ export function planGotoDefinition(opts: {
   if (receiver && content) {
     const typeName = resolveJavaTypeOfIdentifier(content, receiver);
     if (typeName) {
-      const path = findUniqueTypeFile(typeName, opts.currentPath, opts.fileIndex);
+      const path = findUniqueTypeFile(
+        typeName,
+        opts.currentPath,
+        opts.fileIndex,
+        content
+      );
       if (path) return { kind: "open", path, symbol: word };
     }
   }
@@ -289,20 +366,33 @@ export function planGotoDefinition(opts: {
   if (content && languageIdFromPath(opts.currentPath) === "java") {
     const typeName = resolveJavaTypeOfIdentifier(content, word);
     if (typeName && typeName !== word) {
-      const path = findUniqueTypeFile(typeName, opts.currentPath, opts.fileIndex);
+      const path = findUniqueTypeFile(
+        typeName,
+        opts.currentPath,
+        opts.fileIndex,
+        content
+      );
       if (path) return { kind: "open", path, symbol: typeName };
     }
   }
 
-  // 3) basename Type.java / Foo.ts …
+  // 3) basename Type.java / Foo.ts … —— 同名文件先用 import 收窄再判歧义。
   const order = gotoDefExtOrder(opts.currentPath);
   for (const ext of order) {
-    const hits = uniqueBasenameHits(opts.fileIndex, word, [ext]);
+    const hits = narrowHitsByJavaImport(
+      uniqueBasenameHits(opts.fileIndex, word, [ext]),
+      word,
+      content
+    );
     const plan = planFromHits(hits, word);
     if (plan.kind !== "miss") return plan;
   }
 
-  const allHits = uniqueBasenameHits(opts.fileIndex, word, GOTO_DEF_EXTS);
+  const allHits = narrowHitsByJavaImport(
+    uniqueBasenameHits(opts.fileIndex, word, GOTO_DEF_EXTS),
+    word,
+    content
+  );
   return planFromHits(allHits, word);
 }
 
