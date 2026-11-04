@@ -716,6 +716,14 @@ const MarkdownBody = React.memo(
                 (c.props as { className?: string }).className?.includes("callout-title")
             );
             const rest = kids.filter((c) => c !== titleEl);
+            // rehypeCallout 已经生成了 <div class="callout-body">，这里只补外壳；
+            // 再包一层会出现 .callout-body > .callout-body 的重复内边距。
+            const bodyEl =
+              rest.length === 1 &&
+              React.isValidElement(rest[0]) &&
+              (rest[0].props as { className?: string }).className?.includes("callout-body")
+                ? rest[0]
+                : null;
             return (
               <div
                 {...props}
@@ -732,7 +740,7 @@ const MarkdownBody = React.memo(
                     : CALLOUT_LABELS[kind]}
                 </div>
                 {/* 正文块已由 p / ul / table 各自的组件处理过（含双链），不再重复 walk。 */}
-                <div className="callout-body">{rest}</div>
+                {bodyEl ?? <div className="callout-body">{rest}</div>}
               </div>
             );
           }
