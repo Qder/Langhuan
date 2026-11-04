@@ -35,7 +35,7 @@ export function AppModeSwitch({ className }: { className?: string }) {
         aria-selected={appMode === "notes"}
         onClick={goNotes}
         className={cn(
-          "px-2 py-1 max-lg:min-h-9 max-lg:px-2.5 text-[11px] rounded-[10px] transition-colors",
+          "px-2 py-1 max-lg:min-h-10 max-lg:px-2.5 text-[11px] rounded-[10px] transition-colors",
           appMode === "notes"
             ? "bg-[var(--accent)] text-white"
             : "text-[var(--muted)] hover:bg-[var(--hover)] hover:text-[var(--fg)]"
@@ -49,7 +49,7 @@ export function AppModeSwitch({ className }: { className?: string }) {
         aria-selected={appMode === "ide"}
         onClick={goIde}
         className={cn(
-          "px-2 py-1 max-lg:min-h-9 max-lg:px-2.5 text-[11px] rounded-[10px] transition-colors",
+          "px-2 py-1 max-lg:min-h-10 max-lg:px-2.5 text-[11px] rounded-[10px] transition-colors",
           appMode === "ide"
             ? "bg-[var(--accent)] text-white"
             : "text-[var(--muted)] hover:bg-[var(--hover)] hover:text-[var(--fg)]"

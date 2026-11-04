@@ -62,9 +62,14 @@ export function Dropdown({
           <div
             ref={menuRef}
             className={cn(
-              "fixed z-[90] rounded-2xl border border-[var(--border)] bg-[var(--menu)] p-1.5 shadow-xl animate-enter"
+              "fixed z-[90] rounded-2xl border border-[var(--border)] bg-[var(--menu)] p-1.5 shadow-xl animate-enter overflow-y-auto scroll-thin"
             )}
-            style={{ top: pos.top, left: pos.left, minWidth: pos.minWidth }}
+            style={{
+              top: pos.top,
+              left: pos.left,
+              minWidth: pos.minWidth,
+              maxHeight: `calc(100dvh - ${pos.top + 8}px)`,
+            }}
             role="menu"
           >
             <div onClick={() => setOpen(false)}>{children}</div>
@@ -109,7 +114,7 @@ export function DropdownItem({
       disabled={disabled}
       onClick={onClick}
       className={cn(
-        "flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-ui transition-colors",
+        "flex w-full items-center gap-2 rounded-xl px-3 py-2 max-lg:py-2.5 max-lg:min-h-11 text-left text-sm font-ui transition-colors",
         danger ? "text-[var(--accent)] hover:bg-[var(--accent)]/10" : "hover:bg-[var(--hover)]",
         disabled && "opacity-40 pointer-events-none"
       )}

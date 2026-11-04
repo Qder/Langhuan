@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { useIdeStore } from "@/lib/ide/store";
+import { useStore } from "@/lib/store";
 import { IdeTopBar } from "./IdeTopBar";
 import { IdeExplorer } from "./IdeExplorer";
 import { IdeTabBar } from "./IdeTabBar";
@@ -11,6 +12,10 @@ import { IdeDirtyCloseDialog } from "./IdeDirtyCloseDialog";
 import { IdeExplainPanel } from "./IdeExplainPanel";
 import { IdeQuickOpen } from "./IdeQuickOpen";
 import { IdeGotoLine } from "./IdeGotoLine";
+import { IdeWorkspaceSearch } from "./IdeWorkspaceSearch";
+import { IdeOutlineRail } from "./IdeOutlineRail";
+import { IdeRecentFiles } from "./IdeRecentFiles";
+import { CommandPalette } from "../CommandPalette";
 import { useMediaQuery } from "@/lib/useMediaQuery";
 import { isIdeExplainToggleHotkey } from "@/lib/ide/explainHotkey";
 import {
@@ -30,13 +35,23 @@ export function IdeShell() {
   const setExplainOpen = useIdeStore((s) => s.setExplainOpen);
   const anyDirty = useIdeStore((s) => s.anyDirty);
   const status = useIdeStore((s) => s.status);
+  const tabs = useIdeStore((s) => s.tabs);
   const setStatus = useIdeStore((s) => s.setStatus);
   const saveFile = useIdeStore((s) => s.saveFile);
   const requestCloseTab = useIdeStore((s) => s.requestCloseTab);
   const setDraft = useIdeStore((s) => s.setDraft);
   const isLg = useMediaQuery("(min-width: 1024px)");
+  const isXl = useMediaQuery("(min-width: 1280px)");
   const [quickOpen, setQuickOpen] = React.useState(false);
   const [gotoLineOpen, setGotoLineOpen] = React.useState(false);
+  const [workspaceSearchOpen, setWorkspaceSearchOpen] = React.useState(false);
+  const [outlineOpen, setOutlineOpen] = React.useState(false);
+  const setCommandOpen = useStore((s) => s.setCommandOpen);
+  const openFolder = useIdeStore((s) => s.openFolder);
+  const workspaceSearchEvent = React.useCallback(
+    () => setWorkspaceSearchOpen(true),
+    []
+  );
 
   React.useEffect(() => {
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -132,6 +147,24 @@ export function IdeShell() {
       if (!mod) return;
       const key = e.key.toLowerCase();
 
+      // Mod+K command palette (same palette as 藏书阁, with IDE commands added)
+      if (key === "k" && !e.shiftKey && !e.altKey) {
+        claimShortcut(e);
+        setCommandOpen(true);
+        return;
+      }
+
+      // Mod+Shift+F workspace text search (read-only)
+      if (key === "f" && e.shiftKey && !e.altKey) {
+        claimShortcut(e);
+        if (!session) {
+          setStatus("先打开文件夹");
+          return;
+        }
+        setWorkspaceSearchOpen(true);
+        return;
+      }
+
       // Mod+P quick open
       if (key === "p" && !e.shiftKey && !e.altKey) {
         claimShortcut(e);
@@ -207,6 +240,7 @@ export function IdeShell() {
 
   const showDrawer = !!session && explorerOpen && !isLg;
   const showDocked = !!session && explorerOpen && isLg;
+  const activeTab = tabs.find((t) => t.path === activePath) ?? null;
 
   return (
     <div className="h-dvh flex flex-col overflow-hidden text-[var(--fg)] relative">
@@ -214,6 +248,9 @@ export function IdeShell() {
         onToggleExplorer={toggleExplorer}
         onToggleExplain={toggleExplain}
         explainOpen={explainOpen}
+        outlineOpen={outlineOpen}
+        onToggleOutline={() => setOutlineOpen((v) => !v)}
+        canToggleOutline={!!activePath}
       />
       <div className="flex-1 min-h-0 flex relative">
         {showDocked && <IdeExplorer />}
@@ -224,7 +261,7 @@ export function IdeShell() {
             <button
               type="button"
               className="absolute inset-0 z-30 bg-black/35"
-              aria-label="关闭资源管理器"
+              aria-label="关闭文件面板"
               onClick={() => setExplorerOpen(false)}
             />
             <div className="absolute inset-y-0 left-0 z-40 shadow-2xl animate-enter">
@@ -239,23 +276,40 @@ export function IdeShell() {
           ) : (
             <>
               <IdeTabBar />
-              <div className="flex-1 min-h-0">
-                {activePath ? (
-                  <IdeEditor key={activePath} path={activePath} />
-                ) : (
-                  <div className="h-full flex flex-col items-center justify-center gap-2 text-sm text-[var(--muted)] font-ui px-6 text-center">
-                    <p>打开一个文件开始读码。</p>
-                    <p>选中后讲解；点回复里的代码块可跳回源码。</p>
-                    {!isLg && !explorerOpen && (
-                      <button
-                        type="button"
-                        className="mt-2 text-[var(--accent)] hover:underline"
-                        onClick={openExplorer}
-                      >
-                        打开资源管理器
-                      </button>
-                    )}
-                  </div>
+              <div className="relative flex-1 min-h-0 flex">
+                <div className="flex-1 min-w-0">
+                  {activePath ? (
+                    <IdeEditor key={activePath} path={activePath} />
+                  ) : (
+                    <div className="h-full overflow-y-auto">
+                      <div className="mx-auto max-w-md px-6 py-12 flex flex-col items-center gap-2 text-sm text-[var(--muted)] font-ui text-center">
+                        <p>打开一个文件开始读码。</p>
+                        <p>选中后讲解；点回复里的代码块可跳回源码。</p>
+                        {!isLg && !explorerOpen && (
+                          <button
+                            type="button"
+                            className="mt-2 text-[var(--accent)] hover:underline"
+                            onClick={openExplorer}
+                          >
+                            打开文件
+                          </button>
+                        )}
+                        <IdeRecentFiles
+                          className="mt-6 w-full text-left"
+                          currentSessionId={session?.id}
+                          onOpenProject={() => setStatus("先在读码打开该工程")}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+                {outlineOpen && activePath && (
+                  <IdeOutlineRail
+                    path={activePath}
+                    draft={activeTab?.draft ?? ""}
+                    onCollapse={() => setOutlineOpen(false)}
+                    variant={isXl ? "docked" : "overlay"}
+                  />
                 )}
               </div>
             </>
@@ -268,6 +322,23 @@ export function IdeShell() {
       </div>
       <IdeQuickOpen open={quickOpen} onClose={() => setQuickOpen(false)} />
       <IdeGotoLine open={gotoLineOpen} onClose={() => setGotoLineOpen(false)} />
+      <IdeWorkspaceSearch
+        open={workspaceSearchOpen}
+        onClose={() => setWorkspaceSearchOpen(false)}
+      />
+      <CommandPalette
+        ide={{
+          onQuickOpen: () => {
+            if (!useIdeStore.getState().session) {
+              setStatus("先打开文件夹");
+            }
+            setQuickOpen(true);
+          },
+          onWorkspaceSearch: workspaceSearchEvent,
+          onToggleExplain: toggleExplain,
+          onOpenFolder: () => void openFolder(),
+        }}
+      />
       <IdeDirtyCloseDialog />
       <div
         className={cn(

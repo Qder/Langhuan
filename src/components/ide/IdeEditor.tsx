@@ -37,6 +37,10 @@ import {
 import { IDE_FIND_EVENT, IDE_GOTO_DEF_EVENT } from "@/lib/ide/ideEvents";
 import { listIdeDir, readIdeFile } from "@/lib/ide/ideFs";
 import { isDarkTheme } from "@/lib/theme";
+import {
+  captureSnippetToLibrary,
+  captureStatusMessage,
+} from "@/lib/ide/captureToLibrary";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import {
@@ -487,6 +491,27 @@ export function IdeEditor({ path }: { path: string }) {
     requestExplainSelection();
   };
 
+  const captureSelectionToSnippet = () => {
+    const view = viewRef.current;
+    setCtxMenu(null);
+    if (!view) return;
+    const sel = view.state.selection.main;
+    if (sel.empty) return;
+    const doc = view.state.doc;
+    const fromLine = doc.lineAt(sel.from).number;
+    const toLine = doc.lineAt(
+      sel.to === sel.from ? sel.from : Math.max(sel.from, sel.to - 1)
+    ).number;
+    const result = captureSnippetToLibrary({
+      path,
+      fromLine,
+      toLine,
+      text: doc.sliceString(sel.from, sel.to),
+      lang: path.split(".").pop() ?? "",
+    });
+    setStatus(result.ok ? captureStatusMessage(result, "已收入速记") : result.message);
+  };
+
   return (
     <div className={cn("relative h-full w-full overflow-hidden")}>
       <div ref={hostRef} className={cn("h-full w-full overflow-hidden")} />
@@ -524,6 +549,17 @@ export function IdeEditor({ path }: { path: string }) {
             onClick={explainSelection}
           >
             讲解选区
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            disabled={!ctxMenu.hasSelection}
+            className={cn(
+              "w-full text-left px-3 py-1.5 hover:bg-[var(--hover)] disabled:opacity-40 disabled:hover:bg-transparent"
+            )}
+            onClick={captureSelectionToSnippet}
+          >
+            收入速记
           </button>
           <button
             type="button"

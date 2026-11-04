@@ -3,6 +3,7 @@
 import * as React from "react";
 import {
   ArrowLeftRight,
+  Blend,
   Check,
   Link2,
   Copy,
@@ -56,6 +57,59 @@ import {
 } from "@/lib/htmlPreviewPrefs";
 import { openHtmlInNewTab } from "./HtmlReader";
 import { AppModeSwitch } from "./AppModeSwitch";
+
+/** One pill inside a segmented control (reading popover + compact toolbar). */
+function SegButton({
+  active,
+  onClick,
+  title,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  title?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      aria-pressed={active}
+      className={cn(
+        "min-h-8 max-lg:min-h-10 px-2.5 max-lg:px-3 text-[11px] max-lg:text-xs rounded-[10px] font-ui transition-colors",
+        active
+          ? "bg-[var(--accent)] text-white"
+          : "hover:bg-[var(--hover)] text-[var(--muted)]"
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+function SegGroup({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <div className="mb-1 text-[10px] uppercase tracking-wide text-[var(--muted)] font-ui">
+        {label}
+      </div>
+      <div
+        className="inline-flex flex-wrap rounded-xl border border-[var(--border)] p-0.5 bg-[var(--bg)]"
+        role="group"
+        aria-label={label}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
 
 /** Ellipsis middle path segments; keep last two. */
 function BreadcrumbPath({ path }: { path: string }) {
@@ -137,6 +191,9 @@ export function TopBar() {
   const [tagInput, setTagInput] = React.useState("");
   const tagsBtnRef = React.useRef<HTMLButtonElement>(null);
   const tagsPanelRef = React.useRef<HTMLDivElement>(null);
+  const [readingOpen, setReadingOpen] = React.useState(false);
+  const readingBtnRef = React.useRef<HTMLButtonElement>(null);
+  const readingPanelRef = React.useRef<HTMLDivElement>(null);
 
   const wide = useMediaQuery("(min-width: 1280px)");
   const tabletUp = useMediaQuery("(min-width: 1024px)");
@@ -263,6 +320,25 @@ export function TopBar() {
     };
   }, [tagsOpen]);
 
+  React.useEffect(() => {
+    if (!readingOpen) return;
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (readingPanelRef.current?.contains(t)) return;
+      if (readingBtnRef.current?.contains(t)) return;
+      setReadingOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setReadingOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [readingOpen]);
+
   const modes: { id: ViewMode; label: string }[] = [
     { id: "preview", label: "预览" },
     { id: "split", label: "分栏" },
@@ -349,7 +425,7 @@ export function TopBar() {
                     aria-selected={viewMode === m.id}
                     onClick={() => setViewMode(m.id)}
                     className={cn(
-                      "px-2.5 py-1 max-lg:px-3 max-lg:py-1.5 text-xs rounded-[10px] transition-colors font-ui",
+                      "px-2.5 py-1 max-lg:min-h-10 max-lg:px-3 text-xs rounded-[10px] transition-colors font-ui inline-flex items-center justify-center",
                       viewMode === m.id
                         ? "bg-[var(--accent)] text-white"
                         : "hover:bg-[var(--hover)]"
@@ -359,117 +435,43 @@ export function TopBar() {
                   </button>
                 ))}
               </div>
-              {viewMode === "split" && tabletUp && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => toggleSplitSourceFirst()}
-                    title={splitSourceFirst ? "切换为预览在左" : "切换为源码在左"}
-                    aria-label={
-                      splitSourceFirst
-                        ? "当前源码在左，点击改为预览在左"
-                        : "当前预览在左，点击改为源码在左"
-                    }
-                    className={cn(
-                      "hidden lg:inline-flex items-center gap-1.5 rounded-xl border border-[var(--border)]",
-                      "bg-[var(--card)] px-2.5 py-1 text-xs font-ui transition-colors",
-                      "hover:bg-[var(--hover)] hover:border-[var(--accent)]/40"
-                    )}
+              {/* Wide: MD reading tools — single 字号 stepper + 专注; the rest live in 阅读 */}
+              {!isHtml && viewMode !== "source" && (
+                <div className="hidden lg:flex items-center gap-1">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    aria-label="切换正文字号"
+                    title="字号：点击切换 15 / 17 / 19 / 21px（完整设置在「阅读」）"
+                    onClick={() => {
+                      const sizes = [15, 17, 19, 21];
+                      const i = sizes.indexOf(readingPrefs.fontSize);
+                      setReadingPrefs({
+                        fontSize:
+                          i < 0 ? sizes[1]! : sizes[(i + 1) % sizes.length]!,
+                      });
+                    }}
                   >
-                    <ArrowLeftRight className="h-3.5 w-3.5 text-[var(--muted)]" />
-                    <span>{splitSourceFirst ? "源码在左" : "预览在左"}</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => active && toggleSyncScroll(active.id)}
-                    title={syncScrollOn ? "关闭同步滚动（点击定位仍可用）" : "开启同步滚动"}
-                    aria-label={syncScrollOn ? "同步滚动已开启" : "同步滚动已关闭"}
-                    aria-pressed={syncScrollOn}
-                    className={cn(
-                      "hidden lg:inline-flex items-center gap-1.5 rounded-xl border border-[var(--border)]",
-                      "bg-[var(--card)] px-2.5 py-1 text-xs font-ui transition-colors",
-                      "hover:bg-[var(--hover)] hover:border-[var(--accent)]/40",
-                      syncScrollOn && "border-[var(--accent)]/50 text-[var(--accent)]"
-                    )}
+                    <span className="text-[11px] tabular-nums">
+                      字 {readingPrefs.fontSize}
+                    </span>
+                  </Button>
+                  <Button
+                    variant={mdFocusMode ? "secondary" : "ghost"}
+                    size="sm"
+                    aria-label="专注模式"
+                    title="专注模式 (F)"
+                    onClick={() => setMdFocusMode(!mdFocusMode)}
                   >
-                    <Link2 className="h-3.5 w-3.5" />
-                    <span>{syncScrollOn ? "同步滚动" : "同步已关"}</span>
-                  </button>
-                </>
+                    <Maximize2 className="h-3.5 w-3.5" />
+                    专注
+                  </Button>
+                </div>
               )}
 
-              {dirty && (
-                <Button
-                  variant="accent"
-                  size="sm"
-                  className="shrink-0"
-                  onClick={() => saveDoc(active.id)}
-                  aria-label="保存"
-                >
-                  <Save className="h-3.5 w-3.5" />
-                  保存
-                </Button>
-              )}
-
-              {/* Wide: HTML preview tools */}
+              {/* HTML quick tools stay on wide; everything else in 阅读 */}
               {isHtml && viewMode !== "source" && htmlPrefs && (
                 <div className="hidden lg:flex items-center gap-1">
-                  <div
-                    className="inline-flex rounded-xl border border-[var(--border)] p-0.5 bg-[var(--card)]"
-                    role="group"
-                    aria-label="宽度模拟"
-                  >
-                    {(
-                      [
-                        ["fluid", "自适应"],
-                        ["desktop", "桌面"],
-                        ["tablet", "平板"],
-                        ["phone", "手机"],
-                      ] as [HtmlWidthMode, string][]
-                    ).map(([id, label]) => (
-                      <button
-                        key={id}
-                        type="button"
-                        onClick={() =>
-                          setHtmlPreviewPrefs(active.id, { widthMode: id })
-                        }
-                        className={cn(
-                          "px-2 py-1 text-[11px] rounded-[10px] font-ui transition-colors",
-                          htmlPrefs.widthMode === id
-                            ? "bg-[var(--accent)] text-white"
-                            : "hover:bg-[var(--hover)] text-[var(--muted)]"
-                        )}
-                        title={
-                          id === "fluid"
-                            ? "自适应宽度"
-                            : `${HTML_WIDTH_PX[id as Exclude<HtmlWidthMode, "fluid">]}px`
-                        }
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                  <div
-                    className="inline-flex rounded-xl border border-[var(--border)] p-0.5 bg-[var(--card)]"
-                    role="group"
-                    aria-label="缩放"
-                  >
-                    {HTML_ZOOM_OPTIONS.map((z) => (
-                      <button
-                        key={z}
-                        type="button"
-                        onClick={() => setHtmlPreviewPrefs(active.id, { zoom: z })}
-                        className={cn(
-                          "px-2 py-1 text-[11px] rounded-[10px] font-ui tabular-nums",
-                          htmlPrefs.zoom === z
-                            ? "bg-[var(--accent)] text-white"
-                            : "hover:bg-[var(--hover)] text-[var(--muted)]"
-                        )}
-                      >
-                        {Math.round(z * 100)}%
-                      </button>
-                    ))}
-                  </div>
                   <Button
                     variant="ghost"
                     size="icon"
@@ -484,18 +486,6 @@ export function TopBar() {
                   </Button>
                   <Button
                     variant="ghost"
-                    size="icon"
-                    aria-label="刷新预览"
-                    title="刷新预览"
-                    onClick={() => {
-                      bumpHtmlReload();
-                      setStatus("已刷新预览");
-                    }}
-                  >
-                    <RefreshCw className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
                     size="sm"
                     aria-label="沉浸模式"
                     title="沉浸模式 (F)"
@@ -507,71 +497,257 @@ export function TopBar() {
                 </div>
               )}
 
-              {/* Wide: MD reading tools */}
-              {!isHtml && viewMode !== "source" && (
-                <div className="hidden lg:flex items-center gap-1">
+              {/* 阅读 — single entry for all reading prefs on every width */}
+              <div className="relative">
+                <Button
+                  ref={readingBtnRef}
+                  variant={readingOpen ? "secondary" : "ghost"}
+                  size="icon"
+                  className={touchIcon}
+                  aria-label="阅读设置"
+                  aria-expanded={readingOpen}
+                  title="阅读：字号 / 行宽 / 专注 / 宽度 / 缩放"
+                  onClick={() => setReadingOpen((v) => !v)}
+                >
+                  <SlidersHorizontal className="h-4 w-4" />
+                </Button>
+                {readingOpen && (
                   <div
-                    className="inline-flex rounded-xl border border-[var(--border)] p-0.5 bg-[var(--card)]"
-                    role="group"
-                    aria-label="字号"
+                    ref={readingPanelRef}
+                    className={cn(
+                      "z-40 rounded-2xl border border-[var(--border)] bg-[var(--card)] p-3 shadow-xl animate-enter space-y-3",
+                      // Below lg the button sits mid-header, so `right-0` would
+                      // push a 20rem panel off-screen — pin it to the viewport.
+                      "fixed left-2 right-2 top-[3.75rem] max-h-[calc(100dvh-5rem)] overflow-y-auto",
+                      "sm:left-auto sm:right-2 sm:w-[20rem]",
+                      "lg:absolute lg:top-full lg:mt-2 lg:w-[20rem] lg:max-h-none lg:overflow-visible"
+                    )}
                   >
-                    {[15, 17, 19, 21].map((sz) => (
-                      <button
-                        key={sz}
-                        type="button"
-                        onClick={() => setReadingPrefs({ fontSize: sz })}
-                        className={cn(
-                          "px-2 py-1 text-[11px] rounded-[10px] font-ui tabular-nums",
-                          readingPrefs.fontSize === sz
-                            ? "bg-[var(--accent)] text-white"
-                            : "hover:bg-[var(--hover)] text-[var(--muted)]"
-                        )}
-                        title={`字号 ${sz}px`}
-                      >
-                        {sz}
-                      </button>
-                    ))}
+                    <div className="text-xs font-ui font-semibold">阅读</div>
+
+                    {/* Phone only: the sm+ toolbar already has the 预览|源码 segment */}
+                    <div className="sm:hidden">
+                      <SegGroup label="视图">
+                        {viewModesForToolbar.map((m) => (
+                          <SegButton
+                            key={`rp-${m.id}`}
+                            active={viewMode === m.id}
+                            onClick={() => setViewMode(m.id)}
+                          >
+                            {m.label}
+                          </SegButton>
+                        ))}
+                      </SegGroup>
+                    </div>
+
+                    {!isHtml && viewMode !== "source" && (
+                      <>
+                        <SegGroup label="字号">
+                          {[15, 17, 19, 21].map((sz) => (
+                            <SegButton
+                              key={`rp-fs-${sz}`}
+                              active={readingPrefs.fontSize === sz}
+                              title={`字号 ${sz}px`}
+                              onClick={() => setReadingPrefs({ fontSize: sz })}
+                            >
+                              {sz}
+                            </SegButton>
+                          ))}
+                        </SegGroup>
+                        <SegGroup label="行宽">
+                          {(
+                            [
+                              [560, "窄"],
+                              [680, "适中"],
+                              [740, "默认"],
+                              [900, "宽"],
+                            ] as [number, string][]
+                          ).map(([w, label]) => (
+                            <SegButton
+                              key={`rp-lw-${w}`}
+                              active={readingPrefs.lineWidth === w}
+                              title={`行宽 ${w}px`}
+                              onClick={() => setReadingPrefs({ lineWidth: w })}
+                            >
+                              {label}
+                            </SegButton>
+                          ))}
+                        </SegGroup>
+                        <button
+                          type="button"
+                          onClick={() => setMdFocusMode(!mdFocusMode)}
+                          aria-pressed={mdFocusMode}
+                          className={cn(
+                            "flex w-full items-center gap-2 rounded-xl border border-[var(--border)] px-3 py-2 text-xs font-ui",
+                            mdFocusMode
+                              ? "border-[var(--accent)]/50 text-[var(--accent)]"
+                              : "hover:bg-[var(--hover)]"
+                          )}
+                        >
+                          <Maximize2 className="h-3.5 w-3.5" />
+                          {mdFocusMode ? "退出专注模式" : "专注模式"}
+                        </button>
+                      </>
+                    )}
+
+                    {isHtml && viewMode !== "source" && htmlPrefs && (
+                      <>
+                        <SegGroup label="宽度">
+                          {(
+                            [
+                              ["fluid", "自适应"],
+                              ["desktop", "桌面"],
+                              ["tablet", "平板"],
+                              ["phone", "手机"],
+                            ] as [HtmlWidthMode, string][]
+                          ).map(([id, label]) => (
+                            <SegButton
+                              key={`rp-w-${id}`}
+                              active={htmlPrefs.widthMode === id}
+                              title={
+                                id === "fluid"
+                                  ? "自适应宽度"
+                                  : `${HTML_WIDTH_PX[id as Exclude<HtmlWidthMode, "fluid">]}px`
+                              }
+                              onClick={() =>
+                                setHtmlPreviewPrefs(active.id, { widthMode: id })
+                              }
+                            >
+                              {label}
+                            </SegButton>
+                          ))}
+                        </SegGroup>
+                        <SegGroup label="缩放">
+                          {HTML_ZOOM_OPTIONS.map((z) => (
+                            <SegButton
+                              key={`rp-z-${z}`}
+                              active={htmlPrefs.zoom === z}
+                              onClick={() =>
+                                setHtmlPreviewPrefs(active.id, { zoom: z })
+                              }
+                            >
+                              {Math.round(z * 100)}%
+                            </SegButton>
+                          ))}
+                        </SegGroup>
+                        <div className="flex gap-1.5">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="flex-1"
+                            onClick={() => {
+                              openHtmlInNewTab(getContent(active.id));
+                              setStatus("已在新标签页打开");
+                            }}
+                          >
+                            <ExternalLink className="h-3.5 w-3.5" />
+                            新标签页
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="flex-1"
+                            onClick={() => {
+                              bumpHtmlReload();
+                              setStatus("已刷新预览");
+                            }}
+                          >
+                            <RefreshCw className="h-3.5 w-3.5" />
+                            刷新
+                          </Button>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setReadingOpen(false);
+                            setHtmlImmersive(true);
+                          }}
+                          className="flex w-full items-center gap-2 rounded-xl border border-[var(--border)] px-3 py-2 text-xs font-ui hover:bg-[var(--hover)]"
+                        >
+                          <Maximize2 className="h-3.5 w-3.5" />
+                          沉浸模式
+                        </button>
+                      </>
+                    )}
+
+                    {viewMode === "split" && tabletUp && (
+                      <div className="space-y-1.5 border-t border-[var(--border)] pt-2">
+                        <button
+                          type="button"
+                          onClick={() => toggleSplitSourceFirst()}
+                          className="flex w-full items-center gap-2 rounded-xl border border-[var(--border)] px-3 py-2 text-xs font-ui hover:bg-[var(--hover)]"
+                        >
+                          <ArrowLeftRight className="h-3.5 w-3.5" />
+                          {splitSourceFirst ? "改为预览在左" : "改为源码在左"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => active && toggleSyncScroll(active.id)}
+                          className={cn(
+                            "flex w-full items-center gap-2 rounded-xl border border-[var(--border)] px-3 py-2 text-xs font-ui hover:bg-[var(--hover)]",
+                            syncScrollOn && "border-[var(--accent)]/50 text-[var(--accent)]"
+                          )}
+                        >
+                          <Link2 className="h-3.5 w-3.5" />
+                          {syncScrollOn ? "关闭同步滚动" : "开启同步滚动"}
+                        </button>
+                      </div>
+                    )}
                   </div>
-                  <div
-                    className="inline-flex rounded-xl border border-[var(--border)] p-0.5 bg-[var(--card)]"
-                    role="group"
-                    aria-label="行宽"
+                )}
+              </div>
+
+              {/* Wide: split extras (kept inline only on desktop) */}
+              {viewMode === "split" && tabletUp && (
+                <div className="hidden lg:flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => toggleSplitSourceFirst()}
+                    title={splitSourceFirst ? "切换为预览在左" : "切换为源码在左"}
+                    aria-label={
+                      splitSourceFirst
+                        ? "当前源码在左，点击改为预览在左"
+                        : "当前预览在左，点击改为源码在左"
+                    }
+                    className={cn(
+                      "inline-flex items-center gap-1.5 rounded-xl border border-[var(--border)]",
+                      "bg-[var(--card)] px-2.5 py-1 text-xs font-ui transition-colors",
+                      "hover:bg-[var(--hover)] hover:border-[var(--accent)]/40"
+                    )}
                   >
-                    {(
-                      [
-                        [560, "窄"],
-                        [680, "适中"],
-                        [740, "默认"],
-                        [900, "宽"],
-                      ] as [number, string][]
-                    ).map(([w, label]) => (
-                      <button
-                        key={w}
-                        type="button"
-                        onClick={() => setReadingPrefs({ lineWidth: w })}
-                        className={cn(
-                          "px-2 py-1 text-[11px] rounded-[10px] font-ui",
-                          readingPrefs.lineWidth === w
-                            ? "bg-[var(--accent)] text-white"
-                            : "hover:bg-[var(--hover)] text-[var(--muted)]"
-                        )}
-                        title={`行宽 ${w}px`}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                  <Button
-                    variant={mdFocusMode ? "secondary" : "ghost"}
-                    size="sm"
-                    aria-label="专注模式"
-                    title="专注模式 (F)"
-                    onClick={() => setMdFocusMode(!mdFocusMode)}
+                    <ArrowLeftRight className="h-3.5 w-3.5 text-[var(--muted)]" />
+                    <span>{splitSourceFirst ? "源码在左" : "预览在左"}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => active && toggleSyncScroll(active.id)}
+                    title={syncScrollOn ? "关闭同步滚动（点击定位仍可用）" : "开启同步滚动"}
+                    aria-label={syncScrollOn ? "同步滚动已开启" : "同步滚动已关闭"}
+                    aria-pressed={syncScrollOn}
+                    className={cn(
+                      "inline-flex items-center gap-1.5 rounded-xl border border-[var(--border)]",
+                      "bg-[var(--card)] px-2.5 py-1 text-xs font-ui transition-colors",
+                      "hover:bg-[var(--hover)] hover:border-[var(--accent)]/40",
+                      syncScrollOn && "border-[var(--accent)]/50 text-[var(--accent)]"
+                    )}
                   >
-                    <Maximize2 className="h-3.5 w-3.5" />
-                    专注
-                  </Button>
+                    <Link2 className="h-3.5 w-3.5" />
+                    <span>{syncScrollOn ? "同步滚动" : "同步已关"}</span>
+                  </button>
                 </div>
+              )}
+
+              {dirty && (
+                <Button
+                  variant="accent"
+                  size="sm"
+                  className="shrink-0"
+                  onClick={() => saveDoc(active.id)}
+                  aria-label="保存"
+                >
+                  <Save className="h-3.5 w-3.5" />
+                  保存
+                </Button>
               )}
 
               {/* Wide: HTML tags */}
@@ -733,6 +909,19 @@ export function TopBar() {
                   </DropdownItem>
                 </>
               )}
+              <DropdownItem
+                onClick={() => {
+                  if (!active) return;
+                  if (active.type !== "md") {
+                    setStatus("混合模式仅支持 Markdown");
+                    return;
+                  }
+                  setViewMode("mixed");
+                  setStatus("已切换到混合模式");
+                }}
+              >
+                <Blend className="h-3.5 w-3.5" /> 混合编辑
+              </DropdownItem>
               <DropdownItem onClick={() => toggleStar(active.id)}>
                 <Star className="h-3.5 w-3.5" />
                 {active.starred ? "取消收藏" : "收藏"}

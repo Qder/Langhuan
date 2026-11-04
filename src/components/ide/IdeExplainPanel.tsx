@@ -31,6 +31,13 @@ import { flattenCodeText } from "@/lib/codeText";
 import { listIdeDir, readIdeFile } from "@/lib/ide/ideFs";
 import { useMediaQuery } from "@/lib/useMediaQuery";
 import { cn } from "@/lib/utils";
+import { BookMarked } from "lucide-react";
+import {
+  captureExplainToLibrary,
+  captureSnippetToLibrary,
+  captureStatusMessage,
+} from "@/lib/ide/captureToLibrary";
+import { useStore } from "@/lib/store";
 
 function newId(): string {
   return `m_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
@@ -285,6 +292,13 @@ function ExplainFooterCitations({
   );
 }
 
+/** B5 — three chips; each fires an explain request with the current context. */
+const EXPLAIN_PRESETS = [
+  "这个文件在干什么",
+  "它依赖谁、谁依赖它",
+  "从哪读起",
+] as const;
+
 export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
   const isLg = useMediaQuery("(min-width: 1024px)");
   const session = useIdeStore((s) => s.session);
@@ -314,6 +328,9 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
   const [busy, setBusy] = React.useState(false);
   const [isMock, setIsMock] = React.useState(false);
   const [showSettings, setShowSettings] = React.useState(false);
+  const [savedNoteIds, setSavedNoteIds] = React.useState<Record<string, string>>(
+    {}
+  );
   const [candidates, setCandidates] = React.useState<
     Array<{ path: string; line?: number; endLine?: number }>
   >([]);
@@ -645,9 +662,76 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
 
   sendRef.current = send;
 
+  /** B1 — the question that produced this answer is the previous user turn. */
+  const captureExplain = React.useCallback(
+    (msg: IdeExplainMessage) => {
+      const idx = messages.findIndex((m) => m.id === msg.id);
+      const question =
+        [...messages.slice(0, idx < 0 ? 0 : idx)]
+          .reverse()
+          .find((m) => m.role === "user")?.content ?? "";
+      const result = captureExplainToLibrary({
+        question,
+        answer: msg.content,
+        projectName: session?.name,
+        sourcePath: activePath,
+        citations: msg.citations ?? citationsFromMarkdown(msg.content),
+        createdAt: msg.createdAt,
+      });
+      if (!result.ok) {
+        setStatus(result.message);
+        return;
+      }
+      setSavedNoteIds((prev) => ({ ...prev, [msg.id]: result.docId }));
+      setStatus(captureStatusMessage(result));
+    },
+    [activePath, messages, session?.name, setStatus]
+  );
+
+  const openSavedNote = React.useCallback((msgId: string) => {
+    const docId = savedNoteIds[msgId];
+    if (!docId) return;
+    useStore.getState().setAppMode("notes");
+    window.setTimeout(() => {
+      useStore.getState().requestOpenDoc(docId);
+    }, 30);
+  }, [savedNoteIds]);
+
+  /** B2 — append the live editor selection to 读码笔记/速记.md. */
+  const captureSelection = React.useCallback(() => {
+    if (!selection || selection.path !== activePath) {
+      setStatus("先在编辑器里选中一段代码");
+      return;
+    }
+    const tab = tabs.find((t) => t.path === selection.path);
+    const fromDraft = tab
+      ? tab.draft
+          .replace(/\r\n/g, "\n")
+          .split("\n")
+          .slice(selection.fromLine - 1, selection.toLine)
+          .join("\n")
+      : "";
+    const text = selection.text ?? fromDraft;
+    if (!text.trim()) {
+      setStatus("选区是空的");
+      return;
+    }
+    const result = captureSnippetToLibrary({
+      path: selection.path,
+      fromLine: selection.fromLine,
+      toLine: selection.toLine,
+      text,
+      lang: selection.path.split(".").pop() ?? "",
+    });
+    setStatus(
+      result.ok
+        ? captureStatusMessage(result, "已收入速记")
+        : result.message
+    );
+  }, [activePath, selection, setStatus, tabs]);
+
   React.useEffect(() => {
-    if (!pendingExplainRequest) return;
-    const req = pendingExplainRequest;
+    if (!pendingExplainRequest) return;    const req = pendingExplainRequest;
     clearPendingExplainRequest();
     setIncludeFile(req.includeFile);
     setIncludeSelection(req.includeSelection);
@@ -796,6 +880,30 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
                       onCite={(c) => void jumpCitation(c)}
                       onFence={(f) => void jumpFence(f, m.id)}
                     />
+                    <div className="mt-1.5 flex items-center gap-2">
+                      <button
+                        type="button"
+                        className={cn(
+                          "inline-flex items-center gap-1 rounded-lg border border-[var(--border)] px-1.5 py-0.5",
+                          "max-lg:min-h-10 max-lg:px-2.5 text-[11px] font-ui text-[var(--muted)]",
+                          "hover:bg-[var(--hover)] hover:text-[var(--fg)]"
+                        )}
+                        title="把这次问答存成 读码笔记/<工程>/日期-文件.md"
+                        onClick={() => captureExplain(m)}
+                      >
+                        <BookMarked className="h-3 w-3" />
+                        收入藏书阁
+                      </button>
+                      {savedNoteIds[m.id] && (
+                        <button
+                          type="button"
+                          className="text-[11px] max-lg:min-h-10 font-ui text-[var(--accent)] hover:underline"
+                          onClick={() => openSavedNote(m.id)}
+                        >
+                          在藏书阁打开
+                        </button>
+                      )}
+                    </div>
                   </>
                 ) : (
                   <div className="flex items-center gap-1.5 text-[var(--muted)] text-xs">
@@ -838,6 +946,21 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
       </div>
 
       <div className="shrink-0 border-t border-[var(--chrome-border)] p-2 space-y-1.5">
+        {/* B5 — presets fire immediately with the current file/selection include flags. */}
+        {session && messages.length === 0 && !busy && (
+          <div className="flex flex-wrap gap-1.5 px-1">
+            {EXPLAIN_PRESETS.map((preset) => (
+              <button
+                key={preset}
+                type="button"
+                className="px-2 py-1 max-lg:min-h-9 rounded-lg border border-[var(--border)] text-[11px] font-ui text-[var(--muted)] hover:bg-[var(--hover)] hover:text-[var(--fg)]"
+                onClick={() => void send(preset)}
+              >
+                {preset}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="flex flex-wrap gap-3 text-[11px] font-ui text-[var(--muted)] px-1">
           <label className="inline-flex items-center gap-1.5">
             <input
@@ -898,6 +1021,18 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
             </Button>
           )}
         </div>
+        {/* B2 — tablet/desktop: pull the last selection into 速记 without leaving chat. */}
+        {selection && selection.path === activePath && (
+          <button
+            type="button"
+            className="w-full text-left text-[11px] font-ui text-[var(--muted)] hover:text-[var(--accent)] px-1 py-0.5"
+            onClick={captureSelection}
+            title={`${selection.path}:${selection.fromLine}-${selection.toLine}`}
+          >
+            <BookMarked className="mr-1 inline h-3 w-3" />
+            从上次选区收入速记（{selection.fromLine}-{selection.toLine} 行）
+          </button>
+        )}
       </div>
     </div>
   );

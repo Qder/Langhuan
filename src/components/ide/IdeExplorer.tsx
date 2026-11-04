@@ -186,10 +186,10 @@ export function IdeExplorer() {
   return (
     <aside
       className="w-[260px] shrink-0 flex flex-col border-r border-[var(--chrome-border)] bg-[var(--chrome)] lg:shadow-[var(--chrome-shadow)]"
-      aria-label="资源管理器"
+      aria-label="文件"
     >
       <div className="h-10 px-3 flex items-center text-xs font-ui uppercase tracking-wide text-[var(--muted)] border-b border-[var(--chrome-border)] shrink-0">
-        资源管理器
+        文件
       </div>
       <div className="px-2 py-1.5 text-xs font-serif font-semibold truncate border-b border-[var(--chrome-border)]/60 shrink-0" title={session.pathLabel}>
         {session.name}

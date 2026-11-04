@@ -6,6 +6,12 @@ import { resolveWikiTarget } from "@/lib/search";
 import { planWikiCreatePath } from "@/lib/wikilink";
 import { mdExcerpt, titleOf, cn } from "@/lib/utils";
 import { useStore } from "@/lib/store";
+import { useIdeStore } from "@/lib/ide/store";
+import {
+  ideLinkLabel,
+  isIdeLinkTarget,
+  parseIdeLinkTarget,
+} from "@/lib/ide/ideLink";
 
 type PeekState = {
   x: number;
@@ -31,6 +37,11 @@ export function WikiLink({
   /** Path of the document that contains this link (same-folder create). */
   currentPath?: string;
 }) {
+  // `[[ide:src/foo.ts:12]]` — deep link into 读码, never a library document.
+  const ideTarget = React.useMemo(
+    () => (isIdeLinkTarget(name) ? parseIdeLinkTarget(name) : null),
+    [name]
+  );
   // useShallow: only re-render when resolved id/path/content change.
   const target = useStore(
     useShallow((s) => {
@@ -111,6 +122,33 @@ export function WikiLink({
     if (!ok) return;
     createDoc({ type: "md", path: plan.path, open: true });
   };
+
+  if (isIdeLinkTarget(name)) {
+    if (!ideTarget) {
+      return (
+        <span
+          className="wiki-link missing"
+          title={`无效的读码链接：${name}`}
+        >
+          {label || name}
+        </span>
+      );
+    }
+    const openIde = () => {
+      useStore.getState().setAppMode("ide");
+      useIdeStore.getState().followIdeLink(ideTarget);
+    };
+    return (
+      <button
+        type="button"
+        className="wiki-link ide-link"
+        title={`在读码打开 ${ideLinkLabel(ideTarget, 200)}`}
+        onClick={openIde}
+      >
+        {ideLinkLabel(ideTarget)}
+      </button>
+    );
+  }
 
   return (
     <>

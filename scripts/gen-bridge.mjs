@@ -20,9 +20,12 @@ export function buildGeneratedFile(clientSource) {
   if (!clientSource.includes("(function")) {
     throw new Error("gen-bridge: bridge.client.js does not look like an IIFE");
   }
+  // Git may check the client out with CRLF on Windows; the generated module is
+  // committed with LF, so normalize first or every `npm run dev` dirties it.
+  const source = clientSource.replace(/\r\n/g, "\n");
   // Escape any </script in the *client body* only — the wrapper close tag must stay
   // as a real </script> so injectLocateBridge can terminate the HTML script element.
-  const safeClient = clientSource.replace(/<\/script/gi, "<\\/script");
+  const safeClient = source.replace(/<\/script/gi, "<\\/script");
   const wrapped = `<script data-lh-bridge="1">\n${safeClient}</script>`;
   const banner =
     "/**\n" +

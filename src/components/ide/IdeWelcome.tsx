@@ -5,6 +5,7 @@ import { Button } from "../ui/button";
 import { useIdeStore } from "@/lib/ide/store";
 import { getIdeFsCapability } from "@/lib/ide/ideFs";
 import { relativeTime } from "@/lib/utils";
+import { IdeRecentFiles } from "./IdeRecentFiles";
 
 export function IdeWelcome() {
   const recent = useIdeStore((s) => s.recent);
@@ -86,6 +87,13 @@ export function IdeWelcome() {
             </ul>
           )}
         </section>
+
+        <IdeRecentFiles
+          currentSessionId={null}
+          onOpenProject={() => {
+            /* welcome screen has no session: rows are informational */
+          }}
+        />
 
         {status && (
           <p className="text-xs text-[var(--muted)] font-ui" role="status">

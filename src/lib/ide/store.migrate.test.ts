@@ -31,6 +31,7 @@ describe("migrateIdePersistedState", () => {
     expect(out.explorerOpen).toBe(false);
     expect(out.explainOpen).toBe(false);
     expect(out.explainBySession).toEqual({});
+    expect(out.recentFiles).toEqual([]);
     expect(out.explainSettings).toEqual({
       apiKey: "",
       baseUrl: "",
@@ -96,8 +97,7 @@ describe("migrateIdePersistedState", () => {
     expect(messy.explainBySession).toEqual({});
   });
 
-  it("keeps explain file snapshots used for fence locate", () => {
-    const out = migrateIdePersistedState(
+  it("keeps explain file snapshots used for fence locate", () => {    const out = migrateIdePersistedState(
       {
         recent: [],
         explorerOpen: true,
@@ -126,5 +126,24 @@ describe("migrateIdePersistedState", () => {
     expect(out.explainBySession.sid?.[0]?.files).toEqual([
       { path: "src/A.java", content: "class A {}", startLine: 1 },
     ]);
+  });
+
+  it("keeps v3 recent files and drops garbage / duplicates", () => {
+    const out = migrateIdePersistedState(
+      {
+        recent: [],
+        recentFiles: [
+          { sessionId: "s1", projectName: "demo", path: "src/a.ts", openedAt: 5 },
+          { sessionId: "s1", projectName: "demo", path: "src/a.ts", openedAt: 9 },
+          { sessionId: "s1", path: "" },
+          { sessionId: "s2", projectName: "other", path: "B.java", openedAt: 3 },
+          "nope",
+        ],
+      },
+      2
+    );
+    expect(out.recentFiles.map((f) => f.path)).toEqual(["src/a.ts", "B.java"]);
+    // Sorted by openedAt desc, so the newest copy (9) wins the dedupe.
+    expect(out.recentFiles[0]!.openedAt).toBe(9);
   });
 });

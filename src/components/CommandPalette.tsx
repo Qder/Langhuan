@@ -1,9 +1,10 @@
 "use client";
 
 import * as React from "react";
-import { Tag, BookOpenCheck, Archive, HeartPulse, Replace, BookmarkPlus, CalendarDays, ClipboardPaste, Columns2, Download, FilePlus2, FileText, FolderSync, Globe, History, Home, LayoutTemplate, Network, Search, Settings2, SlidersHorizontal, Trash2, Maximize2, Blend, Code2 } from "lucide-react";
+import { Tag, BookOpenCheck, Archive, HeartPulse, Replace, BookmarkPlus, CalendarDays, ClipboardPaste, Columns2, Download, FilePlus2, FileSearch, FileText, FolderOpen, FolderSync, Globe, History, Home, LayoutTemplate, Network, Search, Settings2, SlidersHorizontal, Sparkles, Trash2, Maximize2, Blend, Code2 } from "lucide-react";
 import { Dialog } from "./ui/dialog";
 import { useStore } from "@/lib/store";
+import { useIdeStore } from "@/lib/ide/store";
 import { planSearchOpenReveal, searchDocuments } from "@/lib/search";
 import { renderSnippetMarks } from "@/lib/search/highlight";
 import { titleOf, cn } from "@/lib/utils";
@@ -11,7 +12,19 @@ import { importClipboardAs } from "@/lib/clipboardImport";
 import { openCreateDocDialog } from "@/lib/createDocDialogBus";
 import { SaveSearchDialog } from "./BatchOpsDialogs";
 
-export function CommandPalette() {
+/** Extra IDE-mode commands injected by IdeShell (kept out of the notes bundle). */
+export type CommandPaletteIdeActions = {
+  onQuickOpen: () => void;
+  onWorkspaceSearch: () => void;
+  onToggleExplain: () => void;
+  onOpenFolder: () => void;
+};
+
+export function CommandPalette({
+  ide,
+}: {
+  ide?: CommandPaletteIdeActions;
+} = {}) {
   const open = useStore((s) => s.commandOpen);
   const setOpen = useStore((s) => s.setCommandOpen);
   const documents = useStore((s) => s.documents);
@@ -23,6 +36,7 @@ export function CommandPalette() {
   const setStatus = useStore((s) => s.setStatus);
   const setAppMode = useStore((s) => s.setAppMode);
   const appMode = useStore((s) => s.appMode);
+  const requestSwitchToNotes = useIdeStore((s) => s.requestSwitchToNotes);
   const setBackupDialogOpen = useStore((s) => s.setBackupDialogOpen);
   const setFsSyncDialogOpen = useStore((s) => s.setFsSyncDialogOpen);
   const fsBoundName = useStore((s) => s.fsBoundName);
@@ -70,14 +84,56 @@ export function CommandPalette() {
   type Item = { key: string; label: string; hint?: React.ReactNode; icon: React.ReactNode; run: () => void; keepOpen?: boolean };
   const items: Item[] = [];
 
+  /**
+   * Notes dialogs are mounted by the 藏书阁 shell only, but their open flags are
+   * global store state — so flipping the mode and the flag together is enough;
+   * the dialog mounts already open when <AppShell> swaps shells.
+   */
+  const inNotes = (fn: () => void) => () => {
+    if (appMode === "ide") setAppMode("notes");
+    fn();
+  };
+
   if (!q.trim()) {
+    if (ide) {
+      items.push(
+        {
+          key: "ide-quick-open",
+          label: "打开文件…",
+          hint: "当前工程 · ⌘/Ctrl+P",
+          icon: <FileSearch className="h-4 w-4 text-[var(--accent)]" />,
+          run: () => ide.onQuickOpen(),
+        },
+        {
+          key: "ide-workspace-search",
+          label: "在工程中搜索…",
+          hint: "只读 · ⌘/Ctrl+Shift+F",
+          icon: <Search className="h-4 w-4 text-[var(--accent)]" />,
+          run: () => ide.onWorkspaceSearch(),
+        },
+        {
+          key: "ide-explain",
+          label: "讲解当前文件",
+          hint: "⌘/Ctrl+Shift+L",
+          icon: <Sparkles className="h-4 w-4 text-[var(--accent)]" />,
+          run: () => ide.onToggleExplain(),
+        },
+        {
+          key: "ide-open-folder",
+          label: "打开文件夹…",
+          hint: "切换工程",
+          icon: <FolderOpen className="h-4 w-4 text-[var(--teal)]" />,
+          run: () => ide.onOpenFolder(),
+        }
+      );
+    }
     for (const d of recent) {
       items.push({
         key: "doc-" + d.id,
         label: titleOf(d.path),
         hint: d.path,
         icon: d.type === "html" ? <Globe className="h-4 w-4 text-[var(--teal)]" /> : <FileText className="h-4 w-4" />,
-        run: () => openDoc(d.id),
+        run: inNotes(() => openDoc(d.id)),
       });
     }
     items.push(
@@ -85,20 +141,20 @@ export function CommandPalette() {
         key: "cmd-md",
         label: "新建 Markdown 笔记",
         icon: <FilePlus2 className="h-4 w-4 text-[var(--accent)]" />,
-        run: () => openCreateDocDialog({ type: "md" }),
+        run: inNotes(() => openCreateDocDialog({ type: "md" })),
       },
       {
         key: "cmd-html",
         label: "新建 HTML 页面",
         icon: <Globe className="h-4 w-4 text-[var(--teal)]" />,
-        run: () => openCreateDocDialog({ type: "html" }),
+        run: inNotes(() => openCreateDocDialog({ type: "html" })),
       },
       {
         key: "cmd-clip-md",
         label: "从剪贴板导入网页",
         hint: "HTML → Markdown 笔记",
         icon: <ClipboardPaste className="h-4 w-4 text-[var(--accent)]" />,
-        run: () => {
+        run: inNotes(() => {
           void (async () => {
             const res = await importClipboardAs("md");
             if (!res.ok) {
@@ -112,14 +168,14 @@ export function CommandPalette() {
               content: res.doc.content,
             });
           })();
-        },
+        }),
       },
       {
         key: "cmd-clip-html",
         label: "保存 HTML 快照",
         hint: "剪贴板网页 → HTML 文档",
         icon: <ClipboardPaste className="h-4 w-4 text-[var(--teal)]" />,
-        run: () => {
+        run: inNotes(() => {
           void (async () => {
             const res = await importClipboardAs("html");
             if (!res.ok) {
@@ -133,136 +189,143 @@ export function CommandPalette() {
               content: res.doc.content,
             });
           })();
-        },
+        }),
       },
       {
         key: "cmd-home",
         label: "回到首页",
         icon: <Home className="h-4 w-4" />,
-        run: () => openHome(),
+        run: inNotes(() => openHome()),
       },
       {
         key: "cmd-settings",
         label: "打开设置",
         hint: "主题 / 阅读 / 自动保存 / 快捷键",
         icon: <Settings2 className="h-4 w-4" />,
-        run: () => setSettingsDialogOpen(true),
+        run: inNotes(() => setSettingsDialogOpen(true)),
       },
       {
         key: "cmd-backup",
         label: "备份与恢复",
         hint: "导出 / 导入全库 zip",
         icon: <Archive className="h-4 w-4 text-[var(--accent)]" />,
-        run: () => setBackupDialogOpen(true),
+        run: inNotes(() => setBackupDialogOpen(true)),
       },
       {
         key: "cmd-fs-sync",
         label: "本地文件夹同步",
         hint: fsBoundName ? `已绑定 ${fsBoundName}` : "File System Access",
         icon: <FolderSync className="h-4 w-4 text-[var(--teal)]" />,
-        run: () => setFsSyncDialogOpen(true),
+        run: inNotes(() => setFsSyncDialogOpen(true)),
       },
       {
         key: "cmd-trash",
         label: "打开回收站",
         icon: <Trash2 className="h-4 w-4" />,
-        run: () => setSidebarPanel("trash"),
+        run: inNotes(() => setSidebarPanel("trash")),
       },
       {
         key: "cmd-versions",
         label: "版本历史",
         hint: activeId ? "当前文档" : "请先打开文档",
         icon: <History className="h-4 w-4" />,
-        run: () => {
+        run: inNotes(() => {
           if (activeId) setVersionDialogOpen(true);
           else setStatus("请先打开一篇文档");
-        },
+        }),
       },
       {
         key: "cmd-ide-mode",
         label: appMode === "ide" ? "切换到藏书阁" : "切换到读码",
         hint: "藏书阁 · 读码",
         icon: <Code2 className="h-4 w-4 text-[var(--accent)]" />,
-        run: () => setAppMode(appMode === "ide" ? "notes" : "ide"),
+        run: () => {
+          if (appMode !== "ide") {
+            setAppMode("ide");
+            return;
+          }
+          // Leaving 读码 with unsaved tabs must go through the dirty guard.
+          if (requestSwitchToNotes()) setAppMode("notes");
+        },
       },
       {
         key: "cmd-daily",
         label: "今日笔记",
         hint: "按日期一键创建 / 打开",
         icon: <CalendarDays className="h-4 w-4 text-[var(--accent)]" />,
-        run: () => openDailyNote(),
+        run: inNotes(() => openDailyNote()),
       },
       {
         key: "cmd-template",
         label: "从模板新建",
         hint: "会议 / 读书 / 周报…",
         icon: <LayoutTemplate className="h-4 w-4" />,
-        run: () => setTemplateDialogOpen(true),
+        run: inNotes(() => setTemplateDialogOpen(true)),
       },
       {
         key: "cmd-graph",
         label: "知识图谱",
         hint: "双链力导向图",
         icon: <Network className="h-4 w-4 text-[var(--teal)]" />,
-        run: () => setGraphDialogOpen(true),
+        run: inNotes(() => setGraphDialogOpen(true)),
       },
       {
         key: "cmd-link-health",
         label: "链接体检",
         hint: "失效双链 / 缺图 / 孤立 / 同名",
         icon: <HeartPulse className="h-4 w-4 text-[var(--accent)]" />,
-        run: () => setLinkHealthOpen(true),
+        run: inNotes(() => setLinkHealthOpen(true)),
       },
       {
         key: "cmd-find-replace",
         label: "查找替换",
         hint: "字面量 · 当前/文件夹/全库",
         icon: <Replace className="h-4 w-4 text-[var(--accent)]" />,
-        run: () => setFindReplaceOpen(true),
+        run: inNotes(() => setFindReplaceOpen(true)),
       },
       {
         key: "cmd-quiz-review",
         label: "待复习",
         hint: "HTML 题目：不会 / 未做",
         icon: <BookOpenCheck className="h-4 w-4 text-[var(--accent)]" />,
-        run: () => setQuizReviewOpen(true),
+        run: inNotes(() => setQuizReviewOpen(true)),
       },
       {
         key: "cmd-clip-url",
         label: "网页剪藏（URL）",
         hint: "抓取正文或使用书签脚本",
         icon: <BookmarkPlus className="h-4 w-4 text-[var(--accent)]" />,
-        run: () => setClipUrlDialogOpen(true),
+        run: inNotes(() => setClipUrlDialogOpen(true)),
       },
       {
         key: "cmd-props",
         label: "属性面板",
         hint: "标题 / 标签 / 状态 / 来源",
         icon: <SlidersHorizontal className="h-4 w-4" />,
-        run: () => {
+        run: inNotes(() => {
           if (activeId) setPropsDialogOpen(true);
           else setStatus("请先打开一篇文档");
-        },
+        }),
       },
       {
         key: "cmd-rename-tag",
         label: "重命名标签…",
         hint: "全库 YAML / keywords 一起改",
         icon: <Tag className="h-4 w-4 text-[var(--accent)]" />,
-        run: () => {
+        run: inNotes(() => {
           const from = window.prompt("要重命名的标签（旧名）");
           if (from === null) return;
           const to = window.prompt(`把「${from.trim()}」改成（新名）`);
           if (to === null) return;
           renameTagAcrossLibrary(from, to);
-        },
+        }),
       },
       {
         key: "cmd-view-mixed",
         label: "混合编辑模式",
         hint: "旧版块编辑；预览模式已支持就地编辑",
         icon: <Blend className="h-4 w-4 text-[var(--accent)]" />,
-        run: () => {
+        run: inNotes(() => {
           const a = getActive();
           if (!a || a.type !== "md") {
             setStatus("混合模式仅支持 Markdown");
@@ -270,21 +333,21 @@ export function CommandPalette() {
           }
           setViewMode("mixed");
           setStatus("已切换到混合模式");
-        },
+        }),
       },
       {
         key: "cmd-md-focus",
         label: mdFocusMode ? "退出专注模式" : "专注模式",
         hint: "隐藏侧栏与顶栏（F）",
         icon: <Maximize2 className="h-4 w-4" />,
-        run: () => {
+        run: inNotes(() => {
           const a = getActive();
           if (!a || a.type !== "md") {
             setStatus("专注模式仅支持 Markdown");
             return;
           }
           setMdFocusMode(!mdFocusMode);
-        },
+        }),
       },
 
       {
@@ -292,14 +355,14 @@ export function CommandPalette() {
         label: "导出…",
         hint: "PDF / 独立 HTML / 静态站点",
         icon: <Download className="h-4 w-4 text-[var(--accent)]" />,
-        run: () => setExportDialogOpen(true),
+        run: inNotes(() => setExportDialogOpen(true)),
       },
       {
         key: "cmd-doc-split",
         label: secondaryId ? "关闭文档分屏" : "文档分屏",
         hint: "并排查看两篇（⌘\\）",
         icon: <Columns2 className="h-4 w-4 text-[var(--teal)]" />,
-        run: () => toggleDocSplit(),
+        run: inNotes(() => toggleDocSplit()),
       }
     );
     for (const s of savedSearches) {
@@ -319,7 +382,7 @@ export function CommandPalette() {
         label: titleOf(h.path),
         hint: renderSnippetMarks(h.snippet, h.marks),
         icon: h.type === "html" ? <Globe className="h-4 w-4 text-[var(--teal)]" /> : <FileText className="h-4 w-4" />,
-        run: () => {
+        run: inNotes(() => {
           openDoc(h.id);
           const doc = documents.find((d) => d.id === h.id);
           if (!doc) return;
@@ -335,7 +398,7 @@ export function CommandPalette() {
             { select: true, focus: true, highlight: true, center: true }
           );
           requestPreviewLocate(reveal.start, { scroll: true, announce: true });
-        },
+        }),
       });
     }
     if (hits.length === 0) {
@@ -344,7 +407,9 @@ export function CommandPalette() {
         label: `创建「${q.trim()}」`,
         hint: "新建 Markdown 笔记",
         icon: <FilePlus2 className="h-4 w-4 text-[var(--accent)]" />,
-        run: () => openCreateDocDialog({ type: "md", defaultName: q.trim() }),
+        run: inNotes(() =>
+          openCreateDocDialog({ type: "md", defaultName: q.trim() })
+        ),
       });
     }
     items.push({

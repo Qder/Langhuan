@@ -1,16 +1,21 @@
 /**
  * Persist migrate for langhuan-ide-store (pure; safe for vitest).
- * v1: recent + explorerOpen. v2: + explain panel fields.
+ * v1: recent + explorerOpen. v2: + explain panel fields. v3: + recentFiles.
  */
 
 import { IDE_RECENT_MAX, type IdeRecentProjectMeta } from "./recentProjects";
+import {
+  IDE_RECENT_FILES_MAX,
+  normalizeRecentFiles,
+  type IdeRecentFile,
+} from "./recentFiles";
 import {
   IDE_EXPLAIN_HISTORY_MAX,
   normalizeExplainFilePayloads,
   type IdeExplainMessage,
 } from "./explain";
 
-export const IDE_STORE_PERSIST_VERSION = 2;
+export const IDE_STORE_PERSIST_VERSION = 3;
 
 export type IdeExplainSettingsPersisted = {
   apiKey: string;
@@ -21,6 +26,8 @@ export type IdeExplainSettingsPersisted = {
 /** Shape written by partialize — migrate fills missing fields from older blobs. */
 export type IdePersistedSlice = {
   recent: IdeRecentProjectMeta[];
+  /** v3: recently opened files (cross-project). */
+  recentFiles: IdeRecentFile[];
   explorerOpen: boolean;
   explainOpen: boolean;
   explainBySession: Record<string, IdeExplainMessage[]>;
@@ -129,6 +136,7 @@ export function migrateIdePersistedState(
 
   const slice: IdePersistedSlice = {
     recent: normalizeRecentList(p.recent),
+    recentFiles: normalizeRecentFiles(p.recentFiles, IDE_RECENT_FILES_MAX),
     explorerOpen: typeof p.explorerOpen === "boolean" ? p.explorerOpen : true,
     explainOpen: typeof p.explainOpen === "boolean" ? p.explainOpen : false,
     explainBySession: normalizeExplainBySession(p.explainBySession),

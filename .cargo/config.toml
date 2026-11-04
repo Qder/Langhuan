@@ -1,0 +1,12 @@
+# 国内直连 crates.io 经常触发「30s 内不足 10 字节」超时。
+# 不强制换镜像：rsproxy/USTC 在本机 cargo(schannel) 上 SSL 握手失败。
+# 拉长超时、关掉吊销检查，让 static.crates.io 有时间跑完。
+[http]
+timeout = 600
+multiplexing = false
+check-revoke = false
+ssl-version = "tlsv1.2"
+
+[net]
+git-fetch-with-cli = true
+retry = 8

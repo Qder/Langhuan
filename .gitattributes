@@ -1,2 +1,4 @@
 src/lib/locate/__golden__/md/crlf.md text eol=crlf
 src/lib/locate/__golden__/html/crlf.html text eol=crlf
+# Auto-generated from bridge.client.js; keep LF so the sync test compares like with like.
+src/lib/locate/bridge.generated.ts text eol=lf

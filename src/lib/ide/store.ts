@@ -33,6 +33,12 @@ import {
   normalizeIdeRelPath,
   type IdePendingReveal,
 } from "./citations";
+import type { IdeLinkTarget } from "./ideLink";
+import {
+  IDE_RECENT_FILES_MAX,
+  pushRecentFile,
+  type IdeRecentFile,
+} from "./recentFiles";
 import {
   appendExplainMessage,
   citationsFromMarkdown,
@@ -87,6 +93,13 @@ type IdeState = {
   pendingExplorerReveal: { path: string; nonce: number } | null;
   /** Current editor selection for explain context. */
   selection: (IdeExplainSelection & { path: string }) | null;
+  /** Recently opened files across projects, newest first. */
+  recentFiles: IdeRecentFile[];
+  /**
+   * A note `[[ide:…]]` link clicked while no project was open. Consumed by the
+   * next successful openFolder / openRecent.
+   */
+  pendingIdeLink: IdeLinkTarget | null;
   explainOpen: boolean;
   /** Explain chat keyed by project session.id */
   explainBySession: Record<string, IdeExplainMessage[]>;
@@ -105,6 +118,12 @@ type IdeState = {
   openRecent: (id: string) => Promise<boolean>;
   closeProject: (opts?: { force?: boolean }) => boolean;
   removeRecent: (id: string) => Promise<void>;
+  /** Notes → 读码: open the file now, or remember it for the next project open. */
+  followIdeLink: (target: IdeLinkTarget) => Promise<boolean>;
+  /** Open the remembered note link after a project opens. */
+  consumePendingIdeLink: () => Promise<void>;
+  /** Forget a pending note link (user dismissed the hint). */
+  clearPendingIdeLink: () => void;
   ensureDirListed: (relDir: string) => Promise<void>;
   toggleExpanded: (relDir: string) => void;
   openFile: (
@@ -132,7 +151,7 @@ type IdeState = {
   clearPendingExplainRequest: () => void;
 };
 
-const IDE_STORE_KEY = "langhuan-ide-store";
+export const IDE_STORE_KEY = "langhuan-ide-store";
 
 function tabBasename(path: string): string {
   const parts = path.replace(/\\/g, "/").split("/");
@@ -160,6 +179,8 @@ function rememberSession(
     pendingReveal: null,
     pendingExplorerReveal: null,
     selection: null,
+    // recentFiles is deliberately kept: it is a cross-project list, and the
+    // welcome/no-file screens label each row with its own project name.
     pendingExplainRequest: null,
     status: `已打开工程「${session.name}」`,
   });
@@ -181,6 +202,8 @@ export const useIdeStore = create<IdeState>()(
       pendingReveal: null,
       pendingExplorerReveal: null,
       selection: null,
+      recentFiles: [],
+      pendingIdeLink: null,
       explainOpen: false,
       explainBySession: {},
       explainSettings: {
@@ -283,6 +306,7 @@ export const useIdeStore = create<IdeState>()(
         if (!session) return false;
         rememberSession(set, get, session);
         await get().ensureDirListed("");
+        await get().consumePendingIdeLink();
         return true;
       },
 
@@ -303,8 +327,52 @@ export const useIdeStore = create<IdeState>()(
         }
         rememberSession(set, get, session);
         await get().ensureDirListed("");
+        await get().consumePendingIdeLink();
         return true;
       },
+
+      followIdeLink: async (target) => {
+        const path = normalizeIdeRelPath(target.path);
+        if (!path) {
+          set({ status: "这条读码链接没有可用的文件路径" });
+          return false;
+        }
+        if (!get().session) {
+          set({
+            pendingIdeLink: { ...target, path },
+            status: "先在读码打开该工程，打开后会自动跳过去",
+          });
+          return false;
+        }
+        const ok = await get().openFile(path, {
+          line: target.line,
+          endLine: target.endLine,
+        });
+        if (!ok) {
+          set({
+            status: `工程里没有 ${path}；确认当前打开的是同一个工程`,
+          });
+          return false;
+        }
+        return true;
+      },
+
+      consumePendingIdeLink: async () => {
+        const pending = get().pendingIdeLink;
+        if (!pending) return;
+        set({ pendingIdeLink: null });
+        const ok = await get().openFile(pending.path, {
+          line: pending.line,
+          endLine: pending.endLine,
+        });
+        if (!ok) {
+          set({
+            status: `工程里没有 ${pending.path}；确认当前打开的是同一个工程`,
+          });
+        }
+      },
+
+      clearPendingIdeLink: () => set({ pendingIdeLink: null }),
 
       closeProject: (opts) => {
         const force = opts?.force === true;
@@ -405,6 +473,18 @@ export const useIdeStore = create<IdeState>()(
             ? buildIdePendingReveal(norm, opts.line, opts.endLine, lineCountHint)
             : null;
 
+        const recordRecent = (filePath: string) => {
+          const sess = get().session;
+          set((s) => ({
+            recentFiles: pushRecentFile(s.recentFiles, {
+              sessionId: sess?.id ?? "",
+              projectName: sess?.name ?? "",
+              path: filePath,
+              openedAt: Date.now(),
+            }),
+          }));
+        };
+
         const existing = get().tabs.find((t) => t.path === norm);
         if (existing) {
           set({
@@ -415,6 +495,7 @@ export const useIdeStore = create<IdeState>()(
                 ? `${tabBasename(norm)} · L${reveal.line}`
                 : `${tabBasename(norm)} · ${languageIdFromPath(norm)}`,
           });
+          recordRecent(norm);
           revealInExplorer(norm);
           return true;
         }
@@ -439,6 +520,7 @@ export const useIdeStore = create<IdeState>()(
                 ? `${tabBasename(norm)} · L${reveal2.line}`
                 : `${tabBasename(norm)} · ${languageIdFromPath(norm)}`,
           }));
+          recordRecent(norm);
           revealInExplorer(norm);
           return true;
         } catch (e) {
@@ -577,6 +659,7 @@ export const useIdeStore = create<IdeState>()(
       storage: idbJSONStorage,
       partialize: (s) => ({
         recent: s.recent.slice(0, IDE_RECENT_MAX),
+        recentFiles: s.recentFiles.slice(0, IDE_RECENT_FILES_MAX),
         explorerOpen: s.explorerOpen,
         explainOpen: s.explainOpen,
         explainBySession: s.explainBySession,
