@@ -66,6 +66,8 @@ export {
   findDefinitionLine,
   findDefinitionLineOrNull,
   isGotoDefinitionIdentifier,
+  javaImportsOf,
+  narrowHitsByJavaImport,
   planGotoDefinition,
   resolveJavaTypeOfIdentifier,
   searchMethodDefinition,
@@ -73,6 +75,31 @@ export {
   wordAtOffset,
   type GotoDefinitionPlan,
 } from "./gotoDefinition";
+export {
+  findMapperInterfaceForXml,
+  findMapperXmlForMethod,
+  findMethodDeclarationLine,
+  findXmlStatementLine,
+  javaTypeFqn,
+  looksLikeMapperInterface,
+  mapperSimpleName,
+  xmlMapperNamespace,
+  xmlStatementIdAtOffset,
+  type MapperInterfacePlan,
+  type MapperXmlPlan,
+} from "./mapperNav";
+export {
+  findExportLineOrNull,
+  importSpecAtOffset,
+  importSpecsInLine,
+  isRelativeSpec,
+  planTsImport,
+  resolveRelativePath,
+  TS_IMPORT_EXTS,
+  TS_INDEX_FILES,
+  type TsImportPlan,
+  type TsImportSpec,
+} from "./tsImports";
 export {
   isBareModL,
   isIdeExplainToggleHotkey,
