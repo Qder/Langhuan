@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Box browser / computerUse hit 127.0.0.1 while Next advertises localhost — allow both for HMR/_next.
+  allowedDevOrigins: ["127.0.0.1", "localhost"],
   headers: async () => [
     {
       source: "/sw.js",
