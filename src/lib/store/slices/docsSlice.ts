@@ -30,7 +30,7 @@ import { BUILTIN_TEMPLATES, applyTemplate, dailyNoteSpec } from "../../templates
 import { ensureUniquePath } from "../helpers/paths";
 import { invalidateInspect } from "../inspectGate";
 import { softNavigate } from "../helpers/navigation";
-import { scheduleContentPersist } from "../helpers/persistSchedule";
+import { scheduleContentPersist, persistContent } from "../helpers/persistSchedule";
 import type { LanghuanState } from "../types";
 import {
   emptyPreviewUndoStacks,
@@ -62,6 +62,7 @@ type DocsSliceKeys =
   | "redoPreviewEdit"
   | "clearPreviewUndo"
   | "saveDoc"
+  | "saveDocNow"
   | "discardDraft"
   | "createDoc"
   | "createFolder"
@@ -366,13 +367,17 @@ export const createDocsSlice: StateCreator<
           },
         })),
   saveDoc: (id) => {
+        void get().saveDocNow(id);
+      },
+  saveDocNow: async (id, opts) => {
         const target = id || get().activeId;
-        if (!target) return;
+        if (!target) return { ok: false, message: "没有可保存的文档" };
         const content = get().getContent(target);
         const prev = get().documents.find((d) => d.id === target);
+        const name = prev ? basename(prev.path) : "";
         // Unchanged body (after newline normalize): clear draft only — no new
         // documents[] identity, updatedAt, version, or content persist.
-        if (prev && normalizeNewlines(prev.content) === content) {
+        if (!opts?.force && prev && normalizeNewlines(prev.content) === content) {
           if (target in get().drafts) {
             set((s) => ({
               drafts: Object.fromEntries(
@@ -380,11 +385,13 @@ export const createDocsSlice: StateCreator<
               ),
             }));
           }
-          get().setStatus(`已是最新 ${basename(prev.path)}`);
-          return;
+          const message = `已是最新 ${name}`;
+          get().setStatus(message);
+          return { ok: true, saved: false, path: prev.path, message };
         }
-        // Snapshot previous saved content before overwrite
-        if (prev) {
+        // Snapshot previous saved content before overwrite (a first write of a
+        // just-created note has nothing worth versioning).
+        if (prev && normalizeNewlines(prev.content) !== content) {
           void pushVersion({
             docId: prev.id,
             content: prev.content,
@@ -398,9 +405,25 @@ export const createDocsSlice: StateCreator<
           drafts: Object.fromEntries(Object.entries(s.drafts).filter(([k]) => k !== target)),
         }));
         const doc = get().documents.find((d) => d.id === target);
-        get().setStatus(`已保存 ${doc ? basename(doc.path) : ""}`);
         void get().refreshStorageUsage();
-        scheduleContentPersist(get, set, doc);
+        const wrote = await persistContent(get, set, doc);
+        if (!wrote.ok) {
+          // Disk still holds the previous body, so memory must not claim the new
+          // one: restore the saved content and keep the text as a pending draft.
+          // The note stays dirty and the next ⌘S retries instead of looking safe.
+          set((s) => ({
+            documents: s.documents.map((d) =>
+              d.id === target && prev ? { ...d, content: prev.content } : d
+            ),
+            drafts: { ...s.drafts, [target]: content },
+          }));
+          const message = `保存失败：${wrote.message}`;
+          get().setStatus(message);
+          return { ok: false, message };
+        }
+        const message = `已保存 ${doc ? basename(doc.path) : ""}`;
+        get().setStatus(message);
+        return { ok: true, saved: true, path: doc?.path ?? "", message };
       },
   discardDraft: (id) => {
         const target = id || get().activeId;

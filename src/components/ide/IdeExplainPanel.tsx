@@ -664,13 +664,13 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
 
   /** B1 — the question that produced this answer is the previous user turn. */
   const captureExplain = React.useCallback(
-    (msg: IdeExplainMessage) => {
+    async (msg: IdeExplainMessage) => {
       const idx = messages.findIndex((m) => m.id === msg.id);
       const question =
         [...messages.slice(0, idx < 0 ? 0 : idx)]
           .reverse()
           .find((m) => m.role === "user")?.content ?? "";
-      const result = captureExplainToLibrary({
+      const result = await captureExplainToLibrary({
         question,
         answer: msg.content,
         projectName: session?.name,
@@ -698,7 +698,7 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
   }, [savedNoteIds]);
 
   /** B2 — append the live editor selection to 读码笔记/速记.md. */
-  const captureSelection = React.useCallback(() => {
+  const captureSelection = React.useCallback(async () => {
     if (!selection || selection.path !== activePath) {
       setStatus("先在编辑器里选中一段代码");
       return;
@@ -716,7 +716,9 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
       setStatus("选区是空的");
       return;
     }
-    const result = captureSnippetToLibrary({
+    // Success is reported by the capture only after 速记.md is on disk, so a
+    // failed persist leaves the failure message visible instead.
+    const result = await captureSnippetToLibrary({
       path: selection.path,
       fromLine: selection.fromLine,
       toLine: selection.toLine,
@@ -889,7 +891,7 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
                           "hover:bg-[var(--hover)] hover:text-[var(--fg)]"
                         )}
                         title="把这次问答存成 读码笔记/<工程>/日期-文件.md"
-                        onClick={() => captureExplain(m)}
+                        onClick={() => void captureExplain(m)}
                       >
                         <BookMarked className="h-3 w-3" />
                         收入藏书阁
@@ -1026,7 +1028,7 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
           <button
             type="button"
             className="w-full text-left text-[11px] font-ui text-[var(--muted)] hover:text-[var(--accent)] px-1 py-0.5"
-            onClick={captureSelection}
+            onClick={() => void captureSelection()}
             title={`${selection.path}:${selection.fromLine}-${selection.toLine}`}
           >
             <BookMarked className="mr-1 inline h-3 w-3" />

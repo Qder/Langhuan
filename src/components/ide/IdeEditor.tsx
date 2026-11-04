@@ -491,7 +491,7 @@ export function IdeEditor({ path }: { path: string }) {
     requestExplainSelection();
   };
 
-  const captureSelectionToSnippet = () => {
+  const captureSelectionToSnippet = async () => {
     const view = viewRef.current;
     setCtxMenu(null);
     if (!view) return;
@@ -502,7 +502,8 @@ export function IdeEditor({ path }: { path: string }) {
     const toLine = doc.lineAt(
       sel.to === sel.from ? sel.from : Math.max(sel.from, sel.to - 1)
     ).number;
-    const result = captureSnippetToLibrary({
+    // Awaited: the 「已收入速记」status only appears once 速记.md is persisted.
+    const result = await captureSnippetToLibrary({
       path,
       fromLine,
       toLine,
@@ -557,7 +558,7 @@ export function IdeEditor({ path }: { path: string }) {
             className={cn(
               "w-full text-left px-3 py-1.5 hover:bg-[var(--hover)] disabled:opacity-40 disabled:hover:bg-transparent"
             )}
-            onClick={captureSelectionToSnippet}
+            onClick={() => void captureSelectionToSnippet()}
           >
             收入速记
           </button>

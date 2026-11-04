@@ -199,6 +199,7 @@ const EXPECTED_STATE_KEYS = [
   "resolvePendingNav",
   "restoreFromTrash",
   "saveDoc",
+  "saveDocNow",
   "savedSearches",
   "scrollSyncEvent",
   "secondaryId",
@@ -454,6 +455,7 @@ describe("store shape snapshot", () => {
         "resolvePendingNav",
         "restoreFromTrash",
         "saveDoc",
+        "saveDocNow",
         "setAppMode",
         "setAutosaveEnabled",
         "setBackupDialogOpen",
@@ -935,5 +937,56 @@ describe("store behavior snapshots", () => {
       ok: true,
       source: "content" as const,
     }));
+  });
+
+  it("saveDocNow waits for putLibraryDoc and reports failure honestly", async () => {
+    const put = vi.mocked(putLibraryDoc);
+    const doc = useStore.getState().createDoc({
+      type: "md",
+      path: "now.md",
+      content: "body",
+      open: false,
+    });
+    await vi.waitFor(() => expect(put).toHaveBeenCalled());
+
+    // Success: the promise resolves only after the write settles.
+    put.mockResolvedValue(undefined as never);
+    useStore.getState().setDraft(doc.id, "body v2");
+    const ok = await useStore.getState().saveDocNow(doc.id);
+    expect(ok.ok).toBe(true);
+    if (!ok.ok) return;
+    expect(ok.saved).toBe(true);
+    expect(ok.path).toBe("now.md");
+    expect(useStore.getState().isDirty(doc.id)).toBe(false);
+
+    // Failure: no success status, and the draft stays pending for a retry.
+    put.mockRejectedValueOnce(new Error("readonly content/"));
+    useStore.getState().setDraft(doc.id, "body v3");
+    const failed = await useStore.getState().saveDocNow(doc.id);
+    expect(failed.ok).toBe(false);
+    if (failed.ok) return;
+    expect(failed.message).toContain("readonly content/");
+    expect(useStore.getState().status?.message).not.toContain("已保存");
+    expect(useStore.getState().isDirty(doc.id)).toBe(true);
+    expect(useStore.getState().getContent(doc.id)).toBe("body v3");
+  });
+
+  it("saveDocNow keeps 已是最新 for an unchanged body", async () => {
+    const doc = useStore.getState().createDoc({
+      type: "md",
+      path: "latest.md",
+      content: "same\nline",
+      open: false,
+    });
+    await vi.waitFor(() => expect(vi.mocked(putLibraryDoc)).toHaveBeenCalled());
+    vi.mocked(putLibraryDoc).mockClear();
+
+    useStore.getState().setDraft(doc.id, "same\r\nline");
+    const same = await useStore.getState().saveDocNow(doc.id);
+    expect(same.ok).toBe(true);
+    if (!same.ok) return;
+    expect(same.saved).toBe(false);
+    expect(same.message).toContain("已是最新");
+    expect(vi.mocked(putLibraryDoc)).not.toHaveBeenCalled();
   });
 });

@@ -3,8 +3,11 @@
  *
  * The markdown shape and the "create vs append" decision live in pure modules
  * (`captureNote.ts` / `capturePlan.ts`); this file only binds them to the real
- * notes store — `createDoc` for a new note, `setDraft` + `saveDoc` to append.
+ * notes store — `createDoc` for a new note, `setDraft` + durable save to append.
  * No second storage layer, no direct content/ writes.
+ *
+ * The writer's `write` resolves only after the note reached disk, so a capture
+ * never reports success on an in-memory change alone.
  */
 
 "use client";
@@ -14,39 +17,58 @@ import {
   captureExplain,
   captureSnippet,
   captureStatusMessage,
-  type CaptureResult,
+  type CaptureWriteOutcome,
   type ExplainCaptureInput,
   type NoteWriter,
   type SnippetCaptureInput,
 } from "./capturePlan";
 
-export type { CaptureResult, ExplainCaptureInput, SnippetCaptureInput };
+export type {
+  CaptureResult,
+  ExplainCaptureInput,
+  SnippetCaptureInput,
+} from "./capturePlan";
 export { captureStatusMessage };
 
 function writer(): NoteWriter {
-  const store = useStore.getState();
   return {
+    // Read the live store every time: a queued capture must see the note an
+    // earlier capture created, not the documents array from click time.
     findByPath: (path) =>
-      store.documents.find((d) => d.path.replace(/\\/g, "/") === path),
-    contentOf: (docId) => store.getContent(docId),
+      useStore
+        .getState()
+        .documents.find((d) => d.path.replace(/\\/g, "/") === path),
+    contentOf: (docId) => useStore.getState().getContent(docId),
     create: ({ type, path, content }) =>
-      store.createDoc({ type, path, content, open: false }),
-    write: (docId, content) => {
-      // createDoc only touches memory; persist so a refresh keeps the note.
+      useStore.getState().createDoc({ type, path, content, open: false }),
+    write: async (docId, content): Promise<CaptureWriteOutcome> => {
+      // createDoc only touches memory; saveDocNow resolves once content/ has
+      // accepted the body, so the caller can tell the truth about durability.
+      // `force` skips the "unchanged → 已是最新" shortcut: a note created in
+      // this same tick already holds its final body and still needs its first
+      // write to disk.
       useStore.getState().setDraft(docId, content);
-      void useStore.getState().saveDoc(docId);
+      const saved = await useStore.getState().saveDocNow(docId, { force: true });
+      if (!saved.ok) {
+        // A capture is all-or-nothing: leaving the rejected block in the draft
+        // would make the next save write it anyway, contradicting the failure
+        // the user was just shown. Roll the note back to its saved body.
+        useStore.getState().discardDraft(docId);
+        return { ok: false, message: saved.message };
+      }
+      return { ok: true };
     },
   };
 }
 
 export function captureExplainToLibrary(
   input: ExplainCaptureInput
-): CaptureResult {
+): Promise<import("./capturePlan").CaptureResult> {
   return captureExplain(writer(), input);
 }
 
 export function captureSnippetToLibrary(
   input: SnippetCaptureInput
-): CaptureResult {
+): Promise<import("./capturePlan").CaptureResult> {
   return captureSnippet(writer(), input);
 }

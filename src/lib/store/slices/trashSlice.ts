@@ -183,9 +183,13 @@ export const createTrashSlice: StateCreator<
       },
   purgeExpiredTrash: () => {
         const cutoff = Date.now() - TRASH_RETENTION_DAYS * 24 * 60 * 60 * 1000;
-        const expired = get().trash.filter((t) => t.deletedAt < cutoff);
+        // Runs from the store's boot chain, which can fire before IDB
+        // rehydration has filled `trash` (or after a reset in tests).
+        const trash = get().trash;
+        if (!Array.isArray(trash)) return 0;
+        const expired = trash.filter((t) => t.deletedAt < cutoff);
         if (!expired.length) return 0;
-        const keep = get().trash.filter((t) => t.deletedAt >= cutoff);
+        const keep = trash.filter((t) => t.deletedAt >= cutoff);
         set({ trash: keep });
         for (const t of expired) {
           void clearVersions(t.doc.id);

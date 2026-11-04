@@ -30,6 +30,11 @@ import type { ImportProjectResult } from "./slices/projectsSlice";
 import type { ElementPanelState } from "./slices/elementInspectSlice";
 import type { CssFileIndex, RawCssHit } from "../locate/cssLocate";
 
+/** Outcome of a durable save; `message` is the user-facing status line. */
+export type SaveDocResult =
+  | { ok: true; saved: boolean; path: string; message: string }
+  | { ok: false; message: string };
+
 export type PendingReveal = {
   start: number;
   end: number;
@@ -266,6 +271,13 @@ export type LanghuanState = {
   redoPreviewEdit: () => boolean;
   clearPreviewUndo: (docId: string) => void;
   saveDoc: (id?: string) => void;
+  /**
+   * Same save pipeline as `saveDoc`, but resolves once the body is durable.
+   * Used by 读码 captures so success is only reported after content/ accepted it.
+   * `force` skips the "unchanged → 已是最新" short-circuit (needed when the note
+   * was created in this same tick and still needs its first disk write).
+   */
+  saveDocNow: (id?: string, opts?: { force?: boolean }) => Promise<SaveDocResult>;
   discardDraft: (id?: string) => void;
   createDoc: (opts: {
     type: Document["type"];

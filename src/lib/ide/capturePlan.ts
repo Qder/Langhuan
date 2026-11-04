@@ -4,6 +4,12 @@
  * Kept free of `useStore` (and therefore of the persist/idb side effects) so it
  * can be unit-tested with a tiny fake writer. `captureToLibrary.ts` binds this
  * to the real notes store.
+ *
+ * 速记 is a read-modify-write on one note: read the live body, append a block,
+ * persist. Two rapid captures would both read the same body and the second
+ * write would drop the first block. Every capture therefore runs through a
+ * per-note serial queue and only reports success after `write` has confirmed
+ * the body reached disk.
  */
 
 import {
@@ -20,6 +26,9 @@ export type CaptureResult =
   | { ok: true; docId: string; path: string; renamed: boolean }
   | { ok: false; message: string };
 
+/** Outcome of the durable write; success is only claimed when this is ok. */
+export type CaptureWriteOutcome = { ok: true } | { ok: false; message: string };
+
 /** The four store operations these captures need — nothing else. */
 export type NoteWriter = {
   /** Existing document path (exact, normalized) or undefined. */
@@ -32,8 +41,11 @@ export type NoteWriter = {
     path: string;
     content: string;
   }) => { id: string; path: string; content: string } | null;
-  /** Persist a body immediately (createDoc alone is memory-only). */
-  write: (docId: string, content: string) => void;
+  /**
+   * Persist a body (createDoc alone is memory-only). Must resolve only once the
+   * note is on disk — a rejected/negative outcome is reported to the caller.
+   */
+  write: (docId: string, content: string) => Promise<CaptureWriteOutcome>;
 };
 
 export type ExplainCaptureInput = {
@@ -45,15 +57,41 @@ export type ExplainCaptureInput = {
   createdAt?: number;
 };
 
+/** One tail promise per note path — the serial queue for read-modify-write. */
+const captureQueues = new Map<string, Promise<unknown>>();
+
+/**
+ * Run `task` after every capture already queued for `key`, regardless of
+ * whether those succeeded. Keeps appends in click order and prevents the
+ * second capture from reading a body the first has not written yet.
+ */
+function enqueueCapture<T>(key: string, task: () => Promise<T>): Promise<T> {
+  const prev = captureQueues.get(key) ?? Promise.resolve();
+  const run = prev.then(task, task);
+  // The stored tail must never reject, or later captures would be skipped.
+  const tail = run.catch(() => undefined);
+  captureQueues.set(key, tail);
+  void tail.then(() => {
+    // Drop the entry once this was the last queued capture for the path.
+    if (captureQueues.get(key) === tail) captureQueues.delete(key);
+  });
+  return run;
+}
+
+/** Test helper: forget queued tails between cases. */
+export function resetCaptureQueues(): void {
+  captureQueues.clear();
+}
+
 /**
  * B1 — one explain turn becomes one note under 读码笔记/<工程>/YYYY-MM-DD-<文件>.md.
  * Returns the real saved path so the UI can offer「在藏书阁打开」and never lie
- * about a rename.
+ * about a rename or an unpersisted note.
  */
-export function captureExplain(
+export async function captureExplain(
   writer: NoteWriter,
   input: ExplainCaptureInput
-): CaptureResult {
+): Promise<CaptureResult> {
   if (!input.answer.trim()) {
     return { ok: false, message: "讲解还没有内容，先等它生成完" };
   }
@@ -61,26 +99,33 @@ export function captureExplain(
     projectName: input.projectName,
     sourcePath: input.sourcePath || "未命名文件",
   });
-  try {
-    const doc = writer.create({
-      type: "md",
-      path: requested,
-      content: buildExplainNote(input),
-    });
-    if (!doc) return { ok: false, message: "新建笔记失败" };
-    writer.write(doc.id, doc.content);
-    return {
-      ok: true,
-      docId: doc.id,
-      path: doc.path,
-      renamed: requested !== doc.path,
-    };
-  } catch (e) {
-    return {
-      ok: false,
-      message: `收入失败：${e instanceof Error ? e.message : String(e)}`,
-    };
-  }
+  // The path is made unique by the store, so queue on the requested base path
+  // to keep two rapid captures of the same turn from fighting over `-2`.
+  return enqueueCapture(requested, async () => {
+    try {
+      const doc = writer.create({
+        type: "md",
+        path: requested,
+        content: buildExplainNote(input),
+      });
+      if (!doc) return { ok: false, message: "新建笔记失败" };
+      const written = await writer.write(doc.id, doc.content);
+      if (!written.ok) {
+        return { ok: false, message: `收入失败：${written.message}` };
+      }
+      return {
+        ok: true,
+        docId: doc.id,
+        path: doc.path,
+        renamed: requested !== doc.path,
+      };
+    } catch (e) {
+      return {
+        ok: false,
+        message: `收入失败：${e instanceof Error ? e.message : String(e)}`,
+      };
+    }
+  });
 }
 
 export type SnippetCaptureInput = {
@@ -95,12 +140,14 @@ export type SnippetCaptureInput = {
 
 /**
  * B2 — append a selection to 读码笔记/速记.md (creating it on first use).
- * Appending re-reads the live draft so concurrent edits are not clobbered.
+ *
+ * Serialized per note: the body is re-read inside the queue, so a burst of
+ * captures appends in click order instead of overwriting each other.
  */
-export function captureSnippet(
+export async function captureSnippet(
   writer: NoteWriter,
   input: SnippetCaptureInput
-): CaptureResult {
+): Promise<CaptureResult> {
   const body = String(input.text ?? "");
   if (!body.trim()) return { ok: false, message: "选区是空的" };
 
@@ -114,28 +161,36 @@ export function captureSnippet(
     note: input.note,
   });
 
-  const existing = writer.findByPath(requested);
-  try {
-    if (!existing) {
-      const doc = writer.create({
-        type: "md",
-        path: requested,
-        content: appendSnippetBlock(SNIPPET_NOTE_HEADER, block),
-      });
-      if (!doc) return { ok: false, message: "新建速记失败" };
-      writer.write(doc.id, doc.content);
-      return { ok: true, docId: doc.id, path: doc.path, renamed: false };
-    }
+  return enqueueCapture(requested, async () => {
+    try {
+      const existing = writer.findByPath(requested);
+      if (!existing) {
+        const doc = writer.create({
+          type: "md",
+          path: requested,
+          content: appendSnippetBlock(SNIPPET_NOTE_HEADER, block),
+        });
+        if (!doc) return { ok: false, message: "新建速记失败" };
+        const written = await writer.write(doc.id, doc.content);
+        if (!written.ok) {
+          return { ok: false, message: `收入速记失败：${written.message}` };
+        }
+        return { ok: true, docId: doc.id, path: doc.path, renamed: false };
+      }
 
-    const next = appendSnippetBlock(writer.contentOf(existing.id), block);
-    writer.write(existing.id, next);
-    return { ok: true, docId: existing.id, path: existing.path, renamed: false };
-  } catch (e) {
-    return {
-      ok: false,
-      message: `收入速记失败：${e instanceof Error ? e.message : String(e)}`,
-    };
-  }
+      const next = appendSnippetBlock(writer.contentOf(existing.id), block);
+      const written = await writer.write(existing.id, next);
+      if (!written.ok) {
+        return { ok: false, message: `收入速记失败：${written.message}` };
+      }
+      return { ok: true, docId: existing.id, path: existing.path, renamed: false };
+    } catch (e) {
+      return {
+        ok: false,
+        message: `收入速记失败：${e instanceof Error ? e.message : String(e)}`,
+      };
+    }
+  });
 }
 
 /** Status line after a successful capture, naming the real path. */
