@@ -370,9 +370,9 @@ export const createDocsSlice: StateCreator<
         if (!target) return;
         const content = get().getContent(target);
         const prev = get().documents.find((d) => d.id === target);
-        // Unchanged body: clear draft only — avoid new documents[]/updatedAt that
-        // used to force Markdown preview remounts on autosave / ⌘S.
-        if (prev && prev.content === content) {
+        // Unchanged body (after newline normalize): clear draft only — no new
+        // documents[] identity, updatedAt, version, or content persist.
+        if (prev && normalizeNewlines(prev.content) === content) {
           if (target in get().drafts) {
             set((s) => ({
               drafts: Object.fromEntries(
@@ -380,7 +380,7 @@ export const createDocsSlice: StateCreator<
               ),
             }));
           }
-          get().setStatus(`已保存 ${basename(prev.path)}`);
+          get().setStatus(`已是最新 ${basename(prev.path)}`);
           return;
         }
         // Snapshot previous saved content before overwrite

@@ -166,9 +166,9 @@ export const useStore = create<LanghuanState>()(
         return p as typeof persisted;
       },
       onRehydrateStorage: () => (state) => {
-        // Apply prefs first, but do NOT mark hydrated until content/ library is in
-        // store — otherwise tabs restore with activeId while documents=[] and the
-        // workspace flashes blank then remounts MarkdownReader with animate-enter.
+        // Mark hydrated early so sidebar/shortcuts work; DocWorkspace shows a
+        // paper skeleton when activeId is set but the doc is not in store yet
+        // (library still loading). Do not gate the whole shell on libraryReady.
         if (state?.theme && typeof document !== "undefined") {
           const id = normalizeTheme(state.theme);
           if (id !== state.theme) state.theme = id;
@@ -186,13 +186,13 @@ export const useStore = create<LanghuanState>()(
           if (typeof state.outlineRailOpen !== "boolean") {
             state.setOutlineRailOpen(true);
           }
+          state.setHydrated(true);
           void state
             .hydrateFromContent()
             .catch(() => {
               /* hydrateFromContent already reports status */
             })
-            .finally(() => {
-              state.setHydrated(true);
+            .then(() => {
               const purged = state.purgeExpiredTrash();
               if (purged > 0) {
                 state.setStatus(`已自动清理 ${purged} 篇过期回收站文档`);

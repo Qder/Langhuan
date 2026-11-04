@@ -1,16 +1,18 @@
 "use client";
 
 import * as React from "react";
+import { useShallow } from "zustand/react/shallow";
 import { resolveWikiTarget } from "@/lib/search";
 import { planWikiCreatePath } from "@/lib/wikilink";
 import { mdExcerpt, titleOf, cn } from "@/lib/utils";
 import { useStore } from "@/lib/store";
-import type { Document } from "@/lib/types";
 
 type PeekState = {
   x: number;
   y: number;
-  target: Document | null;
+  targetId: string | null;
+  targetPath: string | null;
+  excerpt: string;
   label: string;
 };
 
@@ -24,18 +26,33 @@ export function WikiLink({
   name: string;
   label: string;
   heading?: string;
-  onOpen: (id: string) => void;
+  /** Optional; defaults to store.requestOpenDoc via getState (keeps MarkdownBody deps free). */
+  onOpen?: (id: string) => void;
   /** Path of the document that contains this link (same-folder create). */
   currentPath?: string;
 }) {
-  // Fine-grained: re-resolve when library changes without remounting react-markdown.
-  const target = useStore((s) => resolveWikiTarget(s.documents, name));
+  // useShallow: only re-render when resolved id/path/content change.
+  const target = useStore(
+    useShallow((s) => {
+      const d = resolveWikiTarget(s.documents, name);
+      if (!d) return { id: null as string | null, path: null as string | null, content: null as string | null };
+      return { id: d.id, path: d.path, content: d.content };
+    })
+  );
   const createDoc = useStore((s) => s.createDoc);
   const setStatus = useStore((s) => s.setStatus);
   const [peek, setPeek] = React.useState<PeekState | null>(null);
   const showTimer = React.useRef<number | null>(null);
   const hideTimer = React.useRef<number | null>(null);
   const anchorRef = React.useRef<HTMLButtonElement>(null);
+
+  const openTarget = React.useCallback(
+    (id: string) => {
+      if (onOpen) onOpen(id);
+      else useStore.getState().requestOpenDoc(id);
+    },
+    [onOpen]
+  );
 
   const clearTimers = () => {
     if (showTimer.current) window.clearTimeout(showTimer.current);
@@ -53,7 +70,9 @@ export function WikiLink({
       setPeek({
         x: Math.min(window.innerWidth - 320, Math.max(8, r.left)),
         y: Math.min(window.innerHeight - 160, r.bottom + 8),
-        target: target ?? null,
+        targetId: target.id,
+        targetPath: target.path,
+        excerpt: target.content ? mdExcerpt(target.content, 160) : "",
         label,
       });
     }, 350);
@@ -93,20 +112,18 @@ export function WikiLink({
     createDoc({ type: "md", path: plan.path, open: true });
   };
 
-  const excerpt = target ? mdExcerpt(target.content, 160) : "";
-
   return (
     <>
       <button
         ref={anchorRef}
         type="button"
-        className={cn("wiki-link", !target && "missing")}
+        className={cn("wiki-link", !target.id && "missing")}
         onClick={() => {
-          if (!target) {
+          if (!target.id) {
             tryCreateMissing();
             return;
           }
-          onOpen(target.id);
+          openTarget(target.id);
           if (heading) {
             window.setTimeout(() => {
               const id = heading
@@ -138,15 +155,17 @@ export function WikiLink({
           onMouseLeave={scheduleHide}
           role="tooltip"
         >
-          {peek.target ? (
+          {peek.targetId ? (
             <>
-              <div className="lh-wiki-peek-title">{titleOf(peek.target.path)}</div>
-              <div className="lh-wiki-peek-path">{peek.target.path}</div>
-              {excerpt && <p className="lh-wiki-peek-excerpt">{excerpt}</p>}
+              <div className="lh-wiki-peek-title">
+                {peek.targetPath ? titleOf(peek.targetPath) : peek.label}
+              </div>
+              <div className="lh-wiki-peek-path">{peek.targetPath}</div>
+              {peek.excerpt && <p className="lh-wiki-peek-excerpt">{peek.excerpt}</p>}
               <button
                 type="button"
                 className="lh-wiki-peek-open"
-                onClick={() => onOpen(peek.target!.id)}
+                onClick={() => openTarget(peek.targetId!)}
               >
                 打开
               </button>

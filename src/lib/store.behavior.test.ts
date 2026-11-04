@@ -716,6 +716,38 @@ describe("store behavior snapshots", () => {
     expect(useStore.getState().getContent(doc.id)).toBe("changed");
   });
 
+  it("saveDoc noop: same body skips version/updatedAt and says 已是最新", () => {
+    const doc = useStore.getState().createDoc({
+      type: "md",
+      path: "noop.md",
+      content: "same\r\nline",
+      open: true,
+    });
+    const before = useStore.getState().documents.find((d) => d.id === doc.id)!;
+    const updatedAt = before.updatedAt;
+    const docsRef = useStore.getState().documents;
+    pushVersion.mockClear();
+
+    // Draft equals saved after newline normalize
+    useStore.getState().setDraft(doc.id, "same\nline");
+    useStore.getState().saveDoc(doc.id);
+
+    expect(pushVersion).not.toHaveBeenCalled();
+    expect(useStore.getState().documents).toBe(docsRef);
+    const after = useStore.getState().documents.find((d) => d.id === doc.id)!;
+    expect(after.updatedAt).toBe(updatedAt);
+    expect(useStore.getState().isDirty(doc.id)).toBe(false);
+    expect(useStore.getState().status?.message).toContain("已是最新");
+
+    // Second ⌘S with no draft
+    pushVersion.mockClear();
+    const docsRef2 = useStore.getState().documents;
+    useStore.getState().saveDoc(doc.id);
+    expect(pushVersion).not.toHaveBeenCalled();
+    expect(useStore.getState().documents).toBe(docsRef2);
+    expect(useStore.getState().status?.message).toContain("已是最新");
+  });
+
   it("tags and star", () => {
     const doc = useStore.getState().createDoc({
       type: "md",

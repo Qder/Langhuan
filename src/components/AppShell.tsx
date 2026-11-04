@@ -96,11 +96,11 @@ export function AppShell() {
     return () => window.clearTimeout(t);
   }, [autosaveEnabled, activeIdForSave, drafts, isDirty]);
 
-  // Emergency only: persist/onRehydrate should set hydrated after hydrateFromContent.
-  // Keep a long fallback so a hung /api/library cannot soft-lock the shell forever.
+  // Persist hang fallback — keep short so the shell unlocks; workspace uses
+  // paper skeleton when activeId is set but the doc is not loaded yet.
   React.useEffect(() => {
     if (!hydrated) {
-      const t = window.setTimeout(() => setHydrated(true), 8000);
+      const t = window.setTimeout(() => setHydrated(true), 50);
       return () => window.clearTimeout(t);
     }
   }, [hydrated, setHydrated]);

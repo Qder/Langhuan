@@ -23,6 +23,7 @@ import { DocAside, hasDocAsideContent } from "./DocAside";
 import { PreviewHoverStrip } from "./PreviewHoverStrip";
 import { getDocMeta } from "@/lib/docMeta";
 import { useStore } from "@/lib/store";
+import { useShallow } from "zustand/react/shallow";
 import { findBacklinks } from "@/lib/search";
 import {
   extractOutline,
@@ -221,11 +222,9 @@ function InsertBetweenPortal({
 
 function WikiText({
   text,
-  onOpen,
   currentPath,
 }: {
   text: string;
-  onOpen: (id: string) => void;
   currentPath: string;
 }) {
   const parts = text.split(/(!?\[\[[^\]]+\]\])/g);
@@ -242,7 +241,6 @@ function WikiText({
               key={i}
               target={parsed.target}
               heading={parsed.heading}
-              onOpen={onOpen}
             />
           );
         }
@@ -253,7 +251,6 @@ function WikiText({
             name={parsed.target}
             label={label}
             heading={parsed.heading}
-            onOpen={onOpen}
             currentPath={currentPath}
           />
         );
@@ -264,15 +261,14 @@ function WikiText({
 
 function walkChildren(
   children: React.ReactNode,
-  onOpen: (id: string) => void,
   currentPath: string
 ): React.ReactNode {
   return React.Children.map(children, (child) => {
     if (typeof child === "string")
-      return <WikiText text={child} onOpen={onOpen} currentPath={currentPath} />;
+      return <WikiText text={child} currentPath={currentPath} />;
     if (React.isValidElement<{ children?: React.ReactNode }>(child) && child.props.children) {
       return React.cloneElement(child, {
-        children: walkChildren(child.props.children, onOpen, currentPath),
+        children: walkChildren(child.props.children, currentPath),
       });
     }
     return child;
@@ -372,9 +368,20 @@ function MdPreviewImage({
   title?: string;
   docPath: string;
 }) {
-  const documents = useStore((s) => s.documents);
-  const assets = useStore((s) => s.assets);
-  const resolved = resolveMediaSrc(src, docPath, documents, assets);
+  // Shape for useShallow: primitives only (no Document/array identity).
+  const resolved = useStore(
+    useShallow((s) => {
+      const r = resolveMediaSrc(src, docPath, s.documents, s.assets);
+      if (r.kind === "external") return { kind: "external" as const, src: r.src };
+      if (r.kind === "data") {
+        return { kind: "data" as const, src: r.src, path: r.path, docId: r.docId ?? null };
+      }
+      if (r.kind === "asset") {
+        return { kind: "asset" as const, path: r.path, assetId: r.assetId };
+      }
+      return { kind: "missing" as const, path: r.path, reason: r.reason };
+    })
+  );
   if (resolved.kind === "external" || resolved.kind === "data") {
     return (
       // eslint-disable-next-line @next/next/no-img-element
@@ -414,23 +421,29 @@ function MdPreviewImage({
 function MdLibLink({
   href,
   docPath,
-  openDoc,
   children,
   ...props
 }: {
   href?: string;
   docPath: string;
-  openDoc: (id: string) => void;
   children?: React.ReactNode;
 } & Record<string, unknown>) {
-  const documents = useStore((s) => s.documents);
-  const resolved = resolveLibraryHref(href, docPath, documents);
+  const resolved = useStore(
+    useShallow((s) => {
+      const r = resolveLibraryHref(href, docPath, s.documents);
+      if (r.kind === "external") return { kind: "external" as const, href: r.href };
+      if (r.kind === "doc") {
+        return { kind: "doc" as const, docId: r.doc.id, path: r.path };
+      }
+      return { kind: "missing" as const, path: r.path };
+    })
+  );
   if (resolved.kind === "doc") {
     return (
       <button
         type="button"
         className="lh-lib-link"
-        onClick={() => openDoc(resolved.doc.id)}
+        onClick={() => useStore.getState().requestOpenDoc(resolved.docId)}
       >
         {children}
       </button>
@@ -467,7 +480,6 @@ type MarkdownBodyProps = {
   body: string;
   fmOffset: number;
   fmLineOffset: number;
-  openDoc: (id: string) => void;
   docPath: string;
 };
 
@@ -476,7 +488,6 @@ const MarkdownBody = React.memo(
     body,
     fmOffset,
     fmLineOffset,
-    openDoc,
     docPath,
   }: MarkdownBodyProps) {
     probeRender("MarkdownBody");
@@ -533,7 +544,7 @@ const MarkdownBody = React.memo(
     const components = React.useMemo(
       () => ({
         p: ({ node, children, ...props }: { node?: HastNode; children?: React.ReactNode } & Record<string, unknown>) => {
-          const walked = walkChildren(children, openDoc, docPath);
+          const walked = walkChildren(children, docPath);
           // 一整段只有一张图、且写了 alt：当插页（图注走 figcaption），否则按普通段落
           const caption = soleImageCaption(children);
           if (caption) {
@@ -552,11 +563,11 @@ const MarkdownBody = React.memo(
           return withSrc("p", node, props, walked);
         },
         li: ({ node, children, ...props }: { node?: HastNode; children?: React.ReactNode } & Record<string, unknown>) =>
-          withSrc("li", node, props, walkChildren(children, openDoc, docPath)),
+          withSrc("li", node, props, walkChildren(children, docPath)),
         td: ({ node, children, ...props }: { node?: HastNode; children?: React.ReactNode } & Record<string, unknown>) =>
-          withSrc("td", node, props, walkChildren(children, openDoc, docPath)),
+          withSrc("td", node, props, walkChildren(children, docPath)),
         th: ({ node, children, ...props }: { node?: HastNode; children?: React.ReactNode } & Record<string, unknown>) =>
-          withSrc("th", node, props, walkChildren(children, openDoc, docPath)),
+          withSrc("th", node, props, walkChildren(children, docPath)),
         tr: ({ node, children, ...props }: { node?: HastNode; children?: React.ReactNode } & Record<string, unknown>) =>
           withSrc("tr", node, props, children),
         // 表格当插页：外壳负责横向滚动，列多也不会把 740px 的版心撑破。
@@ -583,7 +594,7 @@ const MarkdownBody = React.memo(
           }
           return (
             <blockquote {...(props as React.HTMLAttributes<HTMLQuoteElement>)} {...attrs}>
-              {walkChildren(children, openDoc, docPath)}
+              {walkChildren(children, docPath)}
             </blockquote>
           );
         },
@@ -592,21 +603,21 @@ const MarkdownBody = React.memo(
             "h1",
             node,
             { ...(props as object), id } as Record<string, unknown>,
-            walkChildren(children, openDoc, docPath)
+            walkChildren(children, docPath)
           ),
         h2: ({ node, children, id, ...props }: { node?: HastNode; children?: React.ReactNode; id?: string } & Record<string, unknown>) =>
           withSrc(
             "h2",
             node,
             { ...(props as object), id } as Record<string, unknown>,
-            walkChildren(children, openDoc, docPath)
+            walkChildren(children, docPath)
           ),
         h3: ({ node, children, id, ...props }: { node?: HastNode; children?: React.ReactNode; id?: string } & Record<string, unknown>) =>
           withSrc(
             "h3",
             node,
             { ...(props as object), id } as Record<string, unknown>,
-            walkChildren(children, openDoc, docPath)
+            walkChildren(children, docPath)
           ),
         pre: ({ node, children }: { node?: HastNode; children?: React.ReactNode }) => {
           void node;
@@ -650,7 +661,7 @@ const MarkdownBody = React.memo(
           <MdPreviewImage src={src} alt={alt} title={title} docPath={docPath} />
         ),
         a: ({ href, children, ...props }: { href?: string; children?: React.ReactNode } & Record<string, unknown>) => (
-          <MdLibLink href={href} docPath={docPath} openDoc={openDoc} {...props}>
+          <MdLibLink href={href} docPath={docPath} {...props}>
             {children}
           </MdLibLink>
         ),
@@ -689,8 +700,9 @@ const MarkdownBody = React.memo(
         },
       }),
       // Intentionally omit documents/assets — resolvers live in child components.
+      // openDoc via useStore.getState() so MarkdownBody stays stable across identity churn.
       // eslint-disable-next-line react-hooks/exhaustive-deps
-      [fmOffset, openDoc, docPath]
+      [fmOffset, docPath]
     );
 
     return (
@@ -707,8 +719,7 @@ const MarkdownBody = React.memo(
     prev.body === next.body &&
     prev.fmOffset === next.fmOffset &&
     prev.fmLineOffset === next.fmLineOffset &&
-    prev.docPath === next.docPath &&
-    prev.openDoc === next.openDoc
+    prev.docPath === next.docPath
 );
 
 /** Absolute hit strips between annotated blocks (collapsed HTML whitespace). */
@@ -782,9 +793,35 @@ function PreviewGapHitLayer({
 
 
 export function MarkdownReader({ doc }: { doc: Document }) {
-  const documents = useStore((s) => s.documents);
   const getContent = useStore((s) => s.getContent);
-  const openDoc = useStore((s) => s.requestOpenDoc);
+  // Fine-grained: unrelated documents[] rewrites must not wake the shell.
+  const docUpdatedAt = useStore(
+    (s) => s.documents.find((d) => d.id === doc.id)?.updatedAt ?? doc.updatedAt
+  );
+  const docPath = useStore(
+    (s) => s.documents.find((d) => d.id === doc.id)?.path ?? doc.path
+  );
+  const docType = useStore(
+    (s) => s.documents.find((d) => d.id === doc.id)?.type ?? doc.type
+  );
+  const backlinkSnaps = useStore(
+    useShallow((s) => {
+      const live = s.documents.find((d) => d.id === doc.id) ?? doc;
+      return findBacklinks(s.documents, live).map((d) => ({
+        id: d.id,
+        path: d.path,
+        content: d.content,
+        type: d.type,
+        starred: d.starred,
+        createdAt: d.createdAt,
+        updatedAt: d.updatedAt,
+      }));
+    })
+  );
+  const backlinks = React.useMemo(
+    () => backlinkSnaps as Document[],
+    [backlinkSnaps]
+  );
   const setDocTags = useStore((s) => s.setDocTags);
   const applyLocateResult = useStore((s) => s.applyLocateResult);
   const pendingPreviewLocate = useStore((s) => s.pendingPreviewLocate);
@@ -813,7 +850,6 @@ export function MarkdownReader({ doc }: { doc: Document }) {
   const tags = React.useMemo(() => getTags({ ...doc, content }), [doc, content]);
   const words = React.useMemo(() => countWords(body), [body]);
   const outline = React.useMemo(() => extractOutline(content), [content]);
-  const backlinks = React.useMemo(() => findBacklinks(documents, doc), [documents, doc]);
   const [activeHeading, setActiveHeading] = React.useState<string>("");
   const [tagInput, setTagInput] = React.useState("");
   const articleRef = React.useRef<HTMLElement>(null);
@@ -2344,7 +2380,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
           });
           addAnnotation({
             docId: doc.id,
-            path: doc.path,
+            path: docPath,
             quote: info.text,
             start: result.start,
             end: result.end,
@@ -2357,22 +2393,26 @@ export function MarkdownReader({ doc }: { doc: Document }) {
         },
       },
     ];
-  }, [runLocate, content, setStatus, menu, addAnnotation, doc.id, doc.path, applyLocateResult]);
+  }, [runLocate, content, setStatus, menu, addAnnotation, doc.id, docPath, applyLocateResult]);
 
-  const mentionCount = React.useMemo(() => {
-    if (doc.type !== "md") return 0;
-    const titles = documents
+  const mentionCount = useStore((s) => {
+    const live = s.documents.find((d) => d.id === doc.id);
+    const type = live?.type ?? doc.type;
+    if (type !== "md") return 0;
+    const src = s.getContent(doc.id);
+    const titles = s.documents
       .filter((d) => d.id !== doc.id)
       .flatMap((d) => {
         const m = getDocMeta(d);
         return [titleOf(d.path), m.title, ...m.aliases];
       })
       .filter((x) => x && x.length >= 2);
-    const self = getDocMeta(doc);
-    return findUnlinkedMentions(content, titles, {
-      excludeTitles: [titleOf(doc.path), self.title, ...self.aliases],
+    const selfDoc = live ?? doc;
+    const self = getDocMeta({ ...selfDoc, content: src });
+    return findUnlinkedMentions(src, titles, {
+      excludeTitles: [titleOf(selfDoc.path), self.title, ...self.aliases],
     }).length;
-  }, [doc, documents, content]);
+  });
 
   const annotationCount = React.useMemo(
     () => annotations.filter((a) => a.docId === doc.id).length,
@@ -2384,9 +2424,9 @@ export function MarkdownReader({ doc }: { doc: Document }) {
 
   // Reanchor annotations against current source (marks「已失效」when lost).
   React.useEffect(() => {
-    if (doc.type !== "md") return;
+    if (docType !== "md") return;
     reanchorDocAnnotations(doc.id, content);
-  }, [doc.id, doc.type, content, reanchorDocAnnotations]);
+  }, [doc.id, docType, content, reanchorDocAnnotations]);
 
   // Soft-highlight annotation quotes in preview (does not mutate markdown body).
   React.useEffect(() => {
@@ -2519,7 +2559,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
               <span className="rounded-full border border-[var(--border)] px-2 py-0.5 text-[var(--accent)]">
                 Markdown
               </span>
-              <span>更新于 {relativeTime(doc.updatedAt)}</span>
+              <span>更新于 {relativeTime(docUpdatedAt)}</span>
               <span>{words} 字</span>
               <span>约 {readingMinutes(words)} 分钟</span>
             </div>
@@ -2571,8 +2611,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
             body={body}
             fmOffset={fmOffset}
             fmLineOffset={fmLineOffset}
-            openDoc={openDoc}
-            docPath={doc.path}
+            docPath={docPath}
           />
           {viewMode === "preview" &&
             inlineEdit?.kind !== "append" &&
@@ -2604,7 +2643,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
               blockType={inlineEdit.blockType}
               srcStart={inlineEdit.start}
               srcEnd={inlineEdit.end}
-              remountEpoch={`${doc.updatedAt}:${body.length}:${body.slice(0, 32)}`}
+              remountEpoch={`${docUpdatedAt}:${body.length}:${body.slice(0, 32)}`}
               clientX={inlineEdit.clientX}
               clientY={inlineEdit.clientY}
               caretAt={inlineEdit.caretAt}
@@ -2622,7 +2661,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
               originalSlice={inlineEdit.text}
               srcStart={inlineEdit.start}
               srcEnd={inlineEdit.end}
-              remountEpoch={`${doc.updatedAt}:${body.length}:${body.slice(0, 32)}`}
+              remountEpoch={`${docUpdatedAt}:${body.length}:${body.slice(0, 32)}`}
               cursorAt={inlineEdit.cursorAt}
               clientX={inlineEdit.clientX}
               clientY={inlineEdit.clientY}
