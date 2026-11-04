@@ -10,6 +10,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "tauri": "tauri",
+    "desktop:ui": "node scripts/build-desktop-ui.mjs",
+    "desktop:dev-server": "node scripts/tauri-dev-server.mjs",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
     "typecheck": "tsc --noEmit",

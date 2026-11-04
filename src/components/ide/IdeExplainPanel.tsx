@@ -18,9 +18,11 @@ import {
   citationsFromMarkdown,
   collectFileIndexWithOptionalBfs,
   listNearbyImports,
+  TAURI_EXPLAIN_UNAVAILABLE,
   truncateNeighborExplainContent,
   type IdeExplainMessage,
 } from "@/lib/ide/explain";
+import { isTauriRuntime } from "@/lib/storage/contentApi";
 import { locateExplainFence } from "@/lib/ide/snippetJump";
 import {
   fenceChipLabel,
@@ -593,6 +595,17 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
 
     const ac = new AbortController();
     abortRef.current = ac;
+
+    // The packaged desktop shell ships a static UI: Next Route Handlers
+    // (including /api/ide/explain) are not part of `tauri build`. Explain
+    // needs a Node server, so say so instead of showing a fetch error.
+    if (isTauriRuntime()) {
+      updateLastAssistant(TAURI_EXPLAIN_UNAVAILABLE);
+      setStatus("桌面版不支持 IDE 讲解，请在浏览器使用");
+      setBusy(false);
+      abortRef.current = null;
+      return;
+    }
 
     try {
       const body: Record<string, unknown> = {

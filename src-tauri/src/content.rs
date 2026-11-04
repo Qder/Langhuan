@@ -169,7 +169,11 @@ fn mime_for_path(rel: &str) -> String {
     }
 }
 
-/// Resolve content root: LANGHUAN_CONTENT → repo content/ → app_data/琅嬛/content
+/// Resolve content root, in order:
+/// 1. `LANGHUAN_CONTENT` (explicit override, e.g. point the desktop app at a folder)
+/// 2. debug builds only: repo `content/` (`CARGO_MANIFEST_DIR/../content`)
+/// 3. `content/` next to the executable (portable install)
+/// 4. `{app_data_dir}/琅嬛/content` (fresh machine: seeded with examples on first run)
 pub fn resolve_content_root(app: &AppHandle) -> Result<PathBuf, String> {
     if let Ok(p) = std::env::var("LANGHUAN_CONTENT") {
         let pb = PathBuf::from(p);
@@ -177,19 +181,21 @@ pub fn resolve_content_root(app: &AppHandle) -> Result<PathBuf, String> {
         return Ok(pb);
     }
 
-    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let candidates = [
-        manifest_dir.join("../content"),
-        std::env::current_dir()
-            .unwrap_or_default()
-            .join("content"),
-        std::env::current_dir()
-            .unwrap_or_default()
-            .join("../content"),
-    ];
-    for c in candidates {
-        if c.is_dir() {
-            return Ok(c.canonicalize().unwrap_or(c));
+    // A release binary must not remember the build machine's checkout path.
+    if cfg!(debug_assertions) {
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let repo_content = manifest_dir.join("../content");
+        if repo_content.is_dir() {
+            return Ok(repo_content.canonicalize().unwrap_or(repo_content));
+        }
+    }
+
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let portable = dir.join("content");
+            if portable.is_dir() {
+                return Ok(portable.canonicalize().unwrap_or(portable));
+            }
         }
     }
 
