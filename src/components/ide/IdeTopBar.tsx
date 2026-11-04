@@ -1,6 +1,16 @@
 "use client";
 
-import { FolderOpen, ListTree, Menu, MoreHorizontal, PanelLeft, Save, X, Sparkles } from "lucide-react";
+import {
+  FolderOpen,
+  ListTree,
+  Menu,
+  MoreHorizontal,
+  PanelLeft,
+  Save,
+  Search,
+  X,
+  Sparkles,
+} from "lucide-react";
 import { Button } from "../ui/button";
 import { Dropdown, DropdownItem } from "../ui/dropdown";
 import { AppModeSwitch } from "../AppModeSwitch";
@@ -12,6 +22,7 @@ import { cn } from "@/lib/utils";
 export function IdeTopBar({
   onToggleExplorer,
   onToggleExplain,
+  onOpenWorkspaceSearch,
   explainOpen,
   outlineOpen,
   onToggleOutline,
@@ -19,6 +30,8 @@ export function IdeTopBar({
 }: {
   onToggleExplorer: () => void;
   onToggleExplain: () => void;
+  /** 工程内搜索 — same action as Mod+Shift+F and the command palette. */
+  onOpenWorkspaceSearch: () => void;
   explainOpen: boolean;
   outlineOpen: boolean;
   onToggleOutline: () => void;
@@ -127,6 +140,9 @@ export function IdeTopBar({
       >
         {session ? (
           <>
+            <DropdownItem onClick={onOpenWorkspaceSearch}>
+              <Search className="h-3.5 w-3.5" /> 在工程中搜索
+            </DropdownItem>
             <DropdownItem onClick={() => void openFolder()}>
               <FolderOpen className="h-3.5 w-3.5" /> 打开文件夹…
             </DropdownItem>

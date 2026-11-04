@@ -88,12 +88,7 @@ export function IdeWelcome() {
           )}
         </section>
 
-        <IdeRecentFiles
-          currentSessionId={null}
-          onOpenProject={() => {
-            /* welcome screen has no session: rows are informational */
-          }}
-        />
+        <IdeRecentFiles currentSessionId={null} />
 
         {status && (
           <p className="text-xs text-[var(--muted)] font-ui" role="status">

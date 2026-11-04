@@ -10,24 +10,21 @@ import { cn } from "@/lib/utils";
  * B7 — 最近 8 个文件（跨工程）。Shown on the welcome screen and on the
  * "project open but no file" empty state.
  *
- * Only files from the *current* project can be opened directly (the browser
- * grants one folder handle at a time), so out-of-project rows are labelled
- * with their project name instead of pretending to be clickable.
+ * Every row goes through `openRecentFile`, which switches project when the row
+ * belongs to another one and always reports why a file could not be opened.
+ * Rows are therefore never inert — a project that lost its folder grant still
+ * produces a readable message instead of a dead click.
  */
 export function IdeRecentFiles({
   className,
   currentSessionId,
-  onOpenProject,
 }: {
   className?: string;
-  /** When set, only this project's files are clickable. */
+  /** Open project id; rows from it are shown without a project label. */
   currentSessionId?: string | null;
-  /** Called for a row whose project differs (usually: go pick the folder). */
-  onOpenProject?: (sessionId: string) => void;
 }) {
   const recentFiles = useIdeStore((s) => s.recentFiles);
-  const openFile = useIdeStore((s) => s.openFile);
-  const setStatus = useIdeStore((s) => s.setStatus);
+  const openRecentFile = useIdeStore((s) => s.openRecentFile);
 
   const rows = React.useMemo(
     () =>
@@ -48,6 +45,7 @@ export function IdeRecentFiles({
         {rows.map((f) => {
           const isCurrent =
             !currentSessionId || f.sessionId === currentSessionId;
+          const projectLabel = f.projectName || "其他工程";
           return (
             <li key={`${f.sessionId}:${f.path}`}>
               <button
@@ -57,26 +55,23 @@ export function IdeRecentFiles({
                   "hover:border-[var(--border)] hover:bg-[var(--hover)] transition-colors"
                 )}
                 title={
-                  isCurrent
-                    ? f.path
-                    : `${f.projectName || "其他工程"} · ${f.path}`
+                  isCurrent ? f.path : `${projectLabel} · ${f.path}（点击切换工程）`
                 }
                 onClick={() => {
-                  if (!isCurrent) {
-                    setStatus("先在读码打开该工程");
-                    onOpenProject?.(f.sessionId);
-                    return;
-                  }
-                  void openFile(f.path);
+                  void openRecentFile({
+                    sessionId: f.sessionId,
+                    path: f.path,
+                    projectName: f.projectName,
+                  });
                 }}
               >
                 <FileCode2 className="h-3.5 w-3.5 shrink-0 text-[var(--muted)]" />
                 <span className="min-w-0 flex-1 truncate text-[12px] font-mono text-[var(--fg)]">
                   {f.path}
                 </span>
-                {!isCurrent && f.projectName && (
+                {!isCurrent && (
                   <span className="shrink-0 max-w-[40%] truncate text-[10px] font-ui text-[var(--muted)]">
-                    {f.projectName}
+                    {projectLabel}
                   </span>
                 )}
               </button>

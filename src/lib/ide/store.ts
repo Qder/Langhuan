@@ -36,6 +36,7 @@ import {
 import type { IdeLinkTarget } from "./ideLink";
 import {
   IDE_RECENT_FILES_MAX,
+  pruneRecentFilesForSession,
   pushRecentFile,
   type IdeRecentFile,
 } from "./recentFiles";
@@ -116,6 +117,16 @@ type IdeState = {
   setStatus: (msg: string | null) => void;
   openFolder: () => Promise<boolean>;
   openRecent: (id: string) => Promise<boolean>;
+  /**
+   * Open a cross-project recent file: same project opens in place, other
+   * projects are switched first and the file is then located. Always leaves a
+   * readable status on failure — never a silent no-op.
+   */
+  openRecentFile: (entry: {
+    sessionId: string;
+    path: string;
+    projectName?: string;
+  }) => Promise<boolean>;
   closeProject: (opts?: { force?: boolean }) => boolean;
   removeRecent: (id: string) => Promise<void>;
   /** Notes → 读码: open the file now, or remember it for the next project open. */
@@ -318,16 +329,78 @@ export const useIdeStore = create<IdeState>()(
         }
         const session = await reopenIdeFolder(id, meta);
         if (!session) {
-          set({
+          set((s) => ({
             status: "无法恢复目录授权，请重新「打开文件夹」",
-            recent: removeRecentProject(get().recent, id),
-          });
+            recent: removeRecentProject(s.recent, id),
+            // The project is gone from the list: its file rows would be rows
+            // nobody can open, so drop them in the same update.
+            recentFiles: pruneRecentFilesForSession(s.recentFiles, id),
+          }));
           await clearIdeHandle(id);
           return false;
         }
         rememberSession(set, get, session);
         await get().ensureDirListed("");
         await get().consumePendingIdeLink();
+        return true;
+      },
+
+      openRecentFile: async (entry) => {
+        const path = normalizeIdeRelPath(entry.path);
+        if (!path) {
+          set({ status: "这条最近记录没有可用的文件路径" });
+          return false;
+        }
+        const label = entry.projectName ? `「${entry.projectName}」` : "该工程";
+        const current = get().session;
+
+        // Same project already open: no switch, just locate the file.
+        if (current && entry.sessionId && current.id === entry.sessionId) {
+          const ok = await get().openFile(path);
+          if (!ok) set({ status: `打不开 ${path}` });
+          return ok;
+        }
+
+        // No project id on the row: use the open project if there is one,
+        // otherwise explain instead of doing nothing.
+        if (!entry.sessionId) {
+          if (!current) {
+            set({ status: "这条最近记录不知道属于哪个工程，请从「最近工程」重新打开" });
+            return false;
+          }
+          const ok = await get().openFile(path);
+          if (!ok) set({ status: `当前工程里找不到 ${path}` });
+          return ok;
+        }
+
+        const meta = get().recent.find((r) => r.id === entry.sessionId);
+        if (!meta) {
+          set({ status: `${label}已不在最近工程列表，请重新「打开文件夹」` });
+          return false;
+        }
+        // Switching projects drops this project's tabs — refuse while dirty.
+        if (get().anyDirty()) {
+          set({ status: "有未保存的文件，先保存或关闭再切换到该工程" });
+          return false;
+        }
+
+        const opened = await get().openRecent(entry.sessionId);
+        if (!opened) {
+          // openRecent already pruned the project and set the specific reason;
+          // keep that message but make clear which file was being opened.
+          const why = get().status;
+          set({
+            status: why
+              ? `打不开${label}：${why}`
+              : `打不开${label}：请重新「打开文件夹」授权`,
+          });
+          return false;
+        }
+        const ok = await get().openFile(path);
+        if (!ok) {
+          set({ status: `已打开${label}，但工程里找不到 ${path}` });
+          return false;
+        }
         return true;
       },
 
@@ -399,7 +472,12 @@ export const useIdeStore = create<IdeState>()(
       },
 
       removeRecent: async (id) => {
-        set({ recent: removeRecentProject(get().recent, id) });
+        set((s) => ({
+          recent: removeRecentProject(s.recent, id),
+          // Dropping the project must also drop its rows here, otherwise the
+          // welcome screen keeps offering files that can no longer be opened.
+          recentFiles: pruneRecentFilesForSession(s.recentFiles, id),
+        }));
         await clearIdeHandle(id);
       },
 

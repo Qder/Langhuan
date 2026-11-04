@@ -247,6 +247,7 @@ export function IdeShell() {
       <IdeTopBar
         onToggleExplorer={toggleExplorer}
         onToggleExplain={toggleExplain}
+        onOpenWorkspaceSearch={() => setWorkspaceSearchOpen(true)}
         explainOpen={explainOpen}
         outlineOpen={outlineOpen}
         onToggleOutline={() => setOutlineOpen((v) => !v)}
@@ -297,7 +298,6 @@ export function IdeShell() {
                         <IdeRecentFiles
                           className="mt-6 w-full text-left"
                           currentSessionId={session?.id}
-                          onOpenProject={() => setStatus("先在读码打开该工程")}
                         />
                       </div>
                     </div>
