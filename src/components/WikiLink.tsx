@@ -136,7 +136,9 @@ export function WikiLink({
     }
     const openIde = () => {
       useStore.getState().setAppMode("ide");
-      useIdeStore.getState().followIdeLink(ideTarget);
+      // No project open → the store parks the link and the welcome banner
+      // offers to open the project it came from (the link is persisted).
+      void useIdeStore.getState().followIdeLink(ideTarget);
     };
     return (
       <button

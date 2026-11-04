@@ -58,12 +58,14 @@ describe("followIdeLink", () => {
     expect(ok).toBe(false);
     const st = useIdeStore.getState();
     expect(st.pendingIdeLink).toEqual({ path: "src/A.java", line: 3 });
-    expect(st.status).toContain("先在读码打开该工程");
+    expect(st.status).toContain("src/A.java");
+    expect(st.status).toContain("第 3 行");
     expect(st.activePath).toBeNull();
   });
 
-  it("已打开工程时直接跳行", async () => {
+  it("已打开工程时直接跳行，并清掉 pending", async () => {
     reset(fakeSession);
+    useIdeStore.setState({ pendingIdeLink: { path: "src/A.java", line: 1 } });
     const ok = await useIdeStore
       .getState()
       .followIdeLink({ path: "src/A.java", line: 3 });
@@ -75,7 +77,7 @@ describe("followIdeLink", () => {
     expect(st.pendingIdeLink).toBeNull();
   });
 
-  it("文件不存在时说明原因，不留下 pending", async () => {
+  it("有工程但文件不存在：留下 pending 并说明原因，方便切到对的工程", async () => {
     reset(fakeSession);
     const ok = await useIdeStore
       .getState()
@@ -84,7 +86,10 @@ describe("followIdeLink", () => {
     expect(ok).toBe(false);
     const st = useIdeStore.getState();
     expect(st.status).toContain("src/Missing.java");
-    expect(st.pendingIdeLink).toBeNull();
+    expect(st.status).toContain("没有");
+    // Kept so opening the project that actually owns the file still lands.
+    expect(st.pendingIdeLink).toEqual({ path: "src/Missing.java", line: 1 });
+    expect(st.activePath).toBeNull();
   });
 
   it("空路径直接拒绝", async () => {
@@ -101,6 +106,31 @@ describe("followIdeLink", () => {
     const st = useIdeStore.getState();
     expect(st.pendingIdeLink).toBeNull();
     expect(st.activePath).toBe("src/A.java");
+  });
+
+  it("consumePendingIdeLink 打不开时保留 pending 并说明原因", async () => {
+    reset(fakeSession);
+    useIdeStore.setState({ pendingIdeLink: { path: "src/Gone.java", line: 7 } });
+    await useIdeStore.getState().consumePendingIdeLink();
+    const st = useIdeStore.getState();
+    expect(st.pendingIdeLink).toEqual({ path: "src/Gone.java", line: 7 });
+    expect(st.status).toContain("src/Gone.java");
+    expect(st.activePath).toBeNull();
+  });
+
+  it("dismiss 之后不再纠缠；再点链会重新挂起", async () => {
+    reset(null);
+    await useIdeStore.getState().followIdeLink({ path: "src/A.java", line: 4 });
+    expect(useIdeStore.getState().pendingIdeLink).not.toBeNull();
+
+    useIdeStore.getState().clearPendingIdeLink();
+    expect(useIdeStore.getState().pendingIdeLink).toBeNull();
+
+    await useIdeStore.getState().followIdeLink({ path: "src/A.java", line: 5 });
+    expect(useIdeStore.getState().pendingIdeLink).toEqual({
+      path: "src/A.java",
+      line: 5,
+    });
   });
 });
 

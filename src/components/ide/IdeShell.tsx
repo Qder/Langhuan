@@ -8,6 +8,7 @@ import { IdeExplorer } from "./IdeExplorer";
 import { IdeTabBar } from "./IdeTabBar";
 import { IdeEditor } from "./IdeEditor";
 import { IdeWelcome } from "./IdeWelcome";
+import { IdePendingLinkBanner } from "./IdePendingLinkBanner";
 import { IdeDirtyCloseDialog } from "./IdeDirtyCloseDialog";
 import { IdeExplainPanel } from "./IdeExplainPanel";
 import { IdeQuickOpen } from "./IdeQuickOpen";
@@ -299,6 +300,9 @@ export function IdeShell() {
                           className="mt-6 w-full text-left"
                           currentSessionId={session?.id}
                         />
+                        <div className="mt-6 w-full text-left">
+                          <IdePendingLinkBanner />
+                        </div>
                       </div>
                     </div>
                   )}

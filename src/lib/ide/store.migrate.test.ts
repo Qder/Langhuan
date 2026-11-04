@@ -146,4 +146,20 @@ describe("migrateIdePersistedState", () => {
     // Sorted by openedAt desc, so the newest copy (9) wins the dedupe.
     expect(out.recentFiles[0]!.openedAt).toBe(9);
   });
+
+  it("v4 keeps a pending ide link so a reload still knows where to jump", () => {
+    const out = migrateIdePersistedState(
+      { recent: [], pendingIdeLink: { path: "src/App.tsx", line: 10 } },
+      3
+    );
+    expect(out.pendingIdeLink).toEqual({ path: "src/App.tsx", line: 10 });
+  });
+
+  it("v4 defaults to no pending link for older blobs", () => {
+    expect(migrateIdePersistedState({ recent: [] }, 0).pendingIdeLink).toBeNull();
+    expect(
+      migrateIdePersistedState({ recent: [], pendingIdeLink: { path: "" } }, 3)
+        .pendingIdeLink
+    ).toBeNull();
+  });
 });

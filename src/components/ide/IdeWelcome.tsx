@@ -6,6 +6,7 @@ import { useIdeStore } from "@/lib/ide/store";
 import { getIdeFsCapability } from "@/lib/ide/ideFs";
 import { relativeTime } from "@/lib/utils";
 import { IdeRecentFiles } from "./IdeRecentFiles";
+import { IdePendingLinkBanner } from "./IdePendingLinkBanner";
 
 export function IdeWelcome() {
   const recent = useIdeStore((s) => s.recent);
@@ -48,6 +49,8 @@ export function IdeWelcome() {
             打开文件夹
           </Button>
         )}
+
+        <IdePendingLinkBanner />
 
         <section className="space-y-3">
           <h2 className="text-xs font-ui uppercase tracking-wide text-[var(--muted)]">

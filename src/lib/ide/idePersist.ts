@@ -1,6 +1,7 @@
 /**
  * Persist migrate for langhuan-ide-store (pure; safe for vitest).
  * v1: recent + explorerOpen. v2: + explain panel fields. v3: + recentFiles.
+ * v4: + pendingIdeLink (a note link waiting for a project must survive reload).
  */
 
 import { IDE_RECENT_MAX, type IdeRecentProjectMeta } from "./recentProjects";
@@ -14,8 +15,10 @@ import {
   normalizeExplainFilePayloads,
   type IdeExplainMessage,
 } from "./explain";
+import { normalizePendingIdeLink } from "./pendingLink";
+import type { IdeLinkTarget } from "./ideLink";
 
-export const IDE_STORE_PERSIST_VERSION = 3;
+export const IDE_STORE_PERSIST_VERSION = 4;
 
 export type IdeExplainSettingsPersisted = {
   apiKey: string;
@@ -32,6 +35,8 @@ export type IdePersistedSlice = {
   explainOpen: boolean;
   explainBySession: Record<string, IdeExplainMessage[]>;
   explainSettings: IdeExplainSettingsPersisted;
+  /** v4: a `[[ide:…]]` link waiting for its project. */
+  pendingIdeLink: IdeLinkTarget | null;
 };
 
 const DEFAULT_EXPLAIN_SETTINGS: IdeExplainSettingsPersisted = {
@@ -122,8 +127,9 @@ function normalizeExplainSettings(raw: unknown): IdeExplainSettingsPersisted {
 
 /**
  * Upgrade IDB persist blobs for langhuan-ide-store.
- * fromVersion 0/1 only had recent + explorerOpen; v2 adds explain fields.
- * Ephemeral runtime fields (pendingReveal, tabs, session) are never restored.
+ * fromVersion 0/1 only had recent + explorerOpen; v2 adds explain fields;
+ * v3 adds recentFiles; v4 adds the pending note link. Ephemeral runtime fields
+ * (pendingReveal, tabs, session) are never restored.
  */
 export function migrateIdePersistedState(
   persisted: unknown,
@@ -141,6 +147,7 @@ export function migrateIdePersistedState(
     explainOpen: typeof p.explainOpen === "boolean" ? p.explainOpen : false,
     explainBySession: normalizeExplainBySession(p.explainBySession),
     explainSettings: normalizeExplainSettings(p.explainSettings),
+    pendingIdeLink: normalizePendingIdeLink(p.pendingIdeLink),
   };
   void fromVersion;
   return slice;

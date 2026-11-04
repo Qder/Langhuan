@@ -34,6 +34,7 @@ import {
   type IdePendingReveal,
 } from "./citations";
 import type { IdeLinkTarget } from "./ideLink";
+import { pendingLinkLocation } from "./pendingLink";
 import {
   IDE_RECENT_FILES_MAX,
   pruneRecentFilesForSession,
@@ -410,10 +411,16 @@ export const useIdeStore = create<IdeState>()(
           set({ status: "这条读码链接没有可用的文件路径" });
           return false;
         }
+        const wanted: IdeLinkTarget =
+          target.line != null
+            ? target.endLine != null && target.endLine > target.line
+              ? { path, line: target.line, endLine: target.endLine }
+              : { path, line: target.line }
+            : { path };
         if (!get().session) {
           set({
-            pendingIdeLink: { ...target, path },
-            status: "先在读码打开该工程，打开后会自动跳过去",
+            pendingIdeLink: wanted,
+            status: `先打开包含 ${pendingLinkLocation(wanted)} 的工程，打开后会自动跳过去`,
           });
           return false;
         }
@@ -422,27 +429,35 @@ export const useIdeStore = create<IdeState>()(
           endLine: target.endLine,
         });
         if (!ok) {
+          // Keep the link: this project simply is not the one that owns it.
+          // Opening the right project later completes the jump by itself, and
+          // the banner (shown wherever a project/file is missing) can retry.
           set({
-            status: `工程里没有 ${path}；确认当前打开的是同一个工程`,
+            pendingIdeLink: wanted,
+            status: `当前工程「${get().session?.name ?? ""}」里没有 ${path}；打开它所属的工程后会自动跳过去`,
           });
           return false;
         }
+        // The link landed: nothing is waiting any more.
+        set({ pendingIdeLink: null });
         return true;
       },
 
       consumePendingIdeLink: async () => {
         const pending = get().pendingIdeLink;
         if (!pending) return;
-        set({ pendingIdeLink: null });
         const ok = await get().openFile(pending.path, {
           line: pending.line,
           endLine: pending.endLine,
         });
         if (!ok) {
+          // Keep it: the banner stays retryable and the reason is spelled out.
           set({
-            status: `工程里没有 ${pending.path}；确认当前打开的是同一个工程`,
+            status: `工程里没有 ${pending.path}；这只工程可能不是这条链接的来源`,
           });
+          return;
         }
+        set({ pendingIdeLink: null });
       },
 
       clearPendingIdeLink: () => set({ pendingIdeLink: null }),
@@ -747,6 +762,8 @@ export const useIdeStore = create<IdeState>()(
           baseUrl: s.explainSettings.baseUrl,
           model: s.explainSettings.model,
         },
+        // A link clicked with no project must still be waiting after a reload.
+        pendingIdeLink: s.pendingIdeLink,
       }),
       version: IDE_STORE_PERSIST_VERSION,
       migrate: (persisted, fromVersion) =>
