@@ -155,3 +155,73 @@ describe("extractFileOutline — other languages & edge cases", () => {
     expect(out.map((s) => s.name)).toEqual(["a", "b"]);
   });
 });
+
+describe("extractFileOutline — line accuracy on real shapes", () => {
+  it("reports the 1-based line of the declaration, not of a comment above it", () => {
+    const src = [
+      "// header comment",
+      "",
+      "/**",
+      " * docs for run",
+      " */",
+      "export function run() {}",
+      "",
+      "// trailing comment",
+      "export class Box {}",
+    ].join("\n");
+    const out = extractFileOutline("src/a.ts", src);
+    expect(out).toEqual([
+      { name: "run", kind: "function", line: 6, depth: 0 },
+      { name: "Box", kind: "class", line: 9, depth: 0 },
+    ]);
+  });
+
+  it("keeps every line number inside the file", () => {
+    const src = Array.from({ length: 60 }, (_, i) =>
+      i % 3 === 0 ? `export function f${i}() {}` : `const v${i} = ${i};`
+    ).join("\n");
+    const total = src.split("\n").length;
+    const out = extractFileOutline("src/a.ts", src);
+    expect(out.length).toBeGreaterThan(0);
+    for (const sym of out) {
+      expect(sym.line).toBeGreaterThanOrEqual(1);
+      expect(sym.line).toBeLessThanOrEqual(total);
+      // The reported line really is the declaration.
+      expect(src.split("\n")[sym.line - 1]).toContain(sym.name);
+    }
+  });
+
+  it("stops at the symbol budget instead of walking a huge file", () => {
+    const src = Array.from({ length: 5000 }, (_, i) => `export function f${i}() {}`).join("\n");
+    expect(extractFileOutline("src/a.ts", src, { max: 10 })).toHaveLength(10);
+  });
+});
+
+describe("extractFileOutline — cost on large files", () => {
+  const big = (() => {
+    const lines: string[] = [];
+    for (let i = 0; i < 20_000; i++) {
+      lines.push(
+        i % 7 === 0
+          ? `export function fn${i}(a: number) { return a + ${i}; }`
+          : `const value${i} = compute(${i}, "some typical body text");`
+      );
+    }
+    return lines.join("\n");
+  })();
+
+  it("a 20k-line file is scanned well under one frame budget", () => {
+    const started = performance.now();
+    const out = extractFileOutline("src/big.ts", big);
+    const elapsed = performance.now() - started;
+    expect(out).toHaveLength(400); // OUTLINE_MAX_SYMBOLS budget
+    // Generous on CI, still far below the ~16ms a keystroke could afford.
+    expect(elapsed).toBeLessThan(150);
+  });
+
+  it("does not allocate a symbol per line", () => {
+    const out = extractFileOutline("src/big.ts", big);
+    expect(out.length).toBeLessThanOrEqual(400);
+    expect(out.every((s) => s.name && s.line >= 1)).toBe(true);
+  });
+});

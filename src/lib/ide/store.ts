@@ -87,6 +87,13 @@ type IdeState = {
   status: string | null;
   pendingClose: IdePendingClose | null;
   explorerOpen: boolean;
+  /**
+   * 当前文件大纲 rail. Persisted so a reload keeps the reading layout the user
+   * chose; it only has an effect while a file is open.
+   */
+  outlineOpen: boolean;
+  setOutlineOpen: (v: boolean) => void;
+  toggleOutlineOpen: () => void;
   loadingTree: boolean;
 
   /** After openFile: IdeEditor scrolls+highlights then clears. */
@@ -210,6 +217,7 @@ export const useIdeStore = create<IdeState>()(
       status: null,
       pendingClose: null,
       explorerOpen: true,
+      outlineOpen: false,
       loadingTree: false,
       pendingReveal: null,
       pendingExplorerReveal: null,
@@ -226,6 +234,8 @@ export const useIdeStore = create<IdeState>()(
       pendingExplainRequest: null,
 
       setExplorerOpen: (v) => set({ explorerOpen: v }),
+      setOutlineOpen: (v) => set({ outlineOpen: v }),
+      toggleOutlineOpen: () => set((s) => ({ outlineOpen: !s.outlineOpen })),
       setStatus: (msg) => set({ status: msg }),
       clearPendingReveal: () => set({ pendingReveal: null }),
       clearPendingExplorerReveal: () => set({ pendingExplorerReveal: null }),
@@ -754,6 +764,7 @@ export const useIdeStore = create<IdeState>()(
         recent: s.recent.slice(0, IDE_RECENT_MAX),
         recentFiles: s.recentFiles.slice(0, IDE_RECENT_FILES_MAX),
         explorerOpen: s.explorerOpen,
+        outlineOpen: s.outlineOpen,
         explainOpen: s.explainOpen,
         explainBySession: s.explainBySession,
         explainSettings: {

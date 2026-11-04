@@ -2,6 +2,7 @@
  * Persist migrate for langhuan-ide-store (pure; safe for vitest).
  * v1: recent + explorerOpen. v2: + explain panel fields. v3: + recentFiles.
  * v4: + pendingIdeLink (a note link waiting for a project must survive reload).
+ * v5: + outlineOpen (the reading rail the user left open).
  */
 
 import { IDE_RECENT_MAX, type IdeRecentProjectMeta } from "./recentProjects";
@@ -18,7 +19,7 @@ import {
 import { normalizePendingIdeLink } from "./pendingLink";
 import type { IdeLinkTarget } from "./ideLink";
 
-export const IDE_STORE_PERSIST_VERSION = 4;
+export const IDE_STORE_PERSIST_VERSION = 5;
 
 export type IdeExplainSettingsPersisted = {
   apiKey: string;
@@ -32,6 +33,8 @@ export type IdePersistedSlice = {
   /** v3: recently opened files (cross-project). */
   recentFiles: IdeRecentFile[];
   explorerOpen: boolean;
+  /** v5: 当前文件大纲 rail. */
+  outlineOpen: boolean;
   explainOpen: boolean;
   explainBySession: Record<string, IdeExplainMessage[]>;
   explainSettings: IdeExplainSettingsPersisted;
@@ -144,6 +147,7 @@ export function migrateIdePersistedState(
     recent: normalizeRecentList(p.recent),
     recentFiles: normalizeRecentFiles(p.recentFiles, IDE_RECENT_FILES_MAX),
     explorerOpen: typeof p.explorerOpen === "boolean" ? p.explorerOpen : true,
+    outlineOpen: typeof p.outlineOpen === "boolean" ? p.outlineOpen : false,
     explainOpen: typeof p.explainOpen === "boolean" ? p.explainOpen : false,
     explainBySession: normalizeExplainBySession(p.explainBySession),
     explainSettings: normalizeExplainSettings(p.explainSettings),

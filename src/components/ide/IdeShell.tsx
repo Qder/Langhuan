@@ -41,12 +41,14 @@ export function IdeShell() {
   const saveFile = useIdeStore((s) => s.saveFile);
   const requestCloseTab = useIdeStore((s) => s.requestCloseTab);
   const setDraft = useIdeStore((s) => s.setDraft);
+  const outlineOpen = useIdeStore((s) => s.outlineOpen);
+  const setOutlineOpen = useIdeStore((s) => s.setOutlineOpen);
+  const toggleOutlineOpen = useIdeStore((s) => s.toggleOutlineOpen);
   const isLg = useMediaQuery("(min-width: 1024px)");
   const isXl = useMediaQuery("(min-width: 1280px)");
   const [quickOpen, setQuickOpen] = React.useState(false);
   const [gotoLineOpen, setGotoLineOpen] = React.useState(false);
   const [workspaceSearchOpen, setWorkspaceSearchOpen] = React.useState(false);
-  const [outlineOpen, setOutlineOpen] = React.useState(false);
   const setCommandOpen = useStore((s) => s.setCommandOpen);
   const openFolder = useIdeStore((s) => s.openFolder);
   const workspaceSearchEvent = React.useCallback(
@@ -251,7 +253,7 @@ export function IdeShell() {
         onOpenWorkspaceSearch={() => setWorkspaceSearchOpen(true)}
         explainOpen={explainOpen}
         outlineOpen={outlineOpen}
-        onToggleOutline={() => setOutlineOpen((v) => !v)}
+        onToggleOutline={() => toggleOutlineOpen()}
         canToggleOutline={!!activePath}
       />
       <div className="flex-1 min-h-0 flex relative">

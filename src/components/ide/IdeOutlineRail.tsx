@@ -5,8 +5,10 @@ import { PanelRightClose, PanelRight } from "lucide-react";
 import { useIdeStore } from "@/lib/ide/store";
 import {
   extractFileOutline,
+  type OutlineSymbol,
   type OutlineSymbolKind,
 } from "@/lib/ide/fileOutline";
+import { planOutlineRefresh } from "@/lib/ide/outlineRefresh";
 import { cn } from "@/lib/utils";
 
 const KIND_LABEL: Record<OutlineSymbolKind, string> = {
@@ -26,6 +28,56 @@ const KIND_TONE: Record<OutlineSymbolKind, string> = {
   variable: "text-[var(--muted)]",
   heading: "text-[var(--muted)]",
 };
+
+/**
+ * Outline symbols for `draft`, without a full file sweep on every keystroke.
+ *
+ * Switching files computes at once (the old rows would be wrong for the new
+ * file, and its line numbers would point somewhere meaningless); editing the
+ * same file waits for a short quiet period sized by file size, so a burst of
+ * typing costs one sweep instead of one per character.
+ */
+function useOutlineSymbols(path: string, draft: string): OutlineSymbol[] {
+  // What the rail currently shows. Kept separate from `draft` so typing does
+  // not have to produce a new outline before the next paint.
+  const [shown, setShown] = React.useState(() => ({
+    path,
+    content: draft,
+    symbols: extractFileOutline(path, draft),
+  }));
+
+  // A file switch must never paint the previous file's rows, not even for one
+  // frame: compute for the new file during this render. The effect below then
+  // adopts this result instead of sweeping a second time.
+  const switched = React.useMemo(
+    () => (shown.path === path ? null : extractFileOutline(path, draft)),
+    [shown.path, path, draft]
+  );
+
+  React.useEffect(() => {
+    if (shown.path === path && shown.content === draft) return;
+
+    const plan = planOutlineRefresh(shown.path, path, draft);
+    const commit = (symbols: OutlineSymbol[] | null) => {
+      setShown({
+        path,
+        content: draft,
+        symbols: symbols ?? extractFileOutline(path, draft),
+      });
+    };
+
+    if (plan.immediate) {
+      // File switch: the memo above already swept the new file this render.
+      commit(switched);
+      return;
+    }
+    // Same file, edited: wait out the typing burst before sweeping again.
+    const timer = window.setTimeout(() => commit(null), plan.delay);
+    return () => window.clearTimeout(timer);
+  }, [path, draft, shown, switched]);
+
+  return switched ?? shown.symbols;
+}
 
 export const IDE_OUTLINE_RAIL_WIDTH = 208;
 
@@ -51,10 +103,7 @@ export function IdeOutlineRail({
     return reveal && reveal.path === path ? reveal.line : null;
   });
 
-  const symbols = React.useMemo(
-    () => extractFileOutline(path, draft),
-    [path, draft]
-  );
+  const symbols = useOutlineSymbols(path, draft);
 
   return (
     <aside

@@ -128,8 +128,7 @@ describe("migrateIdePersistedState", () => {
     ]);
   });
 
-  it("keeps v3 recent files and drops garbage / duplicates", () => {
-    const out = migrateIdePersistedState(
+  it("keeps v3 recent files and drops garbage / duplicates", () => {    const out = migrateIdePersistedState(
       {
         recent: [],
         recentFiles: [
@@ -145,6 +144,18 @@ describe("migrateIdePersistedState", () => {
     expect(out.recentFiles.map((f) => f.path)).toEqual(["src/a.ts", "B.java"]);
     // Sorted by openedAt desc, so the newest copy (9) wins the dedupe.
     expect(out.recentFiles[0]!.openedAt).toBe(9);
+  });
+
+  it("v5 keeps the outline rail open state and defaults it off", () => {
+    const on = migrateIdePersistedState({ recent: [], outlineOpen: true }, 4);
+    expect(on.outlineOpen).toBe(true);
+
+    const legacy = migrateIdePersistedState({ recent: [], explorerOpen: false }, 3);
+    expect(legacy.outlineOpen).toBe(false);
+    expect(legacy.explorerOpen).toBe(false);
+
+    const junk = migrateIdePersistedState({ outlineOpen: "yes" }, 4);
+    expect(junk.outlineOpen).toBe(false);
   });
 
   it("v4 keeps a pending ide link so a reload still knows where to jump", () => {
