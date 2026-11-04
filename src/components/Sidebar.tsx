@@ -29,7 +29,6 @@ import { BookOpenCheck,
   Columns2,
   FileCode2,
   Boxes,
-  Code2,
   Settings2,
 } from "lucide-react";
 import { Button } from "./ui/button";
@@ -106,7 +105,14 @@ function FileTree({
   onFileContextMenu: (docId: string, e: React.MouseEvent) => void;
   onOpenProjectFile: (path: string) => void;
 }) {
-  const openDoc = useStore((s) => s.requestOpenDoc);
+  const openDocRaw = useStore((s) => s.requestOpenDoc);
+  const setSidebarOpenTree = useStore((s) => s.setSidebarOpen);
+  const openDoc = (id: string) => {
+    openDocRaw(id);
+    if (typeof window !== "undefined" && !window.matchMedia("(min-width: 1024px)").matches) {
+      setSidebarOpenTree(false);
+    }
+  };
   const projects = useStore((s) => s.projects);
   const openProjectEntry = useStore((s) => s.openProjectEntry);
   const requestTreeReveal = useStore((s) => s.requestTreeReveal);
@@ -402,14 +408,19 @@ export function Sidebar() {
   const setStatus = useStore((s) => s.setStatus);
   const setCommandOpen = useStore((s) => s.setCommandOpen);
   const theme = useStore((s) => s.theme);
-  const setAppMode = useStore((s) => s.setAppMode);
   const setSettingsDialogOpen = useStore((s) => s.setSettingsDialogOpen);
   const setTheme = useStore((s) => s.setTheme);
   const sidebarOpen = useStore((s) => s.sidebarOpen);
   const setSidebarOpen = useStore((s) => s.setSidebarOpen);
   const sidebarWidth = useStore((s) => s.sidebarWidth);
   const setSidebarWidth = useStore((s) => s.setSidebarWidth);
-  const openDoc = useStore((s) => s.requestOpenDoc);
+  const openDocRaw = useStore((s) => s.requestOpenDoc);
+  const openDoc = (id: string) => {
+    openDocRaw(id);
+    if (typeof window !== "undefined" && !window.matchMedia("(min-width: 1024px)").matches) {
+      setSidebarOpen(false);
+    }
+  };
   const sidebarPanel = useStore((s) => s.sidebarPanel);
   const setSidebarPanel = useStore((s) => s.setSidebarPanel);
   const treeRevealRequest = useStore((s) => s.treeRevealRequest);
@@ -933,16 +944,6 @@ export function Sidebar() {
               )}
             </span>
           </button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className={cn("shrink-0", narrow ? "h-10 w-10" : compact ? "h-7 w-7" : "h-8 w-8")}
-            aria-label="切换到 IDE 模式"
-            title="IDE 模式：打开本地工程"
-            onClick={() => setAppMode("ide")}
-          >
-            <Code2 className="h-3.5 w-3.5" />
-          </Button>
           <Button
             variant="ghost"
             size="icon"

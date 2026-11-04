@@ -28,7 +28,6 @@ export function IdeShell() {
   const setExplorerOpen = useIdeStore((s) => s.setExplorerOpen);
   const explainOpen = useIdeStore((s) => s.explainOpen);
   const setExplainOpen = useIdeStore((s) => s.setExplainOpen);
-  const toggleExplainOpen = useIdeStore((s) => s.toggleExplainOpen);
   const anyDirty = useIdeStore((s) => s.anyDirty);
   const status = useIdeStore((s) => s.status);
   const setStatus = useIdeStore((s) => s.setStatus);
@@ -59,6 +58,31 @@ export function IdeShell() {
     return () => window.removeEventListener("keydown", onKey);
   }, [isLg, explorerOpen, session, setExplorerOpen]);
 
+  // Tablet: one modal drawer at a time (explorer ↔ explain)
+  React.useEffect(() => {
+    if (isLg) return;
+    if (explainOpen && explorerOpen) {
+      setExplorerOpen(false);
+    }
+  }, [explainOpen, isLg, explorerOpen, setExplorerOpen]);
+
+  const openExplorer = React.useCallback(() => {
+    if (!isLg) setExplainOpen(false);
+    setExplorerOpen(true);
+  }, [isLg, setExplainOpen, setExplorerOpen]);
+
+  const toggleExplorer = React.useCallback(() => {
+    const next = !useIdeStore.getState().explorerOpen;
+    if (!isLg && next) setExplainOpen(false);
+    setExplorerOpen(next);
+  }, [isLg, setExplainOpen, setExplorerOpen]);
+
+  const toggleExplain = React.useCallback(() => {
+    const next = !useIdeStore.getState().explainOpen;
+    if (!isLg && next) setExplorerOpen(false);
+    setExplainOpen(next);
+  }, [isLg, setExplainOpen, setExplorerOpen]);
+
   // Central IDE shortcut claim (capture) so browser never steals Mod+F/P/S/W/B/G etc.
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -66,7 +90,7 @@ export function IdeShell() {
 
       if (isIdeExplainToggleHotkey(e)) {
         claimShortcut(e);
-        toggleExplainOpen();
+        toggleExplain();
         return;
       }
 
@@ -164,7 +188,7 @@ export function IdeShell() {
           setStatus("先打开文件夹");
           return;
         }
-        setExplorerOpen(!useIdeStore.getState().explorerOpen);
+        toggleExplorer();
         return;
       }
     };
@@ -174,11 +198,11 @@ export function IdeShell() {
     session,
     activePath,
     setStatus,
-    toggleExplainOpen,
+    toggleExplain,
+    toggleExplorer,
     setDraft,
     saveFile,
     requestCloseTab,
-    setExplorerOpen,
   ]);
 
   const showDrawer = !!session && explorerOpen && !isLg;
@@ -187,8 +211,8 @@ export function IdeShell() {
   return (
     <div className="h-dvh flex flex-col overflow-hidden text-[var(--fg)] relative">
       <IdeTopBar
-        onToggleExplorer={() => setExplorerOpen(!explorerOpen)}
-        onToggleExplain={() => setExplainOpen(!explainOpen)}
+        onToggleExplorer={toggleExplorer}
+        onToggleExplain={toggleExplain}
         explainOpen={explainOpen}
       />
       <div className="flex-1 min-h-0 flex relative">
@@ -219,13 +243,18 @@ export function IdeShell() {
                 {activePath ? (
                   <IdeEditor key={activePath} path={activePath} />
                 ) : (
-                  <div className="h-full flex items-center justify-center text-sm text-[var(--muted)] font-ui px-6 text-center">
-                    从左侧资源管理器打开一个文件开始编辑。
-                    <br />
-                    修改后 ⌘/Ctrl+S 写回磁盘；关闭未保存标签会提示。
-                    <br />
-                    ⌘/Ctrl+P 快速打开；⌘/Ctrl+G 转到行；F12 转到定义；Shift+Alt+F
-                    格式化；⌘/Ctrl+Shift+L 讲解。
+                  <div className="h-full flex flex-col items-center justify-center gap-2 text-sm text-[var(--muted)] font-ui px-6 text-center">
+                    <p>打开一个文件开始读码。</p>
+                    <p>选中后讲解；点回复里的代码块可跳回源码。</p>
+                    {!isLg && !explorerOpen && (
+                      <button
+                        type="button"
+                        className="mt-2 text-[var(--accent)] hover:underline"
+                        onClick={openExplorer}
+                      >
+                        打开资源管理器
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -233,10 +262,7 @@ export function IdeShell() {
           )}
         </div>
 
-        {explainOpen && isLg && (
-          <IdeExplainPanel onClose={() => setExplainOpen(false)} />
-        )}
-        {explainOpen && !isLg && (
+        {explainOpen && (
           <IdeExplainPanel onClose={() => setExplainOpen(false)} />
         )}
       </div>
@@ -245,13 +271,10 @@ export function IdeShell() {
       <IdeDirtyCloseDialog />
       <div
         className={cn(
-          "h-7 shrink-0 flex items-center px-3 text-[11px] font-ui border-t border-[var(--chrome-border)] bg-[var(--chrome)] text-[var(--muted)]"
+          "h-7 max-lg:h-6 shrink-0 flex items-center px-3 text-[11px] max-lg:text-[10px] font-ui border-t border-[var(--chrome-border)] bg-[var(--chrome)] text-[var(--muted)]"
         )}
       >
-        <span className="truncate">
-          {status ||
-            "IDE · ⌘/Ctrl+P 打开 · F12 定义 · Shift+Alt+F 格式化 · ⌘/Ctrl+Shift+L 讲解"}
-        </span>
+        <span className="truncate">{status || "读码 · 讲解"}</span>
       </div>
     </div>
   );

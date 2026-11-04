@@ -1,6 +1,6 @@
 "use client";
 
-import { FolderOpen, Code2, Trash2 } from "lucide-react";
+import { FolderOpen, BookOpen, Trash2 } from "lucide-react";
 import { Button } from "../ui/button";
 import { useIdeStore } from "@/lib/ide/store";
 import { getIdeFsCapability } from "@/lib/ide/ideFs";
@@ -19,19 +19,22 @@ export function IdeWelcome() {
       <div className="max-w-xl mx-auto px-6 py-12 space-y-8">
         <div className="space-y-2">
           <div className="flex items-center gap-2 text-[var(--accent)]">
-            <Code2 className="h-6 w-6" />
-            <h1 className="font-serif text-2xl font-semibold text-[var(--fg)]">IDE 模式</h1>
+            <BookOpen className="h-6 w-6" />
+            <h1 className="font-serif text-2xl font-semibold text-[var(--fg)]">读码</h1>
           </div>
           <p className="text-sm text-[var(--muted)] font-ui leading-relaxed">
-            打开本地工程目录，像 VS Code 一样浏览与编辑源码（Java 优先，可扩展 C++ 等）。
-            工程与笔记库分开，不会写入 <code className="text-[var(--fg)]">content/</code>。
+            打开本地文件夹 → 浏览源码 → 选中后讲解。工程只在本机打开，不会写入笔记库的{" "}
+            <code className="text-[var(--fg)]">content/</code>。
           </p>
         </div>
 
         {!cap.canPickFolder ? (
           <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-5 space-y-2">
-            <p className="font-serif font-semibold">当前环境无法选择磁盘文件夹</p>
+            <p className="font-serif font-semibold">当前浏览器无法选择文件夹</p>
             <p className="text-sm text-[var(--muted)]">{cap.unsupportedHint}</p>
+            <p className="text-xs text-[var(--muted)] font-ui">
+              读码工作台依赖浏览器的目录访问权限，不能在本机编译或运行代码。
+            </p>
           </div>
         ) : (
           <Button

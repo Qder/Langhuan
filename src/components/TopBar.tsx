@@ -55,6 +55,7 @@ import {
   type HtmlWidthMode,
 } from "@/lib/htmlPreviewPrefs";
 import { openHtmlInNewTab } from "./HtmlReader";
+import { AppModeSwitch } from "./AppModeSwitch";
 
 /** Ellipsis middle path segments; keep last two. */
 function BreadcrumbPath({ path }: { path: string }) {
@@ -295,13 +296,16 @@ export function TopBar() {
     return null;
   }
 
+  const viewModesForToolbar = modes.filter((m) => tabletUp || m.id !== "split");
+  const touchIcon = "max-lg:h-11 max-lg:w-11";
+
   return (
     <>
-      <header className="h-14 max-lg:h-14 shrink-0 glass flex items-center gap-2 px-3 md:px-4">
+      <header className="h-14 shrink-0 flex items-center gap-2 px-3 md:px-4 overflow-hidden bg-[var(--chrome)] border-b border-[var(--chrome-border)]">
         <Button
           variant="ghost"
           size="icon"
-          className="lg:hidden max-lg:h-11 max-lg:w-11"
+          className={cn("lg:hidden", touchIcon)}
           aria-label="打开侧栏"
           onClick={() => setSidebarOpen(true)}
         >
@@ -313,7 +317,7 @@ export function TopBar() {
             <>
               <BreadcrumbPath path={active.path} />
               {isHtml && (
-                <span className="hidden sm:inline shrink-0 text-[11px] text-[var(--muted)] font-ui truncate">
+                <span className="hidden md:inline shrink-0 text-[11px] text-[var(--muted)] font-ui truncate">
                   HTML · 更新于 {relativeTime(active.updatedAt)}
                 </span>
               )}
@@ -324,20 +328,20 @@ export function TopBar() {
               )}
             </>
           ) : (
-            <div className="font-serif font-semibold">琅嬛 · 藏书阁</div>
+            <div className="font-serif font-semibold truncate">琅嬛 · 藏书阁</div>
           )}
         </div>
 
-        {active && (
-          <div className="flex items-center gap-3 shrink-0">
-            {/* Group: view */}
-            <div className="flex items-center gap-1">
+        <div className="relative flex items-center gap-1.5 shrink-0">
+          {active && (
+            <>
+              {/* Mid tier: view segment sm+ */}
               <div
                 className="hidden sm:inline-flex rounded-xl border border-[var(--border)] p-0.5 bg-[var(--card)]"
                 role="tablist"
                 aria-label="视图切换"
               >
-                {modes.filter((m) => tabletUp || m.id !== "split").map((m) => (
+                {viewModesForToolbar.map((m) => (
                   <button
                     key={m.id}
                     type="button"
@@ -355,433 +359,480 @@ export function TopBar() {
                   </button>
                 ))}
               </div>
-              {viewMode === "split" && (
+              {viewMode === "split" && tabletUp && (
                 <>
-                <button
-                  type="button"
-                  onClick={() => toggleSplitSourceFirst()}
-                  title={splitSourceFirst ? "切换为预览在左" : "切换为源码在左"}
-                  aria-label={
-                    splitSourceFirst
-                      ? "当前源码在左，点击改为预览在左"
-                      : "当前预览在左，点击改为源码在左"
-                  }
-                  className={cn(
-                    "hidden sm:inline-flex items-center gap-1.5 rounded-xl border border-[var(--border)]",
-                    "bg-[var(--card)] px-2.5 py-1 text-xs font-ui transition-colors",
-                    "hover:bg-[var(--hover)] hover:border-[var(--accent)]/40",
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40"
-                  )}
-                >
-                  <ArrowLeftRight className="h-3.5 w-3.5 text-[var(--muted)]" />
-                  <span>{splitSourceFirst ? "源码在左" : "预览在左"}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => active && toggleSyncScroll(active.id)}
-                  title={syncScrollOn ? "关闭同步滚动（点击定位仍可用）" : "开启同步滚动"}
-                  aria-label={syncScrollOn ? "同步滚动已开启" : "同步滚动已关闭"}
-                  aria-pressed={syncScrollOn}
-                  className={cn(
-                    "hidden sm:inline-flex items-center gap-1.5 rounded-xl border border-[var(--border)]",
-                    "bg-[var(--card)] px-2.5 py-1 text-xs font-ui transition-colors",
-                    "hover:bg-[var(--hover)] hover:border-[var(--accent)]/40",
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40",
-                    syncScrollOn && "border-[var(--accent)]/50 text-[var(--accent)]"
-                  )}
-                >
-                  <Link2 className="h-3.5 w-3.5" />
-                  <span>{syncScrollOn ? "同步滚动" : "同步已关"}</span>
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => toggleSplitSourceFirst()}
+                    title={splitSourceFirst ? "切换为预览在左" : "切换为源码在左"}
+                    aria-label={
+                      splitSourceFirst
+                        ? "当前源码在左，点击改为预览在左"
+                        : "当前预览在左，点击改为源码在左"
+                    }
+                    className={cn(
+                      "hidden lg:inline-flex items-center gap-1.5 rounded-xl border border-[var(--border)]",
+                      "bg-[var(--card)] px-2.5 py-1 text-xs font-ui transition-colors",
+                      "hover:bg-[var(--hover)] hover:border-[var(--accent)]/40"
+                    )}
+                  >
+                    <ArrowLeftRight className="h-3.5 w-3.5 text-[var(--muted)]" />
+                    <span>{splitSourceFirst ? "源码在左" : "预览在左"}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => active && toggleSyncScroll(active.id)}
+                    title={syncScrollOn ? "关闭同步滚动（点击定位仍可用）" : "开启同步滚动"}
+                    aria-label={syncScrollOn ? "同步滚动已开启" : "同步滚动已关闭"}
+                    aria-pressed={syncScrollOn}
+                    className={cn(
+                      "hidden lg:inline-flex items-center gap-1.5 rounded-xl border border-[var(--border)]",
+                      "bg-[var(--card)] px-2.5 py-1 text-xs font-ui transition-colors",
+                      "hover:bg-[var(--hover)] hover:border-[var(--accent)]/40",
+                      syncScrollOn && "border-[var(--accent)]/50 text-[var(--accent)]"
+                    )}
+                  >
+                    <Link2 className="h-3.5 w-3.5" />
+                    <span>{syncScrollOn ? "同步滚动" : "同步已关"}</span>
+                  </button>
                 </>
               )}
-            </div>
 
-            {/* Group: save */}
-            <div className="flex items-center gap-1">
-              <Button
-                variant={dirty ? "accent" : "outline"}
-                size="sm"
-                onClick={() => saveDoc(active.id)}
-                aria-label="保存"
-              >
-                {dirty ? <Save className="h-3.5 w-3.5" /> : <Check className="h-3.5 w-3.5" />}
-                {dirty ? "保存" : "已保存"}
-              </Button>
-            </div>
-
-            {/* Group: HTML preview tools */}
-            {isHtml && viewMode !== "source" && htmlPrefs && (
-              <div className="flex items-center gap-1">
-                <div
-                  className="hidden md:inline-flex rounded-xl border border-[var(--border)] p-0.5 bg-[var(--card)]"
-                  role="group"
-                  aria-label="宽度模拟"
-                >
-                  {(
-                    [
-                      ["fluid", "自适应"],
-                      ["desktop", "桌面"],
-                      ["tablet", "平板"],
-                      ["phone", "手机"],
-                    ] as [HtmlWidthMode, string][]
-                  ).map(([id, label]) => (
-                    <button
-                      key={id}
-                      type="button"
-                      onClick={() =>
-                        setHtmlPreviewPrefs(active.id, { widthMode: id })
-                      }
-                      className={cn(
-                        "px-2 py-1 text-[11px] rounded-[10px] font-ui transition-colors",
-                        htmlPrefs.widthMode === id
-                          ? "bg-[var(--accent)] text-white"
-                          : "hover:bg-[var(--hover)] text-[var(--muted)]"
-                      )}
-                      title={
-                        id === "fluid"
-                          ? "自适应宽度"
-                          : `${HTML_WIDTH_PX[id as Exclude<HtmlWidthMode, "fluid">]}px`
-                      }
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-                <div
-                  className="hidden lg:inline-flex rounded-xl border border-[var(--border)] p-0.5 bg-[var(--card)]"
-                  role="group"
-                  aria-label="缩放"
-                >
-                  {HTML_ZOOM_OPTIONS.map((z) => (
-                    <button
-                      key={z}
-                      type="button"
-                      onClick={() => setHtmlPreviewPrefs(active.id, { zoom: z })}
-                      className={cn(
-                        "px-2 py-1 text-[11px] rounded-[10px] font-ui tabular-nums",
-                        htmlPrefs.zoom === z
-                          ? "bg-[var(--accent)] text-white"
-                          : "hover:bg-[var(--hover)] text-[var(--muted)]"
-                      )}
-                    >
-                      {Math.round(z * 100)}%
-                    </button>
-                  ))}
-                </div>
+              {dirty && (
                 <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label="在新标签页打开"
-                  title="在新标签页打开"
-                  onClick={() => {
-                    openHtmlInNewTab(getContent(active.id));
-                    setStatus("已在新标签页打开");
-                  }}
-                >
-                  <ExternalLink className="h-4 w-4" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label="刷新预览"
-                  title="刷新预览"
-                  onClick={() => {
-                    bumpHtmlReload();
-                    setStatus("已刷新预览");
-                  }}
-                >
-                  <RefreshCw className="h-4 w-4" />
-                </Button>
-                <Button
-                  variant="ghost"
+                  variant="accent"
                   size="sm"
-                  aria-label="沉浸模式"
-                  title="沉浸模式 (F)"
-                  onClick={() => setHtmlImmersive(true)}
+                  className="shrink-0"
+                  onClick={() => saveDoc(active.id)}
+                  aria-label="保存"
                 >
-                  <Maximize2 className="h-3.5 w-3.5" />
-                  沉浸
+                  <Save className="h-3.5 w-3.5" />
+                  保存
                 </Button>
-              </div>
-            )}
+              )}
 
-            {/* MD reading tools */}
-            {!isHtml && viewMode !== "source" && (
-              <div className="flex items-center gap-1">
-                <div
-                  className="hidden md:inline-flex rounded-xl border border-[var(--border)] p-0.5 bg-[var(--card)]"
-                  role="group"
-                  aria-label="字号"
-                >
-                  {[15, 17, 19, 21].map((sz) => (
-                    <button
-                      key={sz}
-                      type="button"
-                      onClick={() => setReadingPrefs({ fontSize: sz })}
-                      className={cn(
-                        "px-2 py-1 text-[11px] rounded-[10px] font-ui tabular-nums",
-                        readingPrefs.fontSize === sz
-                          ? "bg-[var(--accent)] text-white"
-                          : "hover:bg-[var(--hover)] text-[var(--muted)]"
-                      )}
-                      title={`字号 ${sz}px`}
-                    >
-                      {sz}
-                    </button>
-                  ))}
-                </div>
-                <div
-                  className="hidden lg:inline-flex rounded-xl border border-[var(--border)] p-0.5 bg-[var(--card)]"
-                  role="group"
-                  aria-label="行宽"
-                >
-                  {(
-                    [
-                      [560, "窄"],
-                      [680, "适中"],
-                      [740, "默认"],
-                      [900, "宽"],
-                    ] as [number, string][]
-                  ).map(([w, label]) => (
-                    <button
-                      key={w}
-                      type="button"
-                      onClick={() => setReadingPrefs({ lineWidth: w })}
-                      className={cn(
-                        "px-2 py-1 text-[11px] rounded-[10px] font-ui",
-                        readingPrefs.lineWidth === w
-                          ? "bg-[var(--accent)] text-white"
-                          : "hover:bg-[var(--hover)] text-[var(--muted)]"
-                      )}
-                      title={`行宽 ${w}px`}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-                <Button
-                  variant={mdFocusMode ? "secondary" : "ghost"}
-                  size="sm"
-                  aria-label="专注模式"
-                  title="专注模式 (F)"
-                  onClick={() => setMdFocusMode(!mdFocusMode)}
-                >
-                  <Maximize2 className="h-3.5 w-3.5" />
-                  专注
-                </Button>
-              </div>
-            )}
-
-            {/* HTML tags popover (all view modes) */}
-            {isHtml && (
-              <div className="relative">
-                <Button
-                  ref={tagsBtnRef}
-                  variant={tagsOpen ? "secondary" : "ghost"}
-                  size="sm"
-                  aria-label="标签"
-                  aria-expanded={tagsOpen}
-                  onClick={() => setTagsOpen((v) => !v)}
-                >
-                  <Tag className="h-3.5 w-3.5" />
-                  标签 ({docTags.length})
-                </Button>
-                {tagsOpen && (
+              {/* Wide: HTML preview tools */}
+              {isHtml && viewMode !== "source" && htmlPrefs && (
+                <div className="hidden lg:flex items-center gap-1">
                   <div
-                    ref={tagsPanelRef}
-                    className="absolute right-0 top-full z-40 mt-2 w-64 rounded-2xl border border-[var(--border)] bg-[var(--card)] p-3 shadow-xl animate-enter"
+                    className="inline-flex rounded-xl border border-[var(--border)] p-0.5 bg-[var(--card)]"
+                    role="group"
+                    aria-label="宽度模拟"
                   >
-                    <div className="mb-2 text-xs text-[var(--muted)] font-ui">文档标签</div>
-                    <div className="flex flex-wrap gap-1.5 mb-2">
-                      {docTags.length === 0 && (
-                        <span className="text-xs text-[var(--muted)]">暂无标签</span>
-                      )}
-                      {docTags.map((t) => (
-                        <span
-                          key={t}
-                          className="inline-flex items-center gap-1 rounded-full border border-[var(--border)] px-2 py-0.5 text-xs"
-                        >
-                          {t}
-                          <button
-                            type="button"
-                            aria-label={`删除标签 ${t}`}
-                            className="hover:text-[var(--accent)]"
-                            onClick={() =>
-                              setDocTags(
-                                active.id,
-                                docTags.filter((x) => x !== t)
-                              )
-                            }
-                          >
-                            ×
-                          </button>
-                        </span>
-                      ))}
-                    </div>
-                    <form
-                      onSubmit={(e) => {
-                        e.preventDefault();
-                        const next = tagInput.trim();
-                        if (!next || docTags.includes(next)) return;
-                        setDocTags(active.id, [...docTags, next]);
-                        setTagInput("");
-                      }}
-                      className="flex gap-1.5"
-                    >
-                      <Input
-                        value={tagInput}
-                        onChange={(e) => setTagInput(e.target.value)}
-                        placeholder="+ 标签"
-                        className="h-8 text-xs"
-                      />
-                      <Button type="submit" size="sm" variant="outline">
-                        添加
-                      </Button>
-                    </form>
+                    {(
+                      [
+                        ["fluid", "自适应"],
+                        ["desktop", "桌面"],
+                        ["tablet", "平板"],
+                        ["phone", "手机"],
+                      ] as [HtmlWidthMode, string][]
+                    ).map(([id, label]) => (
+                      <button
+                        key={id}
+                        type="button"
+                        onClick={() =>
+                          setHtmlPreviewPrefs(active.id, { widthMode: id })
+                        }
+                        className={cn(
+                          "px-2 py-1 text-[11px] rounded-[10px] font-ui transition-colors",
+                          htmlPrefs.widthMode === id
+                            ? "bg-[var(--accent)] text-white"
+                            : "hover:bg-[var(--hover)] text-[var(--muted)]"
+                        )}
+                        title={
+                          id === "fluid"
+                            ? "自适应宽度"
+                            : `${HTML_WIDTH_PX[id as Exclude<HtmlWidthMode, "fluid">]}px`
+                        }
+                      >
+                        {label}
+                      </button>
+                    ))}
                   </div>
-                )}
-              </div>
-            )}
-
-            {/* Group: other */}
-            <div className="relative flex items-center gap-1">
-              {showTocButton && (
-                <Button
-                  ref={tocBtnRef}
-                  variant={tocOpen ? "secondary" : "ghost"}
-                  size="sm"
-                  aria-label="目录"
-                  aria-expanded={tocOpen}
-                  onClick={() => setTocOpen((v) => !v)}
-                >
-                  <ListTree className="h-3.5 w-3.5" />
-                  目录
-                </Button>
-              )}
-              {showRailToggle && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label={outlineRailOpen ? "隐藏大纲栏" : "显示大纲栏"}
-                  onClick={() => toggleOutlineRail()}
-                >
-                  {outlineRailOpen ? (
-                    <PanelRightClose className="h-4 w-4" />
-                  ) : (
-                    <PanelRight className="h-4 w-4" />
-                  )}
-                </Button>
-              )}
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label={active.starred ? "取消收藏" : "收藏"}
-                onClick={() => toggleStar(active.id)}
-              >
-                <Star
-                  className={cn(
-                    "h-4 w-4",
-                    active.starred && "fill-[var(--gold)] text-[var(--gold)]"
-                  )}
-                />
-              </Button>
-              <Dropdown
-                align="right"
-                trigger={
-                  <Button variant="ghost" size="icon" aria-label="更多">
-                    <MoreHorizontal className="h-4 w-4" />
-                  </Button>
-                }
-              >
-                <DropdownItem
-                  onClick={() => {
-                    setRenameVal(active.path);
-                    setRenameOpen(true);
-                  }}
-                >
-                  <Pencil className="h-3.5 w-3.5" /> 重命名 / 移动
-                </DropdownItem>
-                <DropdownItem onClick={() => setExportDialogOpen(true)}>
-                  <Download className="h-3.5 w-3.5" /> 导出…
-                </DropdownItem>
-                <DropdownItem onClick={exportDoc}>
-                  <Download className="h-3.5 w-3.5" /> 快速导出源码
-                </DropdownItem>
-                <DropdownItem onClick={copySource}>
-                  <Copy className="h-3.5 w-3.5" /> 复制源码
-                </DropdownItem>
-                {asideAvailable && (
-                  <DropdownItem
+                  <div
+                    className="inline-flex rounded-xl border border-[var(--border)] p-0.5 bg-[var(--card)]"
+                    role="group"
+                    aria-label="缩放"
+                  >
+                    {HTML_ZOOM_OPTIONS.map((z) => (
+                      <button
+                        key={z}
+                        type="button"
+                        onClick={() => setHtmlPreviewPrefs(active.id, { zoom: z })}
+                        className={cn(
+                          "px-2 py-1 text-[11px] rounded-[10px] font-ui tabular-nums",
+                          htmlPrefs.zoom === z
+                            ? "bg-[var(--accent)] text-white"
+                            : "hover:bg-[var(--hover)] text-[var(--muted)]"
+                        )}
+                      >
+                        {Math.round(z * 100)}%
+                      </button>
+                    ))}
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label="在新标签页打开"
+                    title="在新标签页打开"
                     onClick={() => {
-                      if (wide) toggleOutlineRail();
-                      else {
-                        setTocOpen(true);
-                        setOutlineRailOpen(true);
-                      }
+                      openHtmlInNewTab(getContent(active.id));
+                      setStatus("已在新标签页打开");
                     }}
                   >
-                    <PanelRight className="h-3.5 w-3.5" />
-                    {wide
-                      ? outlineRailOpen
-                        ? "隐藏大纲栏"
-                        : "显示大纲栏"
-                      : "打开目录"}
-                  </DropdownItem>
-                )}
-                <DropdownItem onClick={() => setSettingsDialogOpen(true)}>
-                  <Settings2 className="h-3.5 w-3.5" /> 设置
-                </DropdownItem>
-                <DropdownItem onClick={() => setPropsDialogOpen(true)}>
-                  <SlidersHorizontal className="h-3.5 w-3.5" /> 属性面板
-                </DropdownItem>
-                <DropdownItem onClick={() => setGraphDialogOpen(true)}>
-                  <Network className="h-3.5 w-3.5" /> 知识图谱
-                </DropdownItem>
-                <DropdownItem onClick={() => setVersionDialogOpen(true)}>
-                  <History className="h-3.5 w-3.5" /> 版本历史
-                </DropdownItem>
-                <DropdownItem onClick={() => discardDraft(active.id)} disabled={!dirty}>
-                  <X className="h-3.5 w-3.5" /> 放弃修改
-                </DropdownItem>
-                <DropdownItem danger onClick={() => setDeleteOpen(true)}>
-                  <Trash2 className="h-3.5 w-3.5" /> 删除
-                </DropdownItem>
-              </Dropdown>
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label="文件内查找"
-                title="文件内查找 (⌘/Ctrl+F)"
-                onClick={() => setFindInFileOpen(true)}
-              >
-                <Search className="h-4 w-4" />
-              </Button>
-
-              {tocOpen && (
-                <div
-                  ref={tocPanelRef}
-                  className="absolute right-0 top-full z-40 mt-2 rounded-2xl border border-[var(--border)] bg-[var(--card)] shadow-xl animate-enter"
-                >
-                  <DocAside
-                    outline={outline}
-                    backlinks={backlinks}
-                    activeHeading={activeHeading}
-                    variant="popover"
-                    doc={active}
-                    onNavigateHeading={setActiveHeading}
-                  />
+                    <ExternalLink className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label="刷新预览"
+                    title="刷新预览"
+                    onClick={() => {
+                      bumpHtmlReload();
+                      setStatus("已刷新预览");
+                    }}
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    aria-label="沉浸模式"
+                    title="沉浸模式 (F)"
+                    onClick={() => setHtmlImmersive(true)}
+                  >
+                    <Maximize2 className="h-3.5 w-3.5" />
+                    沉浸
+                  </Button>
                 </div>
               )}
-            </div>
-          </div>
-        )}
 
-        {!active && (
-          <Button variant="ghost" size="icon" aria-label="搜索" onClick={() => setCommandOpen(true)}>
+              {/* Wide: MD reading tools */}
+              {!isHtml && viewMode !== "source" && (
+                <div className="hidden lg:flex items-center gap-1">
+                  <div
+                    className="inline-flex rounded-xl border border-[var(--border)] p-0.5 bg-[var(--card)]"
+                    role="group"
+                    aria-label="字号"
+                  >
+                    {[15, 17, 19, 21].map((sz) => (
+                      <button
+                        key={sz}
+                        type="button"
+                        onClick={() => setReadingPrefs({ fontSize: sz })}
+                        className={cn(
+                          "px-2 py-1 text-[11px] rounded-[10px] font-ui tabular-nums",
+                          readingPrefs.fontSize === sz
+                            ? "bg-[var(--accent)] text-white"
+                            : "hover:bg-[var(--hover)] text-[var(--muted)]"
+                        )}
+                        title={`字号 ${sz}px`}
+                      >
+                        {sz}
+                      </button>
+                    ))}
+                  </div>
+                  <div
+                    className="inline-flex rounded-xl border border-[var(--border)] p-0.5 bg-[var(--card)]"
+                    role="group"
+                    aria-label="行宽"
+                  >
+                    {(
+                      [
+                        [560, "窄"],
+                        [680, "适中"],
+                        [740, "默认"],
+                        [900, "宽"],
+                      ] as [number, string][]
+                    ).map(([w, label]) => (
+                      <button
+                        key={w}
+                        type="button"
+                        onClick={() => setReadingPrefs({ lineWidth: w })}
+                        className={cn(
+                          "px-2 py-1 text-[11px] rounded-[10px] font-ui",
+                          readingPrefs.lineWidth === w
+                            ? "bg-[var(--accent)] text-white"
+                            : "hover:bg-[var(--hover)] text-[var(--muted)]"
+                        )}
+                        title={`行宽 ${w}px`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  <Button
+                    variant={mdFocusMode ? "secondary" : "ghost"}
+                    size="sm"
+                    aria-label="专注模式"
+                    title="专注模式 (F)"
+                    onClick={() => setMdFocusMode(!mdFocusMode)}
+                  >
+                    <Maximize2 className="h-3.5 w-3.5" />
+                    专注
+                  </Button>
+                </div>
+              )}
+
+              {/* Wide: HTML tags */}
+              {isHtml && (
+                <div className="relative hidden lg:block">
+                  <Button
+                    ref={tagsBtnRef}
+                    variant={tagsOpen ? "secondary" : "ghost"}
+                    size="sm"
+                    aria-label="标签"
+                    aria-expanded={tagsOpen}
+                    onClick={() => setTagsOpen((v) => !v)}
+                  >
+                    <Tag className="h-3.5 w-3.5" />
+                    标签 ({docTags.length})
+                  </Button>
+                  {tagsOpen && (
+                    <div
+                      ref={tagsPanelRef}
+                      className="absolute right-0 top-full z-40 mt-2 w-64 rounded-2xl border border-[var(--border)] bg-[var(--card)] p-3 shadow-xl animate-enter"
+                    >
+                      <div className="mb-2 text-xs text-[var(--muted)] font-ui">文档标签</div>
+                      <div className="flex flex-wrap gap-1.5 mb-2">
+                        {docTags.length === 0 && (
+                          <span className="text-xs text-[var(--muted)]">暂无标签</span>
+                        )}
+                        {docTags.map((t) => (
+                          <span
+                            key={t}
+                            className="inline-flex items-center gap-1 rounded-full border border-[var(--border)] px-2 py-0.5 text-xs"
+                          >
+                            {t}
+                            <button
+                              type="button"
+                              aria-label={`删除标签 ${t}`}
+                              className="hover:text-[var(--accent)]"
+                              onClick={() =>
+                                setDocTags(
+                                  active.id,
+                                  docTags.filter((x) => x !== t)
+                                )
+                              }
+                            >
+                              ×
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                      <form
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          const next = tagInput.trim();
+                          if (!next || docTags.includes(next)) return;
+                          setDocTags(active.id, [...docTags, next]);
+                          setTagInput("");
+                        }}
+                        className="flex gap-1.5"
+                      >
+                        <Input
+                          value={tagInput}
+                          onChange={(e) => setTagInput(e.target.value)}
+                          placeholder="+ 标签"
+                          className="h-8 text-xs"
+                        />
+                        <Button type="submit" size="sm" variant="outline">
+                          添加
+                        </Button>
+                      </form>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Wide: outline / star */}
+              <div className="relative hidden lg:flex items-center gap-1">
+                {showTocButton && (
+                  <Button
+                    ref={tocBtnRef}
+                    variant={tocOpen ? "secondary" : "ghost"}
+                    size="sm"
+                    aria-label="目录"
+                    aria-expanded={tocOpen}
+                    onClick={() => setTocOpen((v) => !v)}
+                  >
+                    <ListTree className="h-3.5 w-3.5" />
+                    目录
+                  </Button>
+                )}
+                {showRailToggle && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label={outlineRailOpen ? "隐藏大纲栏" : "显示大纲栏"}
+                    onClick={() => toggleOutlineRail()}
+                  >
+                    {outlineRailOpen ? (
+                      <PanelRightClose className="h-4 w-4" />
+                    ) : (
+                      <PanelRight className="h-4 w-4" />
+                    )}
+                  </Button>
+                )}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label={active.starred ? "取消收藏" : "收藏"}
+                  onClick={() => toggleStar(active.id)}
+                >
+                  <Star
+                    className={cn(
+                      "h-4 w-4",
+                      active.starred && "fill-[var(--gold)] text-[var(--gold)]"
+                    )}
+                  />
+                </Button>
+              </div>
+            </>
+          )}
+
+          <AppModeSwitch />
+
+          {active && (
+            <Dropdown
+              align="right"
+              trigger={
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={touchIcon}
+                  aria-label="更多"
+                >
+                  <MoreHorizontal className="h-4 w-4" />
+                </Button>
+              }
+            >
+              {/* View modes — required on phone where segment is hidden */}
+              {viewModesForToolbar.map((m) => (
+                <DropdownItem
+                  key={`view-${m.id}`}
+                  onClick={() => setViewMode(m.id)}
+                >
+                  {viewMode === m.id ? (
+                    <Check className="h-3.5 w-3.5" />
+                  ) : (
+                    <span className="inline-block w-3.5" />
+                  )}
+                  {m.label}
+                </DropdownItem>
+              ))}
+              {viewMode === "split" && tabletUp && (
+                <>
+                  <DropdownItem onClick={() => toggleSplitSourceFirst()}>
+                    <ArrowLeftRight className="h-3.5 w-3.5" />
+                    {splitSourceFirst ? "改为预览在左" : "改为源码在左"}
+                  </DropdownItem>
+                  <DropdownItem onClick={() => toggleSyncScroll(active.id)}>
+                    <Link2 className="h-3.5 w-3.5" />
+                    {syncScrollOn ? "关闭同步滚动" : "开启同步滚动"}
+                  </DropdownItem>
+                </>
+              )}
+              <DropdownItem onClick={() => toggleStar(active.id)}>
+                <Star className="h-3.5 w-3.5" />
+                {active.starred ? "取消收藏" : "收藏"}
+              </DropdownItem>
+              {!isHtml && (
+                <DropdownItem onClick={() => setMdFocusMode(!mdFocusMode)}>
+                  <Maximize2 className="h-3.5 w-3.5" />
+                  {mdFocusMode ? "退出专注" : "专注模式"}
+                </DropdownItem>
+              )}
+              {isHtml && viewMode !== "source" && (
+                <DropdownItem onClick={() => setHtmlImmersive(true)}>
+                  <Maximize2 className="h-3.5 w-3.5" /> 沉浸模式
+                </DropdownItem>
+              )}
+              {asideAvailable && (
+                <DropdownItem
+                  onClick={() => {
+                    if (wide) toggleOutlineRail();
+                    else {
+                      setTocOpen(true);
+                      setOutlineRailOpen(true);
+                    }
+                  }}
+                >
+                  <PanelRight className="h-3.5 w-3.5" />
+                  {wide
+                    ? outlineRailOpen
+                      ? "隐藏大纲栏"
+                      : "显示大纲栏"
+                    : "打开目录"}
+                </DropdownItem>
+              )}
+              <DropdownItem
+                onClick={() => {
+                  setRenameVal(active.path);
+                  setRenameOpen(true);
+                }}
+              >
+                <Pencil className="h-3.5 w-3.5" /> 重命名 / 移动
+              </DropdownItem>
+              <DropdownItem onClick={() => setExportDialogOpen(true)}>
+                <Download className="h-3.5 w-3.5" /> 导出…
+              </DropdownItem>
+              <DropdownItem onClick={exportDoc}>
+                <Download className="h-3.5 w-3.5" /> 快速导出源码
+              </DropdownItem>
+              <DropdownItem onClick={copySource}>
+                <Copy className="h-3.5 w-3.5" /> 复制源码
+              </DropdownItem>
+              <DropdownItem onClick={() => setSettingsDialogOpen(true)}>
+                <Settings2 className="h-3.5 w-3.5" /> 设置
+              </DropdownItem>
+              <DropdownItem onClick={() => setPropsDialogOpen(true)}>
+                <SlidersHorizontal className="h-3.5 w-3.5" /> 属性面板
+              </DropdownItem>
+              <DropdownItem onClick={() => setGraphDialogOpen(true)}>
+                <Network className="h-3.5 w-3.5" /> 知识图谱
+              </DropdownItem>
+              <DropdownItem onClick={() => setVersionDialogOpen(true)}>
+                <History className="h-3.5 w-3.5" /> 版本历史
+              </DropdownItem>
+              <DropdownItem onClick={() => discardDraft(active.id)} disabled={!dirty}>
+                <X className="h-3.5 w-3.5" /> 放弃修改
+              </DropdownItem>
+              <DropdownItem danger onClick={() => setDeleteOpen(true)}>
+                <Trash2 className="h-3.5 w-3.5" /> 删除
+              </DropdownItem>
+            </Dropdown>
+          )}
+
+          <Button
+            variant="ghost"
+            size="icon"
+            className={touchIcon}
+            aria-label={active ? "文件内查找" : "搜索"}
+            title={active ? "文件内查找 (⌘/Ctrl+F)" : "搜索"}
+            onClick={() =>
+              active ? setFindInFileOpen(true) : setCommandOpen(true)
+            }
+          >
             <Search className="h-4 w-4" />
           </Button>
-        )}
+
+          {active && tocOpen && (
+            <div
+              ref={tocPanelRef}
+              className="absolute right-3 top-full z-40 mt-1 rounded-2xl border border-[var(--border)] bg-[var(--card)] shadow-xl animate-enter"
+            >
+              <DocAside
+                outline={outline}
+                backlinks={backlinks}
+                activeHeading={activeHeading}
+                variant="popover"
+                doc={active}
+                onNavigateHeading={setActiveHeading}
+              />
+            </div>
+          )}
+        </div>
       </header>
 
       <Dialog open={renameOpen} onClose={() => setRenameOpen(false)} labelledBy="rename-title">

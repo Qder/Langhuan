@@ -666,7 +666,7 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
         "flex flex-col bg-[var(--chrome)] border-[var(--chrome-border)]",
         isLg
           ? "w-[min(380px,38vw)] h-full border-l"
-          : "w-full max-h-[70dvh] rounded-t-2xl border-t shadow-2xl"
+          : "w-full max-h-[min(70dvh,100dvh)] min-h-0 rounded-t-2xl border-t shadow-2xl"
       )}
       role="dialog"
       aria-label="讲解"
@@ -739,8 +739,10 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
           </div>
         ) : messages.length === 0 ? (
           <div className="text-sm text-[var(--muted)] font-ui space-y-2 py-4">
-            <div>可以这样问：</div>
-            <div className="flex flex-wrap gap-1.5">
+            <p>
+              提问会带上当前文件 / 选区；回复里的路径和代码块可点，跳回源码。
+            </p>
+            <div className="flex flex-wrap gap-1.5 pt-1">
               {[
                 "这个文件在讲什么",
                 "解释当前选区",
@@ -910,7 +912,9 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
         aria-label="关闭讲解"
         onClick={onClose}
       />
-      <div className="absolute inset-x-0 bottom-0 z-50 animate-enter">{panel}</div>
+      <div className="absolute inset-x-0 bottom-0 z-50 max-h-[min(70dvh,100dvh)] flex flex-col min-h-0 animate-enter">
+        {panel}
+      </div>
     </>
   );
 }

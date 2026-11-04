@@ -149,7 +149,7 @@ export const createUiSlice: StateCreator<
   setHydrated: (v) => set({ hydrated: v }),
   setAppMode: (m) => {
         set({ appMode: m === "ide" ? "ide" : "notes" });
-        get().setStatus(m === "ide" ? "已切换到 IDE 模式" : "已切换到笔记模式");
+        get().setStatus(m === "ide" ? "已切换到读码" : "已切换到藏书阁");
       },
   setTheme: (t) => {
         const id = normalizeTheme(t);

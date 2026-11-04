@@ -54,7 +54,7 @@ export function StatusBar() {
   }
 
   return (
-    <footer className="h-7 shrink-0 border-t border-[var(--chrome-border)] bg-[var(--chrome)] px-3 flex items-center justify-between text-[11px] text-[var(--muted)] font-ui">
+    <footer className="h-7 max-lg:h-6 shrink-0 border-t border-[var(--chrome-border)] bg-[var(--chrome)] px-3 flex items-center justify-between text-[11px] max-lg:text-[10px] text-[var(--muted)] font-ui">
       <div className="truncate">
           {hoverReveal?.degrade
             ? hoverReveal.message || "动态生成，无稳定源码行号"
@@ -71,7 +71,7 @@ export function StatusBar() {
               </span>
             )}
             <span>{words} 字</span>
-            <span>约 {mins} 分钟</span>
+            <span className="hidden sm:inline">约 {mins} 分钟</span>
             <span>{dirty ? "未保存" : "已保存"}</span>
           </>
         )}

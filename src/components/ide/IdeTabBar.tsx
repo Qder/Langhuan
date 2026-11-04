@@ -32,7 +32,7 @@ export function IdeTabBar() {
             role="tab"
             aria-selected={active}
             className={cn(
-              "lh-ide-tab group relative flex items-center gap-1.5 max-w-[200px] h-9 px-3 text-xs font-ui border-b-2 border-r border-r-[color-mix(in_srgb,var(--chrome-border)_80%,transparent)] cursor-pointer transition-colors",
+              "lh-ide-tab group relative flex items-center gap-1.5 max-w-[200px] h-9 max-lg:min-h-11 px-3 text-xs font-ui border-b-2 border-r border-r-[color-mix(in_srgb,var(--chrome-border)_80%,transparent)] cursor-pointer transition-colors",
               active
                 ? "lh-ide-tab-active border-b-[var(--accent)] text-[var(--fg)] bg-[var(--bg)] font-medium"
                 : "lh-ide-tab-inactive border-b-transparent text-[var(--muted)] hover:text-[var(--fg)] hover:bg-[var(--hover)]"
@@ -46,7 +46,7 @@ export function IdeTabBar() {
             </span>
             <button
               type="button"
-              className="opacity-60 hover:opacity-100 p-0.5 rounded hover:bg-[var(--hover)]"
+              className="opacity-60 hover:opacity-100 p-0.5 max-lg:p-2 rounded hover:bg-[var(--hover)] min-w-8 min-h-8 inline-flex items-center justify-center"
               aria-label={`关闭 ${basename(t.path)}`}
               onClick={(e) => {
                 e.stopPropagation();

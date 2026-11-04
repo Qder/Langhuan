@@ -137,7 +137,7 @@ export function TabBar() {
               {!pinned && (
                 <button
                   type="button"
-                  className="opacity-0 group-hover:opacity-100 max-lg:opacity-100 p-0.5 max-lg:p-1.5 rounded hover:bg-[var(--hover)]"
+                  className="opacity-0 group-hover:opacity-100 max-lg:opacity-100 p-0.5 max-lg:p-2 rounded hover:bg-[var(--hover)] min-w-8 min-h-8 inline-flex items-center justify-center"
                   aria-label="关闭标签"
                   onClick={(e) => {
                     e.stopPropagation();

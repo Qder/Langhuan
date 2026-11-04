@@ -180,8 +180,8 @@ export function CommandPalette() {
       },
       {
         key: "cmd-ide-mode",
-        label: appMode === "ide" ? "切换到笔记模式" : "切换到 IDE 模式",
-        hint: "同一应用 · 打开本地工程",
+        label: appMode === "ide" ? "切换到藏书阁" : "切换到读码",
+        hint: "藏书阁 · 读码",
         icon: <Code2 className="h-4 w-4 text-[var(--accent)]" />,
         run: () => setAppMode(appMode === "ide" ? "notes" : "ide"),
       },

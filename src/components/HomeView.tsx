@@ -32,6 +32,7 @@ export function HomeView() {
   const setStatus = useStore((s) => s.setStatus);
   const openDoc = useStore((s) => s.requestOpenDoc);
   const setCommandOpen = useStore((s) => s.setCommandOpen);
+  const setAppMode = useStore((s) => s.setAppMode);
   const setQuizReviewOpen = useStore((s) => s.setQuizReviewOpen);
   const quizDocs = useStore((s) => s.quizDocs);
   const setTagFilters = useStore((s) => s.setTagFilters);
@@ -109,6 +110,14 @@ export function HomeView() {
               <Search className="h-4 w-4 text-[var(--muted)]" />
               <span className="flex-1 text-[var(--muted)] text-sm">搜索文档、标签或命令…</span>
               <kbd className="rounded-md border border-[var(--border)] px-1.5 py-0.5 text-[10px] font-mono text-[var(--muted)]">{formatShortcut(DEFAULT_SHORTCUTS.search)}</kbd>
+            </button>
+            <button
+              type="button"
+              onClick={() => setAppMode("ide")}
+              className="inline-flex items-center gap-2 text-sm font-ui text-[var(--muted)] hover:text-[var(--fg)] transition-colors"
+            >
+              <FileCode2 className="h-4 w-4 text-[var(--accent)]" />
+              读码 · 打开本地工程浏览与讲解
             </button>
           </div>
         </section>
