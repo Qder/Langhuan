@@ -5,8 +5,13 @@
  * notes store (`createDoc` / `setDraft` + `saveDoc`), never a new storage layer.
  *
  * Layout:
- *   读码笔记/<工程名>/<YYYY-MM-DD>-<文件名>.md   每条讲解一篇
+ *   读码笔记/<工程名>/<YYYY-MM-DD>-<文件名>.md   当天该文件的所有讲解
  *   读码笔记/速记.md                             选区速记，追加成块
+ *
+ * One day + one file is one note. Capturing the same file again on the same day
+ * appends a `## HH:mm · …` section instead of creating `-2.md`, so the desk
+ * accumulates one readable note per file per day rather than a pile of look-alike
+ * files.
  */
 
 import { basename, normalizeNewlines } from "../utils";
@@ -49,6 +54,21 @@ export function noteDateStamp(now: Date = new Date()): string {
   return `${y}-${m}-${d}`;
 }
 
+/** `14:05` in local time — the section heading for an appended explain turn. */
+export function noteTimeStamp(now: Date = new Date()): string {
+  const h = String(now.getHours()).padStart(2, "0");
+  const m = String(now.getMinutes()).padStart(2, "0");
+  return `${h}:${m}`;
+}
+
+/**
+ * `2026-11-04 14:05` in local time. Notes are read at the desk, so the clock in
+ * the body must match the clock in the filename (never a UTC shift).
+ */
+export function noteLocalStamp(now: Date = new Date()): string {
+  return `${noteDateStamp(now)} ${noteTimeStamp(now)}`;
+}
+
 /** `src/foo/Bar.java` → `Bar`; strips the extension for the note filename. */
 export function noteFileStem(path: string): string {
   const leaf = basename(normalizeIdeRelPath(path));
@@ -87,6 +107,8 @@ export type ExplainNoteInput = {
   projectName?: string | null;
   /** File the turn was about (may be empty when nothing was open). */
   sourcePath?: string | null;
+  /** Where to jump when the file link is clicked; falls back to the first cite. */
+  sourceLine?: number;
   citations?: ExplainCitation[];
   /** Chat message time; defaults to now. */
   createdAt?: number;
@@ -105,9 +127,115 @@ function titleFromQuestion(question: string): string {
   return sanitizeNoteTitle(flat.slice(0, 40), "讲解");
 }
 
+/** Normalized, deduped, line-bearing citations (pure, shared by both bodies). */
+function normalizeCites(list: ExplainCitation[] | undefined): ExplainCitation[] {
+  const index = new Map<string, number>();
+  const cites: ExplainCitation[] = [];
+  for (const c of list ?? []) {
+    const path = normalizeIdeRelPath(c.path || "");
+    if (!path) continue;
+    // Dedupe by path + start line; a wider end line upgrades the kept entry.
+    const key = `${path}\0${c.line ?? ""}`;
+    const line = c.line != null && c.line > 0 ? Math.floor(c.line) : undefined;
+    const endLine =
+      c.endLine != null && c.endLine > 0 ? Math.floor(c.endLine) : undefined;
+    const prevIndex = index.get(key);
+    if (prevIndex != null) {
+      const kept = cites[prevIndex]!;
+      if (endLine != null && (kept.endLine == null || endLine > kept.endLine)) {
+        cites[prevIndex] = { ...kept, endLine };
+      }
+      continue;
+    }
+    index.set(key, cites.length);
+    cites.push({ path, line, endLine });
+  }
+  return cites;
+}
+
 /**
- * Full markdown body for「收入藏书阁」: frontmatter, question, answer, and a
- * source block listing the project / file / cited path:line entries.
+ * Line the file link should land on: the explicit hint, else the earliest cited
+ * line *inside that file*. Never borrows another file's line number.
+ */
+function sourceLinkLine(
+  sourcePath: string,
+  input: ExplainNoteInput,
+  cites: ExplainCitation[]
+): number | undefined {
+  const explicit =
+    input.sourceLine != null && input.sourceLine > 0
+      ? Math.floor(input.sourceLine)
+      : undefined;
+  if (explicit != null) return explicit;
+  const own = cites
+    .filter((c) => c.path === sourcePath && c.line != null)
+    .map((c) => c.line!)
+    .sort((a, b) => a - b);
+  return own[0];
+}
+
+function citeLines(cites: ExplainCitation[]): string[] {
+  const out: string[] = [];
+  for (const c of cites) {
+    const label =
+      c.line == null
+        ? c.path
+        : c.endLine != null && c.endLine > c.line
+          ? `${c.path}:${c.line}-${c.endLine}`
+          : `${c.path}:${c.line}`;
+    out.push(`- \`${label}\` · ${formatIdeLink(c.path, c.line, c.endLine)}`);
+  }
+  return out;
+}
+
+/**
+ * Section appended when the same file is captured again on the same day.
+ * Starts at `##` so it reads as a peer of the first turn, and carries its own
+ * timestamp + jump link — an append must stay locatable months later.
+ */
+export function buildExplainSection(input: ExplainNoteInput): string {
+  const question = String(input.question ?? "").trim() || "（未记录问题）";
+  const answerRaw = normalizeNewlines(String(input.answer ?? "").trim());
+  const answer =
+    answerRaw.length > EXPLAIN_NOTE_MAX_CHARS
+      ? `${answerRaw.slice(0, EXPLAIN_NOTE_MAX_CHARS)}\n\n> （回答过长，已截断）\n`
+      : answerRaw || "（讲解没有返回内容）";
+  const createdAt = input.createdAt ?? Date.now();
+  const stamp = new Date(createdAt);
+  const cites = normalizeCites(input.citations);
+  const sourcePath = input.sourcePath
+    ? normalizeIdeRelPath(input.sourcePath)
+    : "";
+  const line = sourcePath ? sourceLinkLine(sourcePath, input, cites) : undefined;
+
+  const lines: string[] = [
+    `## ${noteTimeStamp(stamp)} · ${titleFromQuestion(question)}`,
+    "",
+    `- 收入时间：${noteLocalStamp(stamp)}`,
+  ];
+  if (sourcePath) {
+    lines.push(`- 文件：\`${sourcePath}\` · ${formatIdeLink(sourcePath, line)}`);
+  }
+  lines.push("", "### 问题", "", question, "", "### 讲解", "", answer, "");
+  if (cites.length > 0) {
+    lines.push("### 引用", "", ...citeLines(cites), "");
+  }
+  return lines.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd();
+}
+
+/** Append a section to an existing note body, keeping blank-line discipline. */
+export function appendExplainSection(existing: string, section: string): string {
+  const head = normalizeNewlines(existing || "").replace(/\s+$/, "");
+  const tail = normalizeNewlines(section || "").trim();
+  if (!head) return `${tail}\n`;
+  if (!tail) return `${head}\n`;
+  return `${head}\n\n${tail}\n`;
+}
+
+/**
+ * Full markdown body for the *first*「收入藏书阁」of a file on a given day:
+ * frontmatter, question, answer, and the project / file / cited path:line block.
+ * Later captures that day go through `appendExplainSection`.
  */
 export function buildExplainNote(input: ExplainNoteInput): string {
   const project = sanitizeNoteSegment(
@@ -124,29 +252,10 @@ export function buildExplainNote(input: ExplainNoteInput): string {
       ? `${answerRaw.slice(0, EXPLAIN_NOTE_MAX_CHARS)}\n\n> （回答过长，已截断）\n`
       : answerRaw || "（讲解没有返回内容）";
   const createdAt = input.createdAt ?? Date.now();
-  const isoTs = new Date(createdAt).toISOString();
-
-  const citeIndex = new Map<string, number>();
-  const cites: ExplainCitation[] = [];
-  for (const c of input.citations ?? []) {
-    const path = normalizeIdeRelPath(c.path || "");
-    if (!path) continue;
-    // Dedupe by path + start line; a wider end line upgrades the kept entry.
-    const key = `${path}\0${c.line ?? ""}`;
-    const line = c.line != null && c.line > 0 ? Math.floor(c.line) : undefined;
-    const endLine =
-      c.endLine != null && c.endLine > 0 ? Math.floor(c.endLine) : undefined;
-    const prevIndex = citeIndex.get(key);
-    if (prevIndex != null) {
-      const kept = cites[prevIndex]!;
-      if (endLine != null && (kept.endLine == null || endLine > kept.endLine)) {
-        cites[prevIndex] = { ...kept, endLine };
-      }
-      continue;
-    }
-    citeIndex.set(key, cites.length);
-    cites.push({ path, line, endLine });
-  }
+  const stamp = new Date(createdAt);
+  const isoTs = stamp.toISOString();
+  const cites = normalizeCites(input.citations);
+  const line = sourcePath ? sourceLinkLine(sourcePath, input, cites) : undefined;
 
   const lines: string[] = [
     "---",
@@ -160,24 +269,13 @@ export function buildExplainNote(input: ExplainNoteInput): string {
     `- 工程：**${project}**`,
   ];
   if (sourcePath) {
-    lines.push(`- 文件：\`${sourcePath}\` · ${formatIdeLink(sourcePath)}`);
+    lines.push(`- 文件：\`${sourcePath}\` · ${formatIdeLink(sourcePath, line)}`);
   }
-  lines.push(`- 收入时间：${isoTs.replace("T", " ").slice(0, 16)}`);
+  lines.push(`- 收入时间：${noteLocalStamp(stamp)}`);
   lines.push("", "## 问题", "", question, "", "## 讲解", "", answer, "");
 
   if (cites.length > 0) {
-    lines.push("## 引用");
-    lines.push("");
-    for (const c of cites) {
-      const label =
-        c.line == null
-          ? c.path
-          : c.endLine != null && c.endLine > c.line
-            ? `${c.path}:${c.line}-${c.endLine}`
-            : `${c.path}:${c.line}`;
-      lines.push(`- \`${label}\` · ${formatIdeLink(c.path, c.line, c.endLine)}`);
-    }
-    lines.push("");
+    lines.push("## 引用", "", ...citeLines(cites), "");
   }
 
   return `${lines.join("\n").replace(/\n{3,}/g, "\n\n")}`;
@@ -260,7 +358,7 @@ export function buildSnippetBlock(input: SnippetBlockInput): string {
 /** Header written once when 速记.md is created. */
 export const SNIPPET_NOTE_HEADER = `# 速记
 
-从读码选区收进来的代码片段，按时间倒序之外追加在文末；标题里的路径可以直接点回工程。
+从读码选区收进来的代码片段，按收入顺序追加在文末；每条标题里的路径和「来源」都能点回工程对应行。
 
 `;
 

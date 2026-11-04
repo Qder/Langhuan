@@ -13,17 +13,28 @@
  */
 
 import {
+  appendExplainSection,
   appendSnippetBlock,
   buildExplainNote,
+  buildExplainSection,
   buildSnippetBlock,
   explainNotePath,
+  noteDateStamp,
   snippetNotePath,
   SNIPPET_NOTE_HEADER,
   type ExplainCitation,
 } from "./captureNote";
 
 export type CaptureResult =
-  | { ok: true; docId: string; path: string; renamed: boolean }
+  | {
+      ok: true;
+      docId: string;
+      path: string;
+      /** The store had to rename (only possible on a fresh note). */
+      renamed: boolean;
+      /** True when this capture landed inside an existing same-day note. */
+      appended: boolean;
+    }
   | { ok: false; message: string };
 
 /** Outcome of the durable write; success is only claimed when this is ok. */
@@ -53,6 +64,8 @@ export type ExplainCaptureInput = {
   answer: string;
   projectName?: string | null;
   sourcePath?: string | null;
+  /** Jump line for the file link; defaults to the earliest cite in that file. */
+  sourceLine?: number;
   citations?: ExplainCitation[];
   createdAt?: number;
 };
@@ -84,9 +97,13 @@ export function resetCaptureQueues(): void {
 }
 
 /**
- * B1 — one explain turn becomes one note under 读码笔记/<工程>/YYYY-MM-DD-<文件>.md.
- * Returns the real saved path so the UI can offer「在藏书阁打开」and never lie
- * about a rename or an unpersisted note.
+ * B1 — one explain turn lands in 读码笔记/<工程>/YYYY-MM-DD-<文件>.md.
+ *
+ * One day + one file = one note. The first capture of the day creates it with
+ * frontmatter; every later capture of the same file appends a `## HH:mm · …`
+ * section, so re-reading a file over a day builds one note instead of a pile of
+ * `-2.md` look-alikes. Returns the real saved path so the UI can offer
+ *「在藏书阁打开」and never lie about an unpersisted note.
  */
 export async function captureExplain(
   writer: NoteWriter,
@@ -98,11 +115,32 @@ export async function captureExplain(
   const requested = explainNotePath({
     projectName: input.projectName,
     sourcePath: input.sourcePath || "未命名文件",
+    // The note's date comes from the turn's own time, not the wall clock at
+    // click time: replaying yesterday's captured answer must not file it today.
+    date: noteDateStamp(new Date(input.createdAt ?? Date.now())),
   });
-  // The path is made unique by the store, so queue on the requested base path
-  // to keep two rapid captures of the same turn from fighting over `-2`.
+  // One queue per note path: two rapid captures of the same file must serialize
+  // their read-modify-write, exactly like 速记.
   return enqueueCapture(requested, async () => {
     try {
+      const existing = writer.findByPath(requested);
+      if (existing) {
+        const next = appendExplainSection(
+          writer.contentOf(existing.id),
+          buildExplainSection(input)
+        );
+        const written = await writer.write(existing.id, next);
+        if (!written.ok) {
+          return { ok: false, message: `收入失败：${written.message}` };
+        }
+        return {
+          ok: true,
+          docId: existing.id,
+          path: existing.path,
+          renamed: false,
+          appended: true,
+        };
+      }
       const doc = writer.create({
         type: "md",
         path: requested,
@@ -118,6 +156,7 @@ export async function captureExplain(
         docId: doc.id,
         path: doc.path,
         renamed: requested !== doc.path,
+        appended: false,
       };
     } catch (e) {
       return {
@@ -175,7 +214,13 @@ export async function captureSnippet(
         if (!written.ok) {
           return { ok: false, message: `收入速记失败：${written.message}` };
         }
-        return { ok: true, docId: doc.id, path: doc.path, renamed: false };
+        return {
+          ok: true,
+          docId: doc.id,
+          path: doc.path,
+          renamed: false,
+          appended: false,
+        };
       }
 
       const next = appendSnippetBlock(writer.contentOf(existing.id), block);
@@ -183,7 +228,13 @@ export async function captureSnippet(
       if (!written.ok) {
         return { ok: false, message: `收入速记失败：${written.message}` };
       }
-      return { ok: true, docId: existing.id, path: existing.path, renamed: false };
+      return {
+        ok: true,
+        docId: existing.id,
+        path: existing.path,
+        renamed: false,
+        appended: true,
+      };
     } catch (e) {
       return {
         ok: false,
@@ -198,7 +249,9 @@ export function captureStatusMessage(
   result: Extract<CaptureResult, { ok: true }>,
   verb = "已收入藏书阁"
 ): string {
-  return result.renamed
-    ? `${verb} · 重名已加后缀 → ${result.path}`
+  if (result.renamed) return `${verb} · 重名已加后缀 → ${result.path}`;
+  // An append is a different promise than a new note: say which happened.
+  return result.appended
+    ? `${verb} · 已追加到 ${result.path}`
     : `${verb} · ${result.path}`;
 }

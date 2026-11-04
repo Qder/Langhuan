@@ -2,12 +2,16 @@ import { describe, expect, it } from "vitest";
 import {
   IDE_NOTE_ROOT,
   SNIPPET_MAX_CHARS,
+  appendExplainSection,
   appendSnippetBlock,
   buildExplainNote,
+  buildExplainSection,
   buildSnippetBlock,
   explainNotePath,
   noteDateStamp,
   noteFileStem,
+  noteLocalStamp,
+  noteTimeStamp,
   safeFence,
   sanitizeNoteSegment,
   snippetNotePath,
@@ -32,6 +36,13 @@ describe("noteDateStamp", () => {
   it("formats local YYYY-MM-DD", () => {
     expect(noteDateStamp(new Date(2026, 10, 4))).toBe("2026-11-04");
     expect(noteDateStamp(new Date(2026, 0, 9))).toBe("2026-01-09");
+  });
+
+  it("keeps the desk's clock for time-of-day stamps", () => {
+    expect(noteTimeStamp(new Date(2026, 10, 4, 9, 5))).toBe("09:05");
+    expect(noteLocalStamp(new Date(2026, 10, 4, 15, 30))).toBe(
+      "2026-11-04 15:30"
+    );
   });
 });
 
@@ -223,6 +234,64 @@ describe("appendSnippetBlock", () => {
   });
 });
 
+describe("appendExplainSection", () => {
+  it("同一文件当天第二次收入写成二级小节，仍带 ide 链", () => {
+    const first = buildExplainNote({
+      question: "第一问",
+      answer: "第一段讲解",
+      projectName: "demo",
+      sourcePath: "src/A.java",
+      citations: [{ path: "src/A.java", line: 12 }],
+      createdAt: new Date(2026, 10, 4, 9, 30).getTime(),
+    });
+    const section = buildExplainSection({
+      question: "第二问",
+      answer: "第二段讲解",
+      sourcePath: "src/A.java",
+      citations: [{ path: "src/A.java", line: 40, endLine: 42 }],
+      createdAt: new Date(2026, 10, 4, 15, 5).getTime(),
+    });
+    expect(section.startsWith("## 15:05 · 第二问")).toBe(true);
+    expect(section).toContain("- 文件：`src/A.java` · [[ide:src/A.java:40]]");
+    expect(section).toContain("### 引用");
+    expect(section).toContain("[[ide:src/A.java:40-42]]");
+
+    const merged = appendExplainSection(first, section);
+    // Exactly one H1 (the note title), so the sidebar TOC stays readable.
+    expect(merged.match(/^# /gm)).toHaveLength(1);
+    expect(merged).toContain("# 第一问");
+    expect(merged).toContain("## 15:05 · 第二问");
+    expect(merged.indexOf("第一段讲解")).toBeLessThan(
+      merged.indexOf("第二段讲解")
+    );
+    // Blank-line discipline: no triple newline, no doubled blank runs.
+    expect(merged.includes("\n\n\n")).toBe(false);
+    expect(merged.endsWith("\n")).toBe(true);
+  });
+
+  it("同一分钟内连收两次也不会把两节糊成一段", () => {
+    const body = buildExplainNote({
+      question: "q",
+      answer: "a",
+      createdAt: new Date(2026, 10, 4, 9, 30).getTime(),
+    });
+    const section = buildExplainSection({
+      question: "q",
+      answer: "b",
+      createdAt: new Date(2026, 10, 4, 9, 30).getTime(),
+    });
+    const merged = appendExplainSection(body, section);
+    expect(merged.match(/^## \d{2}:\d{2} · /gm)).toHaveLength(1);
+    expect(merged).toContain("## 问题");
+    expect(merged).toContain("### 问题");
+  });
+
+  it("appending onto an empty body yields just the section", () => {
+    const out = appendExplainSection("", "## 09:30 · q\n\nbody");
+    expect(out).toBe("## 09:30 · q\n\nbody\n");
+  });
+});
+
 describe("capture note body round-trips to ide links", () => {
   it("every generated ide link parses back to the same target", () => {
     const md = buildExplainNote({
@@ -233,13 +302,40 @@ describe("capture note body round-trips to ide links", () => {
       citations: [{ path: "src/a.ts", line: 4, endLine: 9 }],
     });
     const links = [...md.matchAll(/\[\[(ide:[^\]]+)\]\]/g)].map((m) => m[1]!);
-    // First is the bare file link, then the cited range.
-    expect(links).toContain("ide:src/a.ts");
+    // The file link borrows the first known line, so it lands on the answer.
+    expect(links).toContain("ide:src/a.ts:4");
     expect(parseIdeLinkTarget(links[links.length - 1]!)).toEqual({
       path: "src/a.ts",
       line: 4,
       endLine: 9,
     });
+    // Every link points at this file, and every line is a real 1-based number.
+    const parsed = links.map((l) => parseIdeLinkTarget(l));
+    expect(parsed.every((t) => t?.path === "src/a.ts")).toBe(true);
+    expect(parsed.every((t) => t?.line == null || t.line >= 1)).toBe(true);
     expect(SNIPPET_MAX_CHARS).toBeGreaterThan(0);
+  });
+
+  it("without a known line the file link stays bare", () => {
+    const md = buildExplainNote({
+      question: "q",
+      answer: "a",
+      sourcePath: "src/b.ts",
+      citations: [{ path: "src/c.ts", line: 40 }],
+    });
+    expect(md).toContain("- 文件：`src/b.ts` · [[ide:src/b.ts]]");
+    // Another file's line must never be borrowed for this file's link.
+    expect(md).not.toContain("[[ide:src/b.ts:40]]");
+  });
+
+  it("sourceLine wins over the first citation", () => {
+    const md = buildExplainNote({
+      question: "q",
+      answer: "a",
+      sourcePath: "src/a.ts",
+      sourceLine: 88,
+      citations: [{ path: "src/a.ts", line: 4, endLine: 9 }],
+    });
+    expect(md).toContain("[[ide:src/a.ts:88]]");
   });
 });

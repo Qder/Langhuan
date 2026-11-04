@@ -675,6 +675,11 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
         answer: msg.content,
         projectName: session?.name,
         sourcePath: activePath,
+        // Land the file link on the line the question was about, when known.
+        sourceLine:
+          selection && selection.path === activePath
+            ? selection.fromLine
+            : undefined,
         citations: msg.citations ?? citationsFromMarkdown(msg.content),
         createdAt: msg.createdAt,
       });
@@ -685,7 +690,7 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
       setSavedNoteIds((prev) => ({ ...prev, [msg.id]: result.docId }));
       setStatus(captureStatusMessage(result));
     },
-    [activePath, messages, session?.name, setStatus]
+    [activePath, messages, selection, session?.name, setStatus]
   );
 
   const openSavedNote = React.useCallback((msgId: string) => {
@@ -890,7 +895,7 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
                           "max-lg:min-h-10 max-lg:px-2.5 text-[11px] font-ui text-[var(--muted)]",
                           "hover:bg-[var(--hover)] hover:text-[var(--fg)]"
                         )}
-                        title="把这次问答存成 读码笔记/<工程>/日期-文件.md"
+                        title="存进 读码笔记/<工程>/日期-文件.md；当天同一文件再次收入会追加一节"
                         onClick={() => void captureExplain(m)}
                       >
                         <BookMarked className="h-3 w-3" />
@@ -1032,7 +1037,7 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
             title={`${selection.path}:${selection.fromLine}-${selection.toLine}`}
           >
             <BookMarked className="mr-1 inline h-3 w-3" />
-            从上次选区收入速记（{selection.fromLine}-{selection.toLine} 行）
+            从上次选区收入速记（{selection.fromLine}-{selection.toLine} 行，追加到 读码笔记/速记.md）
           </button>
         )}
       </div>

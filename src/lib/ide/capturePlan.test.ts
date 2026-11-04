@@ -156,9 +156,14 @@ describe("captureExplain (B1)", () => {
     expect(doc.content).toContain("- 工程：**demo**");
     expect(doc.content).toContain("`src/A.java:12`");
     expect(doc.content).toContain("[[ide:src/A.java:12]]");
+    // The file link itself carries the line, so clicking it lands on the answer,
+    // not merely at the top of a 3000-line file.
+    expect(doc.content).toContain(
+      "- 文件：`src/A.java` · [[ide:src/A.java:12]]"
+    );
   });
 
-  it("同名笔记已存在时加后缀，并把真实路径回报给 UI", async () => {
+  it("同名笔记已存在时不再另建 -2.md，而是追加一节", async () => {
     const input = {
       question: "同一个问题",
       answer: "同一段讲解",
@@ -171,10 +176,56 @@ describe("captureExplain (B1)", () => {
     expect(first.ok && second.ok).toBe(true);
     if (!first.ok || !second.ok) return;
 
-    expect(second.path).not.toBe(first.path);
-    expect(second.path).toMatch(/-2\.md$/);
-    expect(second.renamed).toBe(true);
-    expect(captureStatusMessage(second)).toContain("重名已加后缀");
+    // One note per (day, file): the second capture lands inside the first.
+    expect(w.docs).toHaveLength(1);
+    expect(second.path).toBe(first.path);
+    expect(second.docId).toBe(first.docId);
+    expect(first.appended).toBe(false);
+    expect(second.appended).toBe(true);
+    expect(second.renamed).toBe(false);
+    expect(captureStatusMessage(second)).toContain("已追加到");
+
+    const body = w.docs[0]!.content;
+    expect(body.match(/^# /gm)).toHaveLength(1);
+    expect(body.match(/^## \d{2}:\d{2} · /gm)).toHaveLength(1);
+    expect(body.indexOf("同一段讲解")).toBeGreaterThan(0);
+    expect(w.diskBody(first.docId)).toBe(body);
+  });
+
+  it("同一天不同文件仍是两篇笔记", async () => {
+    const day = new Date("2026-11-04T08:00:00Z").getTime();
+    const a = await captureExplain(w.writer, {
+      question: "q-a",
+      answer: "a",
+      projectName: "demo",
+      sourcePath: "src/A.java",
+      createdAt: day,
+    });
+    const b = await captureExplain(w.writer, {
+      question: "q-b",
+      answer: "b",
+      projectName: "demo",
+      sourcePath: "src/B.java",
+      createdAt: day,
+    });
+    expect(a.ok && b.ok).toBe(true);
+    if (!a.ok || !b.ok) return;
+    expect(a.path).not.toBe(b.path);
+    expect(w.docs).toHaveLength(2);
+  });
+
+  it("跨天再收入会开新的一天笔记", async () => {
+    const d1 = new Date(2026, 10, 4, 9, 0).getTime();
+    const d2 = new Date(2026, 10, 5, 9, 0).getTime();
+    const input = { question: "q", answer: "a", projectName: "demo", sourcePath: "src/A.java" };
+    const first = await captureExplain(w.writer, { ...input, createdAt: d1 });
+    const second = await captureExplain(w.writer, { ...input, createdAt: d2 });
+    expect(first.ok && second.ok).toBe(true);
+    if (!first.ok || !second.ok) return;
+    expect(first.path).not.toBe(second.path);
+    expect(first.path).toMatch(/2026-11-04-A\.md$/);
+    expect(second.path).toMatch(/2026-11-05-A\.md$/);
+    expect(second.appended).toBe(false);
   });
 
   it("空回答不当成成功：给出可读原因", async () => {
