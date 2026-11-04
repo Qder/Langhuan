@@ -145,6 +145,19 @@ export function findBacklinks(docs: Document[], target: Document): Document[] {
   });
 }
 
+/**
+ * Stable string key for Zustand selectors: same backlink set → Object.is-equal
+ * string. Do NOT put fresh `{...}` arrays through useShallow (element Object.is
+ * always fails → infinite getSnapshot loop).
+ */
+export function backlinkEqualityKey(docs: Document[], target: Document): string {
+  const links = findBacklinks(docs, target);
+  return [
+    `${target.id}\0${target.path}\0${target.updatedAt}`,
+    ...links.map((d) => `${d.id}\0${d.path}\0${d.updatedAt}`),
+  ].join("\n");
+}
+
 export function countAllBacklinks(docs: Document[]): number {
   let n = 0;
   for (const d of docs) {

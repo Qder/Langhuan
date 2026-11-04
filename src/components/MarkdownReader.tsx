@@ -24,7 +24,7 @@ import { PreviewHoverStrip } from "./PreviewHoverStrip";
 import { getDocMeta } from "@/lib/docMeta";
 import { useStore } from "@/lib/store";
 import { useShallow } from "zustand/react/shallow";
-import { findBacklinks } from "@/lib/search";
+import { backlinkEqualityKey, findBacklinks } from "@/lib/search";
 import {
   extractOutline,
   OUTLINE_SPY_THRESHOLD_PX,
@@ -804,24 +804,18 @@ export function MarkdownReader({ doc }: { doc: Document }) {
   const docType = useStore(
     (s) => s.documents.find((d) => d.id === doc.id)?.type ?? doc.type
   );
-  const backlinkSnaps = useStore(
-    useShallow((s) => {
-      const live = s.documents.find((d) => d.id === doc.id) ?? doc;
-      return findBacklinks(s.documents, live).map((d) => ({
-        id: d.id,
-        path: d.path,
-        content: d.content,
-        type: d.type,
-        starred: d.starred,
-        createdAt: d.createdAt,
-        updatedAt: d.updatedAt,
-      }));
-    })
-  );
-  const backlinks = React.useMemo(
-    () => backlinkSnaps as Document[],
-    [backlinkSnaps]
-  );
+  // Primitive signature only — never return fresh object arrays from useShallow
+  // (array element Object.is always fails → getSnapshot infinite loop).
+  const backlinkSig = useStore((s) => {
+    const live = s.documents.find((d) => d.id === doc.id) ?? doc;
+    return backlinkEqualityKey(s.documents, live);
+  });
+  const backlinks = React.useMemo(() => {
+    void backlinkSig;
+    const s = useStore.getState();
+    const live = s.documents.find((d) => d.id === doc.id) ?? doc;
+    return findBacklinks(s.documents, live);
+  }, [backlinkSig, doc]);
   const setDocTags = useStore((s) => s.setDocTags);
   const applyLocateResult = useStore((s) => s.applyLocateResult);
   const pendingPreviewLocate = useStore((s) => s.pendingPreviewLocate);

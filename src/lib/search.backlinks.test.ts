@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { excerptAround, listBacklinkHits } from "./search";
+import { backlinkEqualityKey, excerptAround, listBacklinkHits } from "./search";
 import type { Document } from "./types";
 
 function md(partial: Partial<Document> & Pick<Document, "id" | "path" | "content">): Document {
@@ -68,5 +68,24 @@ describe("excerptAround", () => {
     const ex = excerptAround(s, start, end, 80);
     expect(ex).toContain("[[b]]");
     expect(ex.length).toBeLessThanOrEqual(82);
+  });
+});
+
+describe("backlinkEqualityKey", () => {
+  it("is Object.is-stable across identical getSnapshot-style calls", () => {
+    const a = md({ id: "a", path: "a.md", content: "see [[b]]", updatedAt: 10 });
+    const b = md({ id: "b", path: "b.md", content: "# b", updatedAt: 11 });
+    const c = md({ id: "c", path: "c.md", content: "nope", updatedAt: 12 });
+    const docs = [a, b, c];
+    const k1 = backlinkEqualityKey(docs, b);
+    const k2 = backlinkEqualityKey(docs, b);
+    expect(k1).toBe(k2);
+    expect(Object.is(k1, k2)).toBe(true);
+    // Unrelated doc content/time change that is not a backlink must not share identity
+    // with a real backlink change — key includes only target + backlink docs.
+    const docs2 = [a, b, { ...c, content: "still nope", updatedAt: 99 }];
+    expect(backlinkEqualityKey(docs2, b)).toBe(k1);
+    const docs3 = [{ ...a, content: "see [[b]] again", updatedAt: 20 }, b, c];
+    expect(backlinkEqualityKey(docs3, b)).not.toBe(k1);
   });
 });
