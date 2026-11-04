@@ -6,6 +6,7 @@
 
 import { trailingNewline } from "./mdInlineEdit";
 import { parseWikiInner, wikiDisplayLabel } from "./wikilink";
+import { isCalloutSlice } from "./callout";
 
 /** DOM nodeType constants (avoid relying on global Node in node/vitest). */
 const TEXT_NODE = 3;
@@ -53,7 +54,10 @@ export function classifyMdBlock(slice: string): VisualBlockType {
     return "table";
   }
   if (/\n\|.+\|/.test(t)) return "table";
-  if (/^>\s*\[!(tip|note|warn)\]/i.test(t)) return "callout";
+  // Every GitHub/Obsidian callout header (note/tip/important/warning/caution)
+  // edits as source: the card's visible text is not the raw slice, so visual
+  // serialization would drop the `[!kind]` marker.
+  if (isCalloutSlice(t)) return "callout";
   if (/^>/.test(t)) return "blockquote";
   if (/^(\s*)([-*+]|\d+[.)])(\s+)/.test(t)) return "listItem";
   return "paragraph";

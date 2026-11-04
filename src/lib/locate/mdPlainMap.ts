@@ -9,6 +9,8 @@ export function buildMdPlainMap(sourceSlice: string): { plain: string; map: numb
   const n = s.length;
   let i = 0;
   let atLineStart = true;
+  /** Sticky `/y` scan for a callout marker at `i` (no per-line substring copy). */
+  const CALLOUT_MARKER_RE = /\[![A-Za-z][\w-]*\][+-]?[ \t]*/y;
 
   const push = (srcIdx: number, ch: string) => {
     map.push(srcIdx);
@@ -29,6 +31,12 @@ export function buildMdPlainMap(sourceSlice: string): { plain: string; map: numb
         i += 1;
         if (i < n && (s[i] === " " || s[i] === "\t")) i += 1;
         atLineStart = false;
+        // Callout marker `[!tip]` renders as a card title, not body text: skip
+        // the marker (the custom title after it stays — it is visible).
+        // Sticky regex avoids slicing the rest of the document per quote line.
+        CALLOUT_MARKER_RE.lastIndex = i;
+        const marker = CALLOUT_MARKER_RE.exec(s);
+        if (marker) i += marker[0].length;
         continue;
       }
       if ((ch === "-" || ch === "*" || ch === "+") && i + 1 < n && s[i + 1] === " ") {

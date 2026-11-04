@@ -33,6 +33,10 @@ describe("classifyMdBlock", () => {
     expect(classifyMdBlock("$$\\alpha$$\n")).toBe("math");
     expect(classifyMdBlock("> quote\n")).toBe("blockquote");
     expect(classifyMdBlock("> [!tip] Hi\n")).toBe("callout");
+    // 五种 GitHub kind + 大小写不敏感 + 无 `> ` 间隔，都按 callout 走源码编辑
+    expect(classifyMdBlock("> [!NOTE]\n")).toBe("callout");
+    expect(classifyMdBlock(">[!important] 重要\n> 正文\n")).toBe("callout");
+    expect(classifyMdBlock("> [!Caution] 小心\n")).toBe("callout");
     expect(classifyMdBlock("| a | b |\n| - | - |\n")).toBe("table");
     expect(classifyMdBlock("| a | b |")).toBe("table");
     expect(classifyMdBlock("| 1 元函数作用于项 |")).toBe("tableCell");

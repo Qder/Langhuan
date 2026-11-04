@@ -45,6 +45,31 @@ describe("buildMdPlainMap", () => {
   });
 });
 
+describe("callout 的纯文本映射", () => {
+  const slice = "> [!tip] 自定义标题\n> 正文里的 **加粗** 词\n";
+
+  it("标记行只丢 [!tip]，自定义标题与正文保留", () => {
+    const { plain } = buildMdPlainMap(slice);
+    expect(plain).not.toContain("[!");
+    expect(plain).toContain("自定义标题");
+    expect(plain).toContain("加粗");
+  });
+
+  it("映射仍指回源码（卡片里选词 → 定位到原行）", () => {
+    const { plain, map } = buildMdPlainMap(slice);
+    const idx = plain.indexOf("自定义标题");
+    expect(idx).toBeGreaterThanOrEqual(0);
+    for (let k = 0; k < 5; k++) {
+      expect(slice[map[idx + k]]).toBe("自定义标题"[k]);
+    }
+  });
+
+  it("没有自定义标题时，标记行整行都是语法", () => {
+    const { plain } = buildMdPlainMap("> [!NOTE]\n> 正文\n");
+    expect(plain.replace(/\s/g, "")).toBe("正文");
+  });
+});
+
 describe("locateInMarkdown", () => {
   const fm = `---\ntitle: 欢迎\ntags: [入门]\n---\n\n`;
   const body = `# 欢迎来到琅嬛\n\n琅嬛是一座私人藏书阁——把 **Markdown 笔记**、完整 HTML 页面放进同一套目录。\n\n重复词 重复词 重复词\n\n试试打开 [[快速上手]]，结束。\n`;

@@ -567,12 +567,18 @@ body {
   border: 1px dashed var(--border);
 }
 
+/* —— Callout（GitHub / Obsidian `> [!tip] 标题`）——
+   一张纸上的批注条：左侧一道色边、极淡的色底、标题用同色偏墨。
+   色相只有主题给的三个（--teal / --gold / --accent），warning 与 caution
+   是 accent 与 gold / fg 的混色 —— 不新增主题，也不再出现写死的十六进制。 */
 .callout {
-  border-radius: 14px;
-  border: 1px solid var(--border);
-  padding: 0.9em 1em;
-  margin: 1.1em 0;
-  background: var(--card);
+  --callout-hue: var(--muted);
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--callout-hue) 28%, var(--border));
+  border-left: 3px solid color-mix(in srgb, var(--callout-hue) 62%, var(--border));
+  padding: 0.85em 1em;
+  margin: 1.15em 0;
+  background: color-mix(in srgb, var(--callout-hue) 7%, var(--card));
   font-family: var(--font-sans), "Noto Sans SC", sans-serif;
 }
 .callout-title {
@@ -581,10 +587,24 @@ body {
   display: flex;
   align-items: center;
   gap: 0.4em;
+  color: color-mix(in srgb, var(--callout-hue) 78%, var(--fg));
 }
-.callout.tip { border-color: color-mix(in srgb, var(--teal) 45%, var(--border)); background: color-mix(in srgb, var(--teal) 8%, var(--card)); }
-.callout.note { border-color: color-mix(in srgb, var(--gold) 45%, var(--border)); background: color-mix(in srgb, var(--gold) 8%, var(--card)); }
-.callout.warn { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); background: color-mix(in srgb, var(--accent) 8%, var(--card)); }
+.callout-title svg { opacity: 0.9; }
+/* 正文回到纸面（衬线），标题才用 sans：整块都用 sans 会比正文更像「网页组件」。 */
+.callout-body {
+  font-family: var(--font-serif), "Noto Serif SC", serif;
+  color: var(--fg);
+  line-height: 1.85;
+}
+.callout-body > :first-child { margin-top: 0; }
+.callout-body > :last-child { margin-bottom: 0; }
+.callout-body blockquote { color: var(--muted); }
+.callout.tip { --callout-hue: var(--teal); border-color: color-mix(in srgb, var(--teal) 45%, var(--border)); background: color-mix(in srgb, var(--teal) 8%, var(--card)); }
+.callout.note { --callout-hue: var(--gold); border-color: color-mix(in srgb, var(--gold) 45%, var(--border)); background: color-mix(in srgb, var(--gold) 8%, var(--card)); }
+.callout.warn { --callout-hue: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); background: color-mix(in srgb, var(--accent) 8%, var(--card)); }
+.callout.important { --callout-hue: var(--accent); }
+.callout.warning { --callout-hue: color-mix(in srgb, var(--accent) 55%, var(--gold)); }
+.callout.caution { --callout-hue: color-mix(in srgb, var(--accent) 78%, var(--fg)); }
 
 /* 鈥斺€?浠ｇ爜楂樹寒锛氫笉鍐嶅紩 highlight.js 鑷甫涓婚锛坓ithub-dark 浼氬湪瀹ｇ焊涓婄硦鎴愰粦鐮栵級锛?
    鏀规垚涓婇潰閭ｅ --syn-* 鍙橀噺锛屾祬绾?/ 娣卞ⅷ涓ょ粍鍚勮嚜鎴愮珛銆?鈥斺€?*/

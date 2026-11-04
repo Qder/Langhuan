@@ -10,8 +10,9 @@ import rehypeKatex from "rehype-katex";
 import rehypeHighlight from "rehype-highlight";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
-import { Copy, Info, Lightbulb, TriangleAlert } from "lucide-react";
+import { Copy, Info, Lightbulb, TriangleAlert, OctagonAlert } from "lucide-react";
 import { flattenCodeText, isMermaidLanguage } from "@/lib/codeText";
+import { CALLOUT_LABELS, calloutKindOf, type CalloutKind } from "@/lib/callout";
 import { mdSanitizeSchema } from "@/lib/mdSanitizeSchema";
 import { resolveLibraryHref, resolveMediaSrc } from "@/lib/resolveLibraryPath";
 import { soleImageCaption } from "@/lib/mdFigure";
@@ -57,6 +58,7 @@ import type { SortedAnchorArrays } from "@/lib/locate/scrollSync";
 import type { LocateResult } from "@/lib/locate";
 import { rehypeSrcPositions } from "@/lib/locate/rehypeSrcPositions";
 import { rehypeRecoverEmphasis } from "@/lib/rehypeRecoverEmphasis";
+import { rehypeCallout } from "@/lib/rehypeCallout";
 import { PreviewContextMenu, type ContextMenuItem } from "./locate/PreviewContextMenu";
 import { subscribeScrollSync } from "@/lib/locate/scrollBus";
 import { probeRender, probeSection } from "@/lib/dev/perfProbe";
@@ -327,7 +329,7 @@ function CodeBlock({
 }
 
 function calloutKindFromChildren(children: React.ReactNode): {
-  kind: "tip" | "note" | "warn" | null;
+  kind: CalloutKind | null;
   title: string;
   rest: React.ReactNode;
 } {
@@ -341,12 +343,43 @@ function calloutKindFromChildren(children: React.ReactNode): {
       .map((c) => (typeof c === "string" ? c : ""))
       .join("")
   );
-  const m = raw.match(/^\[!(tip|note|warn)\]\s*(.*)$/i);
-  if (!m) return { kind: null, title: "", rest: children };
-  const kind = m[1].toLowerCase() as "tip" | "note" | "warn";
-  const title =
-    m[2] || ({ tip: "提示", note: "说明", warn: "注意" } as Record<string, string>)[kind];
+  // Fallback for user HTML like `<blockquote><p>[!tip] …</p></blockquote>`,
+  // i.e. quotes that never went through rehypeCallout (raw HTML in the source).
+  const m = raw.match(/^\[!([A-Za-z][\w-]*)\][+-]?\s*(.*)$/);
+  const kind = m ? calloutKindOf(m[1]) : null;
+  if (!m || !kind) return { kind: null, title: "", rest: children };
+  const title = m[2] || CALLOUT_LABELS[kind];
   return { kind, title, rest: kids.slice(1) };
+}
+
+/** Shared icon per callout kind — one definition for both AST and raw-HTML paths. */
+function CalloutIcon({ kind }: { kind: CalloutKind }) {
+  const Icon =
+    kind === "tip"
+      ? Lightbulb
+      : kind === "warning"
+        ? TriangleAlert
+        : kind === "caution"
+          ? OctagonAlert
+          : Info;
+  return <Icon className="h-4 w-4 shrink-0" aria-hidden />;
+}
+
+/** `callout callout-warning warning` → `warning` (hand-written class lists). */
+function calloutKindOfFromClass(className?: string): CalloutKind | null {
+  if (!className) return null;
+  for (const token of className.split(/\s+/)) {
+    const m = /^callout-([a-z]+)$/.exec(token);
+    if (m) {
+      const kind = calloutKindOf(m[1]);
+      if (kind) return kind;
+    }
+  }
+  for (const token of className.split(/\s+/)) {
+    const kind = calloutKindOf(token);
+    if (kind) return kind;
+  }
+  return null;
 }
 
 type HastNode = {
@@ -499,6 +532,9 @@ const MarkdownBody = React.memo(
         rehypeRaw,
         // Bug 3: stamp data-src-* BEFORE sanitize/highlight drop positions.
         rehypeSrcPositions(fmOffset, fmLineOffset),
+        // GitHub/Obsidian callouts (`> [!tip] 标题`) → cards. Runs after the
+        // src stamps so the card inherits the blockquote's range.
+        rehypeCallout,
         // Typora-friendly: recover `**|A|…**` that CommonMark left-flanking rejects.
         rehypeRecoverEmphasis,
         [rehypeSanitize, mdSanitizeSchema] as [typeof rehypeSanitize, typeof mdSanitizeSchema],
@@ -581,14 +617,14 @@ const MarkdownBody = React.memo(
           const { kind, title, rest } = calloutKindFromChildren(children);
           const attrs = srcAttrs(fmOffset, node);
           if (kind) {
-            const Icon = kind === "tip" ? Lightbulb : kind === "warn" ? TriangleAlert : Info;
             return (
-              <div className={`callout ${kind}`} {...attrs}>
+              <div className={`callout callout-${kind} ${kind === "warning" ? "warning warn" : kind}`} {...attrs}>
                 <div className="callout-title">
-                  <Icon className="h-4 w-4" />
+                  <CalloutIcon kind={kind} />
                   {title}
                 </div>
-                <div>{rest}</div>
+                {/* 正文已由 p / ul / table 各自的组件处理（含双链），不再重复 walk。 */}
+                <div className="callout-body">{rest}</div>
               </div>
             );
           }
@@ -665,14 +701,14 @@ const MarkdownBody = React.memo(
             {children}
           </MdLibLink>
         ),
-        div: ({ className, children, ...props }: { className?: string; children?: React.ReactNode } & Record<string, unknown>) => {
-          if (typeof className === "string" && className.includes("callout")) {
-            const kind = className.includes("tip")
-              ? "tip"
-              : className.includes("warn")
-                ? "warn"
-                : "note";
-            const Icon = kind === "tip" ? Lightbulb : kind === "warn" ? TriangleAlert : Info;
+        div: ({ node, className, children, ...props }: { node?: HastNode; className?: string; children?: React.ReactNode } & Record<string, unknown>) => {
+          const dataCallout = props["data-callout"];
+          const kindFromData = calloutKindOf(typeof dataCallout === "string" ? dataCallout : "");
+          const isCalloutClass =
+            typeof className === "string" && /(^|\s)callout(\s|$)/.test(className);
+          if (kindFromData || isCalloutClass) {
+            // rehypeCallout 产出的卡片，或用户手写 `<div class="callout tip">`。
+            const kind = kindFromData ?? calloutKindOfFromClass(className) ?? "note";
             const kids = React.Children.toArray(children);
             const titleEl = kids.find(
               (c) =>
@@ -681,14 +717,22 @@ const MarkdownBody = React.memo(
             );
             const rest = kids.filter((c) => c !== titleEl);
             return (
-              <div className={`callout ${kind}`}>
+              <div
+                {...props}
+                {...srcAttrs(fmOffset, node)}
+                className={`callout callout-${kind} ${kind === "warning" ? "warning warn" : kind}`}
+              >
                 <div className="callout-title">
-                  <Icon className="h-4 w-4" />
+                  <CalloutIcon kind={kind} />
                   {titleEl && React.isValidElement(titleEl)
-                    ? (titleEl.props as { children?: React.ReactNode }).children
-                    : kind}
+                    ? walkChildren(
+                        (titleEl.props as { children?: React.ReactNode }).children,
+                        docPath
+                      )
+                    : CALLOUT_LABELS[kind]}
                 </div>
-                <div>{rest}</div>
+                {/* 正文块已由 p / ul / table 各自的组件处理过（含双链），不再重复 walk。 */}
+                <div className="callout-body">{rest}</div>
               </div>
             );
           }
@@ -2120,7 +2164,9 @@ export function MarkdownReader({ doc }: { doc: Document }) {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (useStore.getState().viewMode !== "preview") return;
       if (inlineEditRef.current) return;
-      const target = e.target as HTMLElement | null;
+      // e.target 在没有聚焦元素时是 document（没有 closest），必须先判元素。
+      const target =
+        e.target instanceof Element ? (e.target as HTMLElement) : null;
       if (
         target &&
         (target.closest("input, textarea, select, [contenteditable=true]") ||

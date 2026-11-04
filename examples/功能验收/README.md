@@ -17,6 +17,7 @@ tags: [验收, 示例]
 - [[行号与Mermaid]] — 代码行号 + Mermaid 流程图
 - [[安全白名单]] — MD 预览清洗危险 HTML
 - [[粘贴说明]] — Turndown / 剪贴板导入步骤
+- [[Callout验收]] — 五种 callout 卡片（含嵌套 / 大小写 / 折叠标记）
 
 HTML 沙盒：打开同目录的 `HTML快照危险演示.html`（文件树里可见）。
 

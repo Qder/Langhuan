@@ -90,6 +90,9 @@ export const mdSanitizeSchema: SanitizeOptions = {
       ["data-src-start"],
       ["data-src-end"],
       ["data-src-line"],
+      // Callout cards (rehypeCallout) — lets CSS / click-to-edit read the kind
+      // without parsing the class list.
+      ["data-callout"],
     ],
   },
   protocols: {
