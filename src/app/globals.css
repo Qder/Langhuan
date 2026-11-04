@@ -574,11 +574,12 @@ body {
 .callout {
   --callout-hue: var(--muted);
   border-radius: 12px;
-  border: 1px solid color-mix(in srgb, var(--callout-hue) 28%, var(--border));
-  border-left: 3px solid color-mix(in srgb, var(--callout-hue) 62%, var(--border));
+  border: 1px solid color-mix(in srgb, var(--callout-hue) 30%, var(--border));
+  border-left: 3px solid color-mix(in srgb, var(--callout-hue) 70%, var(--border));
   padding: 0.85em 1em;
   margin: 1.15em 0;
-  background: color-mix(in srgb, var(--callout-hue) 7%, var(--card));
+  /* 只调色相浓度，底色仍是 --card：换主题时卡片跟着纸色走，不会变成外来皮肤。 */
+  background: color-mix(in srgb, var(--callout-hue) 10%, var(--card));
   font-family: var(--font-sans), "Noto Sans SC", sans-serif;
 }
 .callout-title {
@@ -599,9 +600,9 @@ body {
 .callout-body > :first-child { margin-top: 0; }
 .callout-body > :last-child { margin-bottom: 0; }
 .callout-body blockquote { color: var(--muted); }
-.callout.tip { --callout-hue: var(--teal); border-color: color-mix(in srgb, var(--teal) 45%, var(--border)); background: color-mix(in srgb, var(--teal) 8%, var(--card)); }
-.callout.note { --callout-hue: var(--gold); border-color: color-mix(in srgb, var(--gold) 45%, var(--border)); background: color-mix(in srgb, var(--gold) 8%, var(--card)); }
-.callout.warn { --callout-hue: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); background: color-mix(in srgb, var(--accent) 8%, var(--card)); }
+.callout.tip { --callout-hue: var(--teal); }
+.callout.note { --callout-hue: var(--gold); }
+.callout.warn { --callout-hue: var(--accent); }
 .callout.important { --callout-hue: var(--accent); }
 .callout.warning { --callout-hue: color-mix(in srgb, var(--accent) 55%, var(--gold)); }
 .callout.caution { --callout-hue: color-mix(in srgb, var(--accent) 78%, var(--fg)); }
