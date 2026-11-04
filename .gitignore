@@ -31,6 +31,19 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
+# Runtime logs (dev server output, tool traces). Never product source.
+*.log
+
+# Ad-hoc debugging screenshots written to the repo root while iterating on
+# chrome/spacing. Real assets belong in public/ or the note folder.
+/*.png
+/*.jpg
+/*.jpeg
+
+# Local repro / scratch scripts (not part of the build)
+/scripts/_bq-*
+/scripts/_repro-*
+
 # env
 .env*.local
 
