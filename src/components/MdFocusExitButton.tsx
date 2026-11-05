@@ -8,6 +8,7 @@ import { TocPopover } from "./topbar/TocPopover";
 import { useActiveHeading } from "./topbar/useActiveHeading";
 import { useDocAsideData } from "./topbar/useDocAsideData";
 import { onToggleTocRequest } from "@/lib/tocPanel";
+import { useReadingProgressPercent } from "@/lib/useReadingProgress";
 
 /** Floating strip while MD 专注 hides the top bar. */
 export function MdFocusExitButton() {
@@ -22,6 +23,7 @@ export function MdFocusExitButton() {
   const [tocOpen, setTocOpen] = React.useState(false);
   const buttonRef = React.useRef<HTMLButtonElement>(null);
   const panelRef = React.useRef<HTMLDivElement>(null);
+  const progress = useReadingProgressPercent();
 
   const { outline, backlinks, asideAvailable } = useDocAsideData({
     active,
@@ -69,7 +71,7 @@ export function MdFocusExitButton() {
   const chip =
     "inline-flex h-8 items-center gap-1 rounded-full px-2.5 text-xs font-ui transition-colors hover:bg-[var(--hover)]";
   const bar =
-    "pointer-events-auto fixed left-3 top-3 z-[60] flex items-center gap-0.5 rounded-full border border-[var(--border)] bg-[color-mix(in_srgb,var(--card)_92%,transparent)] px-1.5 py-1 text-[var(--fg)] shadow-lg backdrop-blur-md max-lg:left-[max(0.75rem,env(safe-area-inset-left))] max-lg:top-[max(0.75rem,env(safe-area-inset-top))]";
+    "pointer-events-auto fixed left-3 top-3 z-[60] flex items-center gap-0.5 overflow-hidden rounded-full border border-[var(--border)] bg-[color-mix(in_srgb,var(--card)_92%,transparent)] px-1.5 py-1 text-[var(--fg)] shadow-lg backdrop-blur-md max-lg:left-[max(0.75rem,env(safe-area-inset-left))] max-lg:top-[max(0.75rem,env(safe-area-inset-top))]";
 
   return (
     <>
@@ -107,6 +109,24 @@ export function MdFocusExitButton() {
           <Minimize2 className="h-3.5 w-3.5" />
           退出
         </button>
+        <span className="mx-0.5 h-4 w-px bg-[var(--border)]" aria-hidden />
+        <span
+          className="px-1.5 text-[11px] font-ui tabular-nums text-[var(--muted)]"
+          aria-label="阅读进度"
+          title="阅读进度"
+        >
+          {Math.round(progress)}%
+        </span>
+        {/* 1px 底衬进度：和顶栏那条 2px 同源，专注时也有「读到哪」的把握。 */}
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-x-1.5 bottom-0 h-px overflow-hidden rounded-full bg-[var(--border)]"
+        >
+          <span
+            className="block h-full bg-[var(--accent)] transition-[width] duration-150"
+            style={{ width: `${progress}%` }}
+          />
+        </span>
       </div>
       {active && tocOpen && (
         <TocPopover
