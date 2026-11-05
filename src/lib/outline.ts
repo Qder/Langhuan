@@ -3,21 +3,39 @@ import { parseFrontmatter } from "./tags";
 
 export type OutlineHeading = { id: string; text: string; level: number };
 
+/**
+ * Deepest heading level that goes into 大纲 / TOC.
+ *
+ * 4 = h1–h4. Long技术文/笔记 常用 `####` 做末级小节，而 h5/h6 极少见——再往下
+ * 目录会变成一串噪音，所以默认停在 h4。改这一个常量即可让
+ * {@link extractOutline} 与 {@link measureHeadingContentTops}（滚动高亮）
+ * 一起变，不必两处对齐。
+ */
+export const MAX_OUTLINE_DEPTH = 4;
+
+/** `h1[id],h2[id],…,hN[id]` — selector for the spy, derived from the depth. */
+function outlineHeadingSelector(withId: boolean): string {
+  const tags: string[] = [];
+  for (let i = 1; i <= MAX_OUTLINE_DEPTH; i++) tags.push(`h${i}${withId ? "[id]" : ""}`);
+  return tags.join(",");
+}
+
 /** Strip md inline markers the same way outline text is displayed. */
 export function outlineHeadingText(raw: string): string {
   return raw.replace(/[#*`]/g, "").trim();
 }
 
 /**
- * Extract h1–h3 headings from Markdown source for TOC / 大纲.
+ * Extract h1–h{@link MAX_OUTLINE_DEPTH} headings from Markdown source for TOC / 大纲.
  * Ids match rehype-slug (github-slugger), including -1/-2 uniquify.
  */
 export function extractOutline(md: string): OutlineHeading[] {
   const { body } = parseFrontmatter(md);
   const slugger = new GithubSlugger();
   const out: OutlineHeading[] = [];
+  const heading = new RegExp(`^(#{1,${MAX_OUTLINE_DEPTH}})\\s+(.+)$`);
   for (const line of body.split(/\n/)) {
-    const m = line.match(/^(#{1,3})\s+(.+)$/);
+    const m = line.match(heading);
     if (!m) continue;
     const text = outlineHeadingText(m[2]);
     if (!text) continue;
@@ -52,15 +70,15 @@ export const OUTLINE_SPY_THRESHOLD_PX = 120;
 export type HeadingContentTop = { id: string; contentTop: number };
 
 /**
- * Batch-measure h1–h3[id] tops relative to scrollRoot content origin.
- * One root rect + all heading rects, then derive contentTop (no RW interleave).
+ * Batch-measure h1–h{@link MAX_OUTLINE_DEPTH}[id] tops relative to scrollRoot content
+ * origin. One root rect + all heading rects, then derive contentTop (no RW interleave).
  */
 export function measureHeadingContentTops(
   scrollRoot: HTMLElement,
   scope: HTMLElement
 ): HeadingContentTop[] {
   const rootRect = scrollRoot.getBoundingClientRect();
-  const nodes = scope.querySelectorAll<HTMLElement>("h1[id],h2[id],h3[id]");
+  const nodes = scope.querySelectorAll<HTMLElement>(outlineHeadingSelector(true));
   const n = nodes.length;
   const rects: DOMRect[] = new Array(n);
   for (let i = 0; i < n; i++) {

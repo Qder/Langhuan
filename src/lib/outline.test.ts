@@ -10,6 +10,8 @@ import {
   findOutlineHeadingEl,
   normalizeOutlineMatchText,
   OUTLINE_SPY_THRESHOLD_PX,
+  MAX_OUTLINE_DEPTH,
+  measureHeadingContentTops,
 } from "./outline";
 
 describe("extractOutline", () => {
@@ -46,6 +48,25 @@ describe("extractOutline", () => {
       normalizeOutlineMatchText("4.1 主析取范式 PDNF")
     );
   });
+
+  it("默认包含 h4（长文末级小节），h5/h6 不进目录", () => {
+    const md = [
+      "# 一章",
+      "#### 1.1.1 末级小节",
+      "##### 太深了",
+      "###### 更深",
+      "",
+    ].join("\n\n");
+    const o = extractOutline(md);
+    expect(o.map((h) => `${h.level}:${h.text}`)).toEqual(["1:一章", "4:1.1.1 末级小节"]);
+    expect(o[1]!.id).toBe("111-末级小节");
+  });
+
+  it("深度由 MAX_OUTLINE_DEPTH 决定（h1–h4 全在，顺序与层级不丢）", () => {
+    expect(MAX_OUTLINE_DEPTH).toBe(4);
+    const o = extractOutline("## a\n#### b\n### c\n");
+    expect(o.map((h) => h.level)).toEqual([2, 4, 3]);
+  });
 });
 
 describe("outlineHeadingText", () => {
@@ -54,8 +75,36 @@ describe("outlineHeadingText", () => {
   });
 });
 
-describe("resolveActiveHeadingId", () => {
-  // Document order: a, b, c — tops as getBoundingClientRect().top while scrolling
+describe("measureHeadingContentTops（滚动高亮）", () => {
+  const prevDoc = globalThis.document;
+
+  afterEach(() => {
+    globalThis.document = prevDoc;
+  });
+
+  it("h4 也参与测量，否则点得进去却高亮不到", () => {
+    const dom = new JSDOM(
+      `<!DOCTYPE html><html><body>
+        <div id="reader-scroll">
+          <article>
+            <h1 id="a">A</h1>
+            <h4 id="b">B</h4>
+            <h5 id="c">C</h5>
+          </article>
+        </div>
+      </body></html>`
+    );
+    const doc = dom.window.document;
+    globalThis.document = doc;
+    const root = doc.getElementById("reader-scroll")!;
+    const article = root.querySelector("article")!;
+    // jsdom 没有布局：所有 rect 都是 0，验证的是「选中了哪些节点」。
+    const measured = measureHeadingContentTops(root, article);
+    expect(measured.map((m) => m.id)).toEqual(["a", "b"]);
+  });
+});
+
+describe("resolveActiveHeadingId", () => {  // Document order: a, b, c — tops as getBoundingClientRect().top while scrolling
   const heads = [
     { id: "a", top: 20 },
     { id: "b", top: 100 },
