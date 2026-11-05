@@ -1,0 +1,153 @@
+"use client";
+
+import * as React from "react";
+import { Loader2 } from "lucide-react";
+import { Button } from "../../ui/button";
+import type { IdeExplainMessage } from "@/lib/ide/explain";
+import { cn } from "@/lib/utils";
+import { ExplainBody, ExplainFooterCitations } from "./markdown";
+import { ExplainCaptureBar } from "./ExplainCaptureBar";
+import type { ExplainCandidate, SendExplain } from "./types";
+import type { IdeCitation } from "@/lib/ide/citations";
+import type { ExplainFence } from "@/lib/ide/snippetLocate";
+
+export function ExplainMessageList({
+  hasSession,
+  messages,
+  busy,
+  activePath,
+  candidates,
+  savedNoteIds,
+  onSend,
+  onCite,
+  onFence,
+  onCapture,
+  onOpenSaved,
+  onPickCandidate,
+}: {
+  hasSession: boolean;
+  messages: IdeExplainMessage[];
+  busy: boolean;
+  activePath: string | null;
+  candidates: ExplainCandidate[];
+  savedNoteIds: Record<string, string>;
+  onSend: SendExplain;
+  onCite: (c: IdeCitation) => void;
+  onFence: (f: ExplainFence, msgId?: string) => void;
+  onCapture: (msg: IdeExplainMessage) => void;
+  onOpenSaved: (msgId: string) => void;
+  onPickCandidate: (c: ExplainCandidate) => void;
+}) {
+  const listRef = React.useRef<HTMLDivElement>(null);
+  React.useEffect(() => {
+    const el = listRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [messages, busy]);
+
+  return (
+    <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto px-3 py-3 space-y-3">
+      {!hasSession ? (
+        <div className="text-sm text-[var(--muted)] font-ui py-8 text-center">
+          先打开文件夹，再问这个工程里的文件。
+        </div>
+      ) : messages.length === 0 ? (
+        <div className="text-sm text-[var(--muted)] font-ui space-y-2 py-4">
+          <p>提问会带上当前文件 / 选区；回复里的路径和代码块可点，跳回源码。</p>
+          <div className="flex flex-wrap gap-1.5 pt-1">
+            {["这个文件在讲什么", "解释当前选区", "这个类和哪个文件有关"].map(
+              (hint) => (
+                <button
+                  key={hint}
+                  type="button"
+                  className="px-2 py-1 rounded-lg border border-[var(--border)] hover:bg-[var(--hover)] text-xs"
+                  onClick={() => void onSend(hint)}
+                >
+                  {hint}
+                </button>
+              )
+            )}
+          </div>
+          {activePath && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="mt-2"
+              onClick={() => void onSend("讲这个文件")}
+            >
+              讲这个文件
+            </Button>
+          )}
+        </div>
+      ) : (
+        messages.map((m) => (
+          <div
+            key={m.id}
+            className={cn(
+              "rounded-xl px-2.5 py-2",
+              m.role === "user"
+                ? "bg-[var(--hover)] ml-4"
+                : "bg-[var(--card)] border border-[var(--border)] mr-2"
+            )}
+          >
+            <div className="text-[10px] text-[var(--muted)] mb-1 font-ui">
+              {m.role === "user" ? "你" : m.mock ? "示例讲解" : "讲解"}
+            </div>
+            {m.role === "assistant" ? (
+              m.content ? (
+                <>
+                  <ExplainBody
+                    content={m.content}
+                    onCite={onCite}
+                    onFence={(f) => onFence(f, m.id)}
+                  />
+                  <ExplainFooterCitations
+                    content={m.content}
+                    onCite={onCite}
+                    onFence={(f) => onFence(f, m.id)}
+                  />
+                  <ExplainCaptureBar
+                    msg={m}
+                    savedDocId={savedNoteIds[m.id]}
+                    onCapture={onCapture}
+                    onOpenSaved={onOpenSaved}
+                  />
+                </>
+              ) : (
+                <div className="flex items-center gap-1.5 text-[var(--muted)] text-xs">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  生成中…
+                </div>
+              )
+            ) : (
+              <div className="text-sm whitespace-pre-wrap">{m.content}</div>
+            )}
+          </div>
+        ))
+      )}
+
+      {candidates.length > 0 && (
+        <div className="rounded-xl border border-dashed border-[var(--border)] px-2.5 py-2 text-xs font-ui">
+          <div className="text-[var(--muted)] mb-1">候选（点开）：</div>
+          <div className="flex flex-col gap-1">
+            {candidates.map((p, i) => (
+              <button
+                key={`${p.path}:${p.line ?? ""}:${i}`}
+                type="button"
+                className="text-left text-[var(--accent)] hover:underline font-mono"
+                onClick={() => onPickCandidate(p)}
+              >
+                {p.path}
+                {p.line != null
+                  ? p.endLine != null && p.endLine !== p.line
+                    ? `:${p.line}-${p.endLine}`
+                    : `:${p.line}`
+                  : ""}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

@@ -4,41 +4,56 @@
  * 这些断言来自一次 hooks 清理：三条 React Compiler 规则（refs / purity /
  * set-state-in-effect）报出来的写法都被换掉了，这里钉住「别再写回去」，
  * 同时钉住换写法时最容易丢的行为细节。
+ *
+ * 面板拆分后规则落在对应 hook 文件里，不回到 IdeExplainPanel.tsx 编排层。
  */
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-const src = readFileSync(
-  join(process.cwd(), "src/components/ide/IdeExplainPanel.tsx"),
-  "utf8"
-);
+const dir = join(process.cwd(), "src/components/ide");
+const read = (rel: string) => readFileSync(join(dir, rel), "utf8");
+const panel = read("IdeExplainPanel.tsx");
+const sendSrc = read("explain/useExplainSend.ts");
+const pendingSrc = read("explain/usePendingExplain.ts");
+const hintSrc = read("explain/ExplainDesktopHint.tsx");
+
+describe("讲解面板：编排层够瘦", () => {
+  it("主文件只编排，不内联 markdown / 流式 / pending", () => {
+    expect(panel).toContain('from "./explain/ExplainMessageList"');
+    expect(panel).toContain('from "./explain/ExplainComposer"');
+    expect(panel).toContain('from "./explain/usePendingExplain"');
+    expect(panel).not.toContain("ReactMarkdown");
+    expect(panel).not.toContain("streamExplain(");
+    expect(panel.split(/\r?\n/).length).toBeLessThan(160);
+  });
+});
 
 describe("讲解面板：React Compiler 规则", () => {
   it("渲染阶段不写 ref（react-hooks/refs）", () => {
-    // 合法写法：ref 赋值是 effect 体的一部分。
     const effect =
       /React\.useEffect\(\(\) => \{\s*sendRef\.current = send;\s*\}\);/;
-    expect(src).toMatch(effect);
-    // 把那段 effect 抠掉后，整个文件不该再有别处写 sendRef.current。
-    expect(src.replace(effect, "")).not.toMatch(/sendRef\.current\s*=/);
+    expect(sendSrc).toMatch(effect);
+    expect(sendSrc.replace(effect, "")).not.toMatch(/sendRef\.current\s*=/);
+    expect(panel).not.toMatch(/sendRef\.current\s*=/);
   });
 
   it("时间戳只在事件路径里打（react-hooks/purity）", () => {
-    // send() 是事件处理器；render 作用域里不允许出现 Date.now()。
-    const between = src.slice(
-      src.indexOf("const send = async ("),
-      src.indexOf("sendRef.current = send")
+    const between = sendSrc.slice(
+      sendSrc.indexOf("const send = async ("),
+      sendSrc.indexOf("sendRef.current = send")
     );
     expect(between).toContain("Date.now()");
-    // 组件体顶端到 send 定义之间不应有裸 Date.now()
-    const preamble = src.slice(src.indexOf("export function IdeExplainPanel"), src.indexOf("const send = async ("));
+    const preamble = sendSrc.slice(
+      sendSrc.indexOf("export function useExplainSend"),
+      sendSrc.indexOf("const send = async (")
+    );
     expect(preamble).not.toMatch(/Date\.now\(\)/);
   });
 
   it("pendingExplainRequest 的 effect 里不 setState（set-state-in-effect）", () => {
-    const effect = src.match(
-      /React\.useEffect\(\(\) => \{\s*const req = pendingExplainRequest[\s\S]*?\}, \[pendingExplainRequest, clearPendingExplainRequest\]\);/
+    const effect = pendingSrc.match(
+      /React\.useEffect\(\(\) => \{\s*const req = pendingExplainRequest[\s\S]*?\}, \[pendingExplainRequest, clearPendingExplainRequest, sendRef\]\);/
     );
     expect(effect).toBeTruthy();
     expect(effect![0]).not.toContain("setIncludeFile(");
@@ -46,28 +61,28 @@ describe("讲解面板：React Compiler 规则", () => {
   });
 
   it("「讲解选区」请求不会重复发送", () => {
-    // clearPendingExplainRequest() 会让 effect 立刻再跑一次；没有 nonce
-    // 去重就会发两条同样的问题（真机撞到过）。
-    expect(src).toContain("handledRequestNonceRef");
-    expect(src).toMatch(
+    expect(pendingSrc).toContain("handledRequestNonceRef");
+    expect(pendingSrc).toMatch(
       /handledRequestNonceRef\.current === req\.nonce|req\.nonce === handledRequestNonceRef\.current/
     );
   });
 
   it("勾选项仍然跟随「讲解选区」请求", () => {
-    expect(src).toMatch(/setIncludeFile\(pendingExplainRequest\.includeFile\)/);
-    expect(src).toMatch(
+    expect(pendingSrc).toMatch(/setIncludeFile\(pendingExplainRequest\.includeFile\)/);
+    expect(pendingSrc).toMatch(
       /setIncludeSelection\(pendingExplainRequest\.includeSelection\)/
     );
   });
 });
 
 describe("讲解面板：桌面通路", () => {
-  it("走 streamExplain，不再在面板里写死「桌面不可用」", () => {
-    expect(src).toContain('from "@/lib/ide/explainClient"');
-    expect(src).toContain("streamExplain(");
-    expect(src).not.toContain("桌面版不支持 IDE 讲解");
-    expect(src).not.toContain("TAURI_EXPLAIN_UNAVAILABLE");
-    expect(src).not.toMatch(/fetch\(\s*["']\/api\/ide\/explain["']/);
+  it("走 streamExplain，设置里才出现桌面说明", () => {
+    expect(sendSrc).toContain('from "@/lib/ide/explainClient"');
+    expect(sendSrc).toContain("streamExplain(");
+    expect(sendSrc).not.toContain("桌面版不支持 IDE 讲解");
+    expect(sendSrc).not.toContain("TAURI_EXPLAIN_UNAVAILABLE");
+    expect(sendSrc).not.toMatch(/fetch\(\s*["']\/api\/ide\/explain["']/);
+    expect(hintSrc).toContain("TAURI_EXPLAIN_HINT");
+    expect(hintSrc).toContain("isTauriRuntime");
   });
 });
