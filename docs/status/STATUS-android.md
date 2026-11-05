@@ -129,7 +129,7 @@ AVD：`Medium_Phone_API_37.0`，另用 `1536×2048 @ 320dpi`（约 768×1024 d
 1. **点「打开文件夹」杀进程**。Android WebView 上 `typeof showDirectoryPicker === "function"`，调用却进 `RustWebChromeClient.showFilePicker`，`intent.type` 为 null 时 `intent.type!!` NPE。处理：`src/lib/platform.ts` 的 `directoryPickerSupported` 对 Android UA 一律 false；藏书阁退回 `<input webkitdirectory>`；读码顶栏改成「读码需桌面版」，不给假按钮。
 2. **系统返回 SIGSEGV**。`TauriActivity.handleBackNavigation = false`，back 会 `finish()`，wry 拆 WebView 时 `pthread_mutex_lock` 打在已销毁 mutex 上。处理：`MainActivity` 用 `OnBackPressedCallback` → `moveTaskToBack(true)`。真退出走最近任务划掉。
 
-前端 + Kotlin 的 tip SHA 以 git log 为准（提交后写进本节下一行）。未做：缩 APK、updater、商店签名。
+P0 代码 tip：**`f0d3d3a`**（`fix(android): keep the note shell from dying on folder pick or back`）。未做：缩 APK、updater、商店签名。
 
 ## content 根目录（Android）
 
