@@ -63,6 +63,7 @@ import { ProjectFileDialog } from "./ProjectFileDialog";
 import { TrashPreviewDialog } from "./TrashPreviewDialog";
 import { isProjectTextPath, type ProjectPickedFile } from "@/lib/importProject";
 import { blobToBase64 } from "@/lib/storage/contentApi";
+import { isAndroidWebView } from "@/lib/platform";
 
 type TreeNode = FolderTreeNode;
 
@@ -855,7 +856,9 @@ export function Sidebar() {
     const w = window as Window & {
       showDirectoryPicker?: () => Promise<FileSystemDirectoryHandle>;
     };
-    if (!w.showDirectoryPicker) {
+    // Android WebView 也有 showDirectoryPicker，但调用会让 Tauri 的文件选择器 NPE。
+    // 走 <input webkitdirectory>：系统文件选择器能选整个目录。
+    if (!w.showDirectoryPicker || isAndroidWebView()) {
       folderRef.current?.click();
       return;
     }

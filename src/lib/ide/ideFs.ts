@@ -3,6 +3,7 @@
 import { get, set, del } from "idb-keyval";
 import { isFsAccessSupported, ensurePermission } from "@/lib/storage/fsSync";
 import { isTauriRuntime } from "@/lib/storage/contentApi";
+import { isAndroidWebView } from "@/lib/platform";
 import { shouldIgnoreName } from "./ignore";
 
 export const IDE_HANDLE_KEY_PREFIX = "langhuan-ide-handle:";
@@ -39,6 +40,16 @@ export function getIdeFsCapability(): IdeFsCapability {
   }
   if (isFsAccessSupported()) {
     return { canPickFolder: true, unsupportedHint: "" };
+  }
+  if (isAndroidWebView()) {
+    // Android WebView 名义上有 showDirectoryPicker，但真调用会让 Tauri 的
+    // showFilePicker 在 intent.type 为 null 时 NPE，进程被杀。诚实说明，
+    // 不要假装能打开工程。
+    return {
+      canPickFolder: false,
+      unsupportedHint:
+        "安卓版不能读取设备上的工程目录（系统文件选择器不支持整目录授权）。读码工作台留给桌面 / Chrome。",
+    };
   }
   if (isTauriRuntime()) {
     // v1: Tauri webviews without FSA still need plugin-fs; don't pretend.

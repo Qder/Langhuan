@@ -6,6 +6,7 @@ import { libraryDocTypeFromPath } from "../importable";
 import { FS_HANDLE_KEY, FS_INDEX_DIR, FS_INDEX_FILE } from "./constants";
 import { safeRelPath } from "./pathSanitize";
 import { normalizeNewlines } from "../utils";
+import { directoryPickerSupported } from "../platform";
 export { safeRelPath } from "./pathSanitize";
 import { getAssetBlob } from "../assets/store";
 
@@ -99,9 +100,20 @@ export type BidirectionalSyncResult = {
   inn: SyncInResult;
 };
 
-/** True when showDirectoryPicker exists (Chrome / Edge / Opera). */
+/**
+ * True when the *real* File System Access API is usable (Chrome / Edge / Opera).
+ *
+ * Android WebView 也挂了 `showDirectoryPicker`，但 Tauri 的
+ * `RustWebChromeClient.showFilePicker` 在 `intent.type` 为 null 时 NPE，
+ * 进程直接被杀（见 STATUS-android.md）。所以 Android 一律当不支持，
+ * 上层退回 `<input type="file" webkitdirectory>` 那条路。
+ */
 export function isFsAccessSupported(): boolean {
-  return typeof window !== "undefined" && typeof window.showDirectoryPicker === "function";
+  if (typeof window === "undefined") return false;
+  return directoryPickerSupported({
+    hasShowDirectoryPicker: typeof window.showDirectoryPicker === "function",
+    userAgent: typeof navigator === "undefined" ? null : navigator.userAgent,
+  });
 }
 
 export async function getStoredHandle(): Promise<FileSystemDirectoryHandle | null> {

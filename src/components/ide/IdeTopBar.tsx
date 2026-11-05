@@ -18,6 +18,7 @@ import { IdeOutlineToggle } from "./IdeOutlineRail";
 import { useIdeStore } from "@/lib/ide/store";
 import { useMediaQuery } from "@/lib/useMediaQuery";
 import { IDE_WIDE_QUERY } from "@/lib/ide/panelLayers";
+import { getIdeFsCapability } from "@/lib/ide/ideFs";
 import { cn } from "@/lib/utils";
 
 export function IdeTopBar({
@@ -45,6 +46,8 @@ export function IdeTopBar({
   const openFolder = useIdeStore((s) => s.openFolder);
   const closeProject = useIdeStore((s) => s.closeProject);
   const isLg = useMediaQuery(IDE_WIDE_QUERY);
+  // 当前环境能不能选目录 —— Android WebView 名义上有 API，实际会让文件选择器 NPE。
+  const canPickFolder = getIdeFsCapability().canPickFolder;
 
   const dirty = activePath ? isDirty(activePath) : false;
 
@@ -113,7 +116,7 @@ export function IdeTopBar({
           <Sparkles className="h-3.5 w-3.5" />
           <span>讲解</span>
         </Button>
-      ) : (
+      ) : canPickFolder ? (
         <Button
           variant="accent"
           size="sm"
@@ -124,6 +127,12 @@ export function IdeTopBar({
           <FolderOpen className="h-3.5 w-3.5" />
           <span>打开文件夹</span>
         </Button>
+      ) : (
+        // 没目录选择能力（Android WebView / 无 FSA 的桌面 WebView）时不给假按钮：
+        // 点了只会走一条会崩的路径，改成一句诚实的说明。
+        <span className="shrink-0 max-w-[45%] truncate text-xs text-[var(--muted)] font-ui px-1">
+          读码需桌面版
+        </span>
       )}
 
       <Dropdown
@@ -164,9 +173,13 @@ export function IdeTopBar({
               <Save className="h-3.5 w-3.5" /> 保存当前文件
             </DropdownItem>
           </>
-        ) : (
+        ) : canPickFolder ? (
           <DropdownItem onClick={() => void openFolder()}>
             <FolderOpen className="h-3.5 w-3.5" /> 打开文件夹…
+          </DropdownItem>
+        ) : (
+          <DropdownItem disabled onClick={() => void openFolder()}>
+            <FolderOpen className="h-3.5 w-3.5" /> 读码需桌面版（本机不能选目录）
           </DropdownItem>
         )}
       </Dropdown>
