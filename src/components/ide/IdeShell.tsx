@@ -355,10 +355,15 @@ export function IdeShell() {
       <IdeDirtyCloseDialog />
       <div
         className={cn(
-          "h-7 max-lg:h-6 shrink-0 flex items-center px-3 text-[11px] max-lg:text-[10px] font-ui border-t border-[var(--chrome-border)] bg-[var(--chrome)] text-[var(--muted)]"
+          "min-h-7 max-lg:min-h-6 shrink-0 flex items-center px-3 py-0.5 text-[11px] max-lg:text-[10px] font-ui border-t border-[var(--chrome-border)] bg-[var(--chrome)] text-[var(--muted)]"
         )}
       >
-        <span className="truncate">{status || "读码 · 讲解"}</span>
+        <span
+          className="min-w-0 break-all leading-tight"
+          title={status || undefined}
+        >
+          {status || "读码 · 讲解"}
+        </span>
       </div>
     </div>
   );

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  IDE_NOTE_DESTINATION_HINT,
   IDE_NOTE_ROOT,
+  isIdeNoteRootFolder,
   SNIPPET_MAX_CHARS,
   appendExplainSection,
   appendSnippetBlock,
@@ -76,6 +78,15 @@ describe("explainNotePath", () => {
 
   it("keeps 速记 on its own path", () => {
     expect(snippetNotePath()).toBe(`${IDE_NOTE_ROOT}/速记.md`);
+  });
+
+  it("destination hint names both paths and refuses dumping source at content root", () => {
+    expect(isIdeNoteRootFolder("读码笔记")).toBe(true);
+    expect(isIdeNoteRootFolder("读码笔记/demo")).toBe(false);
+    expect(IDE_NOTE_DESTINATION_HINT).toContain("读码笔记/<工程>/YYYY-MM-DD-<文件名>.md");
+    expect(IDE_NOTE_DESTINATION_HINT).toContain("读码笔记/速记.md");
+    expect(IDE_NOTE_DESTINATION_HINT).toContain("不会新建 -2.md");
+    expect(IDE_NOTE_DESTINATION_HINT).toContain("content 根");
   });
 });
 

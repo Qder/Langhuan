@@ -18,6 +18,8 @@ const sendSrc = read("explain/useExplainSend.ts");
 const pendingSrc = read("explain/usePendingExplain.ts");
 const hintSrc = read("explain/ExplainDesktopHint.tsx");
 const composerSrc = read("explain/ExplainComposer.tsx");
+const listSrc = read("explain/ExplainMessageList.tsx");
+const captureBarSrc = read("explain/ExplainCaptureBar.tsx");
 
 describe("讲解面板：编排层够瘦", () => {
   it("主文件只编排，不内联 markdown / 流式 / pending", () => {
@@ -95,6 +97,16 @@ describe("讲解面板：输入区 Enter 发送", () => {
     expect(composerSrc).not.toMatch(
       /className="shrink-0 border-t border-\[var\(--chrome-border\)\]/
     );
+  });
+});
+
+describe("讲解面板：收入藏书阁路径可见", () => {
+  it("空态与设置说明落盘目录，气泡旁能展示完整相对路径", () => {
+    expect(listSrc).toContain("IDE_NOTE_DESTINATION_HINT");
+    expect(hintSrc).toContain("IDE_NOTE_DESTINATION_HINT");
+    expect(captureBarSrc).toContain("savedPath");
+    expect(captureBarSrc).toContain("在藏书阁打开");
+    expect(panel).toContain("savedNotes=");
   });
 });
 

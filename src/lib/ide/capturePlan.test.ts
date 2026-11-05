@@ -183,7 +183,10 @@ describe("captureExplain (B1)", () => {
     expect(first.appended).toBe(false);
     expect(second.appended).toBe(true);
     expect(second.renamed).toBe(false);
+    expect(captureStatusMessage(first)).toContain(first.path);
+    expect(captureStatusMessage(first)).not.toBe("已收入藏书阁");
     expect(captureStatusMessage(second)).toContain("已追加到");
+    expect(captureStatusMessage(second)).toContain(second.path);
 
     const body = w.docs[0]!.content;
     expect(body.match(/^# /gm)).toHaveLength(1);

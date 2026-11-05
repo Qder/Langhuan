@@ -17,9 +17,9 @@ export function useExplainCapture(messages: IdeExplainMessage[]) {
   const tabs = useIdeStore((s) => s.tabs);
   const selection = useIdeStore((s) => s.selection);
   const setStatus = useIdeStore((s) => s.setStatus);
-  const [savedNoteIds, setSavedNoteIds] = React.useState<Record<string, string>>(
-    {}
-  );
+  const [savedNotes, setSavedNotes] = React.useState<
+    Record<string, { docId: string; path: string }>
+  >({});
 
   /** B1 — the question that produced this answer is the previous user turn. */
   const captureExplain = React.useCallback(
@@ -46,7 +46,10 @@ export function useExplainCapture(messages: IdeExplainMessage[]) {
         setStatus(result.message);
         return;
       }
-      setSavedNoteIds((prev) => ({ ...prev, [msg.id]: result.docId }));
+      setSavedNotes((prev) => ({
+        ...prev,
+        [msg.id]: { docId: result.docId, path: result.path },
+      }));
       setStatus(captureStatusMessage(result));
     },
     [activePath, messages, selection, session?.name, setStatus]
@@ -54,14 +57,14 @@ export function useExplainCapture(messages: IdeExplainMessage[]) {
 
   const openSavedNote = React.useCallback(
     (msgId: string) => {
-      const docId = savedNoteIds[msgId];
+      const docId = savedNotes[msgId]?.docId;
       if (!docId) return;
       useStore.getState().setAppMode("notes");
       window.setTimeout(() => {
         useStore.getState().requestOpenDoc(docId);
       }, 30);
     },
-    [savedNoteIds]
+    [savedNotes]
   );
 
   /** B2 — append the live editor selection to 读码笔记/速记.md. */
@@ -100,7 +103,7 @@ export function useExplainCapture(messages: IdeExplainMessage[]) {
   }, [activePath, selection, setStatus, tabs]);
 
   return {
-    savedNoteIds,
+    savedNotes,
     captureExplain,
     openSavedNote,
     captureSelection,

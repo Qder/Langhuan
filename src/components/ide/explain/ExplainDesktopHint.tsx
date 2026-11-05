@@ -1,5 +1,6 @@
 "use client";
 
+import { IDE_NOTE_DESTINATION_HINT } from "@/lib/ide/captureNote";
 import { TAURI_EXPLAIN_HINT } from "@/lib/ide/explain";
 import { isTauriRuntime } from "@/lib/storage/contentApi";
 import { useIdeStore } from "@/lib/ide/store";
@@ -19,6 +20,11 @@ export function ExplainDesktopHint() {
       <div className="text-[var(--muted)]">
         Key 只存在本机 IDE 存储；也可放在 <code>.env.local</code>
         {isDesktop ? "（桌面版不支持 .env，只用这里的设置）" : ""}。
+      </div>
+      <div className="text-[var(--muted)] space-y-1">
+        {IDE_NOTE_DESTINATION_HINT.split("\n").map((line) => (
+          <p key={line}>{line}</p>
+        ))}
       </div>
       {isDesktop && (
         <div className="text-[var(--muted)]">{TAURI_EXPLAIN_HINT}</div>

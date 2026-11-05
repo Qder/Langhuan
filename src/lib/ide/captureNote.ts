@@ -20,6 +20,16 @@ import { formatIdeLink } from "./ideLink";
 
 export const IDE_NOTE_ROOT = "读码笔记";
 export const IDE_SNIPPET_NOTE_NAME = "速记.md";
+/** 讲解空态 / 设置里用的落盘说明（2–3 行）。目录约定只这一处。 */
+export const IDE_NOTE_DESTINATION_HINT = [
+  "「收入藏书阁」写到 读码笔记/<工程>/YYYY-MM-DD-<文件名>.md；当天同一文件再收入会追加一节，不会新建 -2.md。",
+  "「速记」追加到 读码笔记/速记.md。",
+  "工程源码不会写进 content 根或其他乱七八糟的位置。",
+].join("\n");
+
+export function isIdeNoteRootFolder(folderPath: string): boolean {
+  return folderPath.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "") === IDE_NOTE_ROOT;
+}
 export const SNIPPET_MAX_LINES = 80;
 export const SNIPPET_MAX_CHARS = 6000;
 export const EXPLAIN_NOTE_MAX_CHARS = 200_000;

@@ -30,6 +30,7 @@ import { BookOpenCheck,
   FileCode2,
   Boxes,
   Settings2,
+  BookMarked,
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Dialog } from "./ui/dialog";
@@ -62,6 +63,7 @@ import { useMediaQuery } from "@/lib/useMediaQuery";
 import { ProjectFileDialog } from "./ProjectFileDialog";
 import { TrashPreviewDialog } from "./TrashPreviewDialog";
 import { isProjectTextPath, type ProjectPickedFile } from "@/lib/importProject";
+import { isIdeNoteRootFolder } from "@/lib/ide/captureNote";
 import { blobToBase64 } from "@/lib/storage/contentApi";
 import { isAndroidWebView } from "@/lib/platform";
 
@@ -125,9 +127,13 @@ function FileTree({
   const importFiles = useStore((s) => s.importFiles);
   const openInSplit = useStore((s) => s.openInSplit);
   const setStatus = useStore((s) => s.setStatus);
-  const folders = [...node.children.values()].sort((a, b) =>
-    a.name.localeCompare(b.name, "zh")
-  );
+  const folders = [...node.children.values()].sort((a, b) => {
+    if (depth === 0) {
+      if (isIdeNoteRootFolder(a.path) && !isIdeNoteRootFolder(b.path)) return -1;
+      if (isIdeNoteRootFolder(b.path) && !isIdeNoteRootFolder(a.path)) return 1;
+    }
+    return a.name.localeCompare(b.name, "zh");
+  });
   const files = [...node.docs].sort((a, b) => a.name.localeCompare(b.name, "zh"));
 
   void compact;
@@ -196,11 +202,17 @@ function FileTree({
       {folders.map((f) => {
         const open = expanded.has(f.path);
         const project = projects.find((p) => p.root === f.path) || null;
+        const ideNotes = isIdeNoteRootFolder(f.path);
         return (
           <div key={f.path} className="mb-0.5">
             <button
               type="button"
               data-tree-folder={f.path}
+              title={
+                ideNotes
+                  ? "读码讲解与速记落在这里，不会散落在库根"
+                  : undefined
+              }
               draggable
               onDragStart={(e) => {
                 e.dataTransfer.setData("application/x-langhuan-folder", f.path);
@@ -232,8 +244,17 @@ function FileTree({
                   !open && "-rotate-90"
                 )}
               />
-              <FolderOpen className="h-3.5 w-3.5 text-[var(--gold)] shrink-0" />
+              {ideNotes ? (
+                <BookMarked className="h-3.5 w-3.5 text-[var(--accent)] shrink-0" />
+              ) : (
+                <FolderOpen className="h-3.5 w-3.5 text-[var(--gold)] shrink-0" />
+              )}
               <span className="truncate font-ui">{f.name}</span>
+              {ideNotes && (
+                <span className="shrink-0 rounded px-1 py-[1px] text-[9px] tracking-wide text-[var(--accent)] ring-1 ring-[var(--border)]">
+                  读码
+                </span>
+              )}
               {project && (
                 <span
                   className="shrink-0 rounded px-1 py-[1px] text-[9px] uppercase tracking-wide text-[var(--teal)] ring-1 ring-[var(--border)]"

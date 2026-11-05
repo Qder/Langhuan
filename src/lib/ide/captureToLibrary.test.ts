@@ -60,7 +60,11 @@ vi.mock("../storage/contentMigration", () => ({
 import { useStore } from "../store";
 import { putLibraryDoc } from "../storage/contentApi";
 import { resetCaptureQueues } from "./capturePlan";
-import { captureExplainToLibrary, captureSnippetToLibrary } from "./captureToLibrary";
+import {
+  captureExplainToLibrary,
+  captureSnippetToLibrary,
+  captureStatusMessage,
+} from "./captureToLibrary";
 
 // The store's boot chain calls purgeExpiredTrash before IDB rehydration fills
 // `trash`; seed the array so that background call cannot throw in this suite.
@@ -227,6 +231,8 @@ describe("captureExplainToLibrary → 读码笔记/<工程>/<日期>-<文件>.md
     if (!result.ok) return;
     expect(result.path).toMatch(/^读码笔记\/demo\/\d{4}-\d{2}-\d{2}-A\.md$/);
     expect(result.appended).toBe(false);
+    expect(captureStatusMessage(result)).toContain(result.path);
+    expect(captureStatusMessage(result)).not.toBe("已收入藏书阁");
 
     // The note is in the library (sidebar) with the answer inside.
     const note = useStore
@@ -266,6 +272,10 @@ describe("captureExplainToLibrary → 读码笔记/<工程>/<日期>-<文件>.md
     expect(second.path).toBe(first.path);
     expect(second.docId).toBe(first.docId);
     expect(second.appended).toBe(true);
+    expect(captureStatusMessage(second)).toContain("已追加到");
+    expect(captureStatusMessage(second)).toBe(
+      `已收入藏书阁 · 已追加到 ${second.path}`
+    );
 
     const notes = useStore
       .getState()

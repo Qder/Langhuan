@@ -72,7 +72,7 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
         busy={stream.busy}
         activePath={activePath}
         candidates={jump.candidates}
-        savedNoteIds={capture.savedNoteIds}
+        savedNotes={capture.savedNotes}
         onSend={stream.send}
         onCite={(c) => void jump.jumpCitation(c)}
         onFence={(f, msgId) => void jump.jumpFence(f, msgId)}
