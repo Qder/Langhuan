@@ -2,15 +2,21 @@
 
 import * as React from "react";
 import { useIdeStore } from "@/lib/ide/store";
-import {
-  planIdeCitationJump,
-  resolveIdeCitation,
-  type IdeCitation,
-} from "@/lib/ide/citations";
+import type { IdeCitation } from "@/lib/ide/citations";
 import { locateExplainFence } from "@/lib/ide/snippetJump";
 import type { ExplainFence } from "@/lib/ide/snippetLocate";
 import { readIdeFile } from "@/lib/ide/ideFs";
+import {
+  formatExplainMissStatus,
+  formatExplainOpenedStatus,
+  runExplainCitationJump,
+} from "@/lib/ide/explainJump";
 import type { ExplainCandidate } from "./types";
+
+export type ExplainJumpNotice = {
+  path: string;
+  message: string;
+};
 
 /** Open a citation / fence in the editor; collect basename candidates on miss. */
 export function useExplainJump() {
@@ -20,57 +26,60 @@ export function useExplainJump() {
   const openFile = useIdeStore((s) => s.openFile);
   const setStatus = useIdeStore((s) => s.setStatus);
   const [candidates, setCandidates] = React.useState<ExplainCandidate[]>([]);
+  const [jumpNotice, setJumpNotice] = React.useState<ExplainJumpNotice | null>(
+    null
+  );
+  const [failedCitePath, setFailedCitePath] = React.useState<string | null>(null);
   const cycleRef = React.useRef<{ key: string; index: number } | null>(null);
+
+  const clearJumpFeedback = React.useCallback(() => {
+    setCandidates([]);
+    setJumpNotice(null);
+    setFailedCitePath(null);
+  }, []);
+
+  const applyOpened = React.useCallback(
+    (path: string, line?: number, endLine?: number) => {
+      setCandidates([]);
+      setJumpNotice(null);
+      setFailedCitePath(null);
+      setStatus(formatExplainOpenedStatus(path, line, endLine));
+    },
+    [setStatus]
+  );
+
+  const applyMiss = React.useCallback(
+    (citePath: string, list: string[], message: string) => {
+      setFailedCitePath(citePath);
+      setCandidates(list.map((path) => ({ path })));
+      setJumpNotice({ path: citePath, message });
+      setStatus(message);
+    },
+    [setStatus]
+  );
 
   const jumpCitation = React.useCallback(
     async (c: IdeCitation) => {
-      const plan = planIdeCitationJump(c.path, children);
-      const lineOpts = { line: c.line, endLine: c.endLine };
-
-      const failWith = (list: string[]) => {
-        setCandidates(list.map((path) => ({ path })));
-        if (list.length === 0) {
-          setStatus(`工程里找不到 ${c.path}`);
-        } else {
-          setStatus(`工程里找不到 ${c.path}；同名候选：${list.join("、")}`);
-        }
-      };
-
-      if (plan.kind === "miss") {
-        failWith([]);
+      const result = await runExplainCitationJump(c, { children, openFile });
+      if (result.ok) {
+        applyOpened(result.path, result.line, result.endLine);
         return;
       }
-
-      if (plan.kind === "candidates") {
-        failWith(plan.candidates);
-        return;
-      }
-
-      if (plan.kind === "open") {
-        setCandidates([]);
-        const ok = await openFile(plan.path, lineOpts);
-        if (!ok) failWith([]);
-        return;
-      }
-
-      // try-exact: open via readIdeFile even if explorer never listed the folder
-      const ok = await openFile(plan.path, { ...lineOpts, softFail: true });
-      if (ok) {
-        setCandidates([]);
-        return;
-      }
-
-      // Fall back to basename among already-scanned children
-      const resolved = resolveIdeCitation(c.path, children);
-      if (resolved.ok) {
-        setCandidates([]);
-        const ok2 = await openFile(resolved.path, lineOpts);
-        if (!ok2) failWith([]);
-        return;
-      }
-      failWith(resolved.candidates);
+      applyMiss(c.path, result.candidates, result.message);
     },
-    [children, openFile, setStatus]
+    [applyMiss, applyOpened, children, openFile]
+  );
+
+  const pickCandidate = React.useCallback(
+    async (p: ExplainCandidate) => {
+      const ok = await openFile(p.path, { line: p.line, endLine: p.endLine });
+      if (ok) {
+        applyOpened(p.path, p.line, p.endLine);
+        return;
+      }
+      applyMiss(p.path, [], formatExplainMissStatus(p.path, []));
+    },
+    [applyMiss, applyOpened, openFile]
   );
 
   const jumpFence = React.useCallback(
@@ -163,5 +172,15 @@ export function useExplainJump() {
     [jumpCitation, openFile, session, setStatus, tabs]
   );
 
-  return { candidates, setCandidates, jumpCitation, jumpFence, openFile };
+  return {
+    candidates,
+    setCandidates,
+    jumpNotice,
+    failedCitePath,
+    jumpCitation,
+    jumpFence,
+    pickCandidate,
+    clearJumpFeedback,
+    openFile,
+  };
 }

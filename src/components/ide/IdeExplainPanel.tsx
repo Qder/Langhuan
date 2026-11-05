@@ -36,7 +36,7 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
 
   const jump = useExplainJump();
   const stream = useExplainSend({
-    onTurnStart: () => jump.setCandidates([]),
+    onTurnStart: () => jump.clearJumpFeedback(),
   });
   usePendingExplain({
     sendRef: stream.sendRef,
@@ -84,6 +84,8 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
         busy={stream.busy}
         activePath={activePath}
         candidates={jump.candidates}
+        jumpNotice={jump.jumpNotice}
+        failedCitePath={jump.failedCitePath}
         savedNotes={capture.savedNotes}
         onSend={stream.send}
         onCite={onCite}
@@ -91,8 +93,7 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
         onCapture={capture.captureExplain}
         onOpenSaved={capture.openSavedNote}
         onPickCandidate={(p) => {
-          jump.setCandidates([]);
-          void jump.openFile(p.path, { line: p.line, endLine: p.endLine });
+          void jump.pickCandidate(p);
         }}
       />
       <ExplainComposer

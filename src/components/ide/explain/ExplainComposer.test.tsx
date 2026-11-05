@@ -125,3 +125,45 @@ describe("ExplainComposer 键盘", () => {
     expect(host.querySelector("textarea")?.placeholder).toContain("Enter 发送 · Shift+Enter 换行");
   });
 });
+
+describe("ExplainComposer 当前选区", () => {
+  let root: Root;
+  let host: HTMLElement;
+
+  afterEach(() => {
+    if (root && host) unmount(root, host);
+  });
+
+  it("无选区时不可勾，并写明先在编辑器划词", () => {
+    const onSend = vi.fn<SendExplain>();
+    ({ host, root } = mount(onSend, {
+      includeSelection: true,
+      selectionActive: false,
+    }));
+    const boxes = Array.from(host.querySelectorAll('input[type="checkbox"]'));
+    const sel = boxes.find((el) =>
+      el.closest("label")?.textContent?.includes("当前选区")
+    ) as HTMLInputElement | undefined;
+    expect(sel).toBeTruthy();
+    expect(sel!.disabled).toBe(true);
+    expect(sel!.checked).toBe(false);
+    expect(host.textContent).toContain("先在编辑器划词");
+    expect(sel!.closest("label")?.getAttribute("title")).toBe("先在编辑器划词");
+  });
+
+  it("有选区时可勾", () => {
+    const onSend = vi.fn<SendExplain>();
+    ({ host, root } = mount(onSend, {
+      includeSelection: true,
+      selectionActive: true,
+      selectionRange: { path: "A.java", fromLine: 1, toLine: 3 },
+    }));
+    const boxes = Array.from(host.querySelectorAll('input[type="checkbox"]'));
+    const sel = boxes.find((el) =>
+      el.closest("label")?.textContent?.includes("当前选区")
+    ) as HTMLInputElement | undefined;
+    expect(sel!.disabled).toBe(false);
+    expect(sel!.checked).toBe(true);
+    expect(host.textContent).not.toContain("先在编辑器划词");
+  });
+});

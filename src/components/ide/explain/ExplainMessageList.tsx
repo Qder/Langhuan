@@ -30,6 +30,8 @@ export function ExplainMessageList({
   onCapture,
   onOpenSaved,
   onPickCandidate,
+  jumpNotice,
+  failedCitePath,
 }: {
   hasSession: boolean;
   messages: IdeExplainMessage[];
@@ -43,6 +45,8 @@ export function ExplainMessageList({
   onCapture: (msg: IdeExplainMessage) => void;
   onOpenSaved: (msgId: string) => void;
   onPickCandidate: (c: ExplainCandidate) => void;
+  jumpNotice?: { path: string; message: string } | null;
+  failedCitePath?: string | null;
 }) {
   const listRef = React.useRef<HTMLDivElement>(null);
   const pinRef = React.useRef(true);
@@ -134,30 +138,40 @@ export function ExplainMessageList({
             onFence={onFence}
             onCapture={onCapture}
             onOpenSaved={onOpenSaved}
+            failedCitePath={failedCitePath}
           />
         ))
       )}
 
-      {candidates.length > 0 && (
-        <div className="rounded-xl border border-dashed border-[var(--border)] px-2.5 py-2 text-xs font-ui">
-          <div className="text-[var(--muted)] mb-1">候选（点开）：</div>
-          <div className="flex flex-col gap-1">
-            {candidates.map((p, i) => (
-              <button
-                key={`${p.path}:${p.line ?? ""}:${i}`}
-                type="button"
-                className="text-left text-[var(--accent)] hover:underline font-mono"
-                onClick={() => onPickCandidate(p)}
-              >
-                {p.path}
-                {p.line != null
-                  ? p.endLine != null && p.endLine !== p.line
-                    ? `:${p.line}-${p.endLine}`
-                    : `:${p.line}`
-                  : ""}
-              </button>
-            ))}
+      {(jumpNotice || candidates.length > 0) && (
+        <div
+          role="status"
+          className="rounded-xl border border-dashed border-[var(--border)] px-2.5 py-2 text-xs font-ui"
+        >
+          <div className="text-[var(--muted)] mb-1">
+            {jumpNotice?.message ?? "候选（点开）："}
           </div>
+          {candidates.length > 0 ? (
+            <div className="flex flex-col gap-1">
+              {candidates.map((p, i) => (
+                <button
+                  key={`${p.path}:${p.line ?? ""}:${i}`}
+                  type="button"
+                  className="text-left text-[var(--accent)] hover:underline font-mono"
+                  onClick={() => onPickCandidate(p)}
+                >
+                  {p.path}
+                  {p.line != null
+                    ? p.endLine != null && p.endLine !== p.line
+                      ? `:${p.line}-${p.endLine}`
+                      : `:${p.line}`
+                    : ""}
+                </button>
+              ))}
+            </div>
+          ) : jumpNotice ? (
+            <div className="text-[var(--muted)]">没有同名候选可点</div>
+          ) : null}
         </div>
       )}
     </div>
@@ -171,6 +185,7 @@ const ExplainTurn = React.memo(function ExplainTurn({
   onFence,
   onCapture,
   onOpenSaved,
+  failedCitePath,
 }: {
   msg: IdeExplainMessage;
   saved?: { docId: string; path: string };
@@ -178,6 +193,7 @@ const ExplainTurn = React.memo(function ExplainTurn({
   onFence: (f: ExplainFence, msgId?: string) => void;
   onCapture: (msg: IdeExplainMessage) => void;
   onOpenSaved: (msgId: string) => void;
+  failedCitePath?: string | null;
 }) {
   const onFenceThis = React.useCallback(
     (f: ExplainFence) => onFence(f, msg.id),
@@ -202,11 +218,13 @@ const ExplainTurn = React.memo(function ExplainTurn({
               content={msg.content}
               onCite={onCite}
               onFence={onFenceThis}
+              failedCitePath={failedCitePath}
             />
             <ExplainFooterCitations
               content={msg.content}
               onCite={onCite}
               onFence={onFenceThis}
+              failedCitePath={failedCitePath}
             />
             <ExplainCaptureBar
               msg={msg}

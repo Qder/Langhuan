@@ -23,6 +23,29 @@ function chipLabel(c: Pick<IdeCitation, "path" | "line" | "endLine">): string {
   return `${base}:${c.line}`;
 }
 
+function citeLooksFailed(path: string, failedPath: string | null): boolean {
+  if (!failedPath) return false;
+  if (path === failedPath) return true;
+  const a = path.split("/").pop() || path;
+  const b = failedPath.split("/").pop() || failedPath;
+  return a === b;
+}
+
+function citeChipClass(failed: boolean): string {
+  if (failed) {
+    return cn(
+      "inline-flex items-center align-middle mx-0.5 my-0.5 px-1.5 py-0.5 rounded-md text-[11px] font-mono",
+      "bg-[color-mix(in_srgb,var(--danger,#c45c26)_22%,transparent)] text-[var(--danger,#c45c26)]",
+      "hover:bg-[color-mix(in_srgb,var(--danger,#c45c26)_32%,transparent)] border border-[color-mix(in_srgb,var(--danger,#c45c26)_45%,transparent)]"
+    );
+  }
+  return cn(
+    "inline-flex items-center align-middle mx-0.5 my-0.5 px-1.5 py-0.5 rounded-md text-[11px] font-mono",
+    "bg-[color-mix(in_srgb,var(--accent)_18%,transparent)] text-[var(--accent)]",
+    "hover:bg-[color-mix(in_srgb,var(--accent)_28%,transparent)] border border-[color-mix(in_srgb,var(--accent)_35%,transparent)]"
+  );
+}
+
 /** Split markdown into text / citation segments for chip rendering. */
 function segmentExplain(md: string): Array<
   | { type: "text"; value: string }
@@ -110,10 +133,12 @@ export const ExplainBody = React.memo(function ExplainBody({
   content,
   onCite,
   onFence,
+  failedCitePath,
 }: {
   content: string;
   onCite: (c: IdeCitation) => void;
   onFence?: (f: ExplainFence) => void;
+  failedCitePath?: string | null;
 }) {
   const parts = segmentExplain(content);
   const fences = React.useMemo(() => parseExplainFences(content), [content]);
@@ -195,11 +220,7 @@ export const ExplainBody = React.memo(function ExplainBody({
             type="button"
             title={c.path + (c.line != null ? `:${c.line}` : "")}
             onClick={() => onCite(c)}
-            className={cn(
-              "inline-flex items-center align-middle mx-0.5 my-0.5 px-1.5 py-0.5 rounded-md text-[11px] font-mono",
-              "bg-[color-mix(in_srgb,var(--accent)_18%,transparent)] text-[var(--accent)]",
-              "hover:bg-[color-mix(in_srgb,var(--accent)_28%,transparent)] border border-[color-mix(in_srgb,var(--accent)_35%,transparent)]"
-            )}
+            className={citeChipClass(citeLooksFailed(c.path, failedCitePath ?? null))}
           >
             {chipLabel(c)}
           </button>
@@ -213,10 +234,12 @@ export const ExplainFooterCitations = React.memo(function ExplainFooterCitations
   content,
   onCite,
   onFence,
+  failedCitePath,
 }: {
   content: string;
   onCite: (c: IdeCitation) => void;
   onFence?: (f: ExplainFence) => void;
+  failedCitePath?: string | null;
 }) {
   const list = listFooterCitations(content);
   const extraFences = parseExplainFences(content).filter((f) => !f.path);
@@ -231,11 +254,7 @@ export const ExplainFooterCitations = React.memo(function ExplainFooterCitations
             type="button"
             title={c.path + (c.line != null ? `:${c.line}` : "")}
             onClick={() => onCite(c)}
-            className={cn(
-              "inline-flex items-center px-1.5 py-0.5 rounded-md text-[11px] font-mono",
-              "bg-[color-mix(in_srgb,var(--accent)_18%,transparent)] text-[var(--accent)]",
-              "hover:bg-[color-mix(in_srgb,var(--accent)_28%,transparent)] border border-[color-mix(in_srgb,var(--accent)_35%,transparent)]"
-            )}
+            className={citeChipClass(citeLooksFailed(c.path, failedCitePath ?? null))}
           >
             {c.path}
             {c.line != null

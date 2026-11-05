@@ -82,14 +82,26 @@ export function ExplainComposer({
           />
           带上当前文件
         </label>
-        <label className="inline-flex items-center gap-1.5">
+        <label
+          className={cn(
+            "inline-flex items-center gap-1.5",
+            !selectionActive && "opacity-60 cursor-not-allowed"
+          )}
+          title={!selectionActive ? "先在编辑器划词" : undefined}
+        >
           <input
             type="checkbox"
-            checked={includeSelection}
+            checked={includeSelection && selectionActive}
             onChange={(e) => onIncludeSelection(e.target.checked)}
             disabled={!selectionActive}
+            aria-describedby={!selectionActive ? "explain-sel-hint" : undefined}
           />
           当前选区
+          {!selectionActive ? (
+            <span id="explain-sel-hint" className="text-[10px] text-[var(--muted)]">
+              （先在编辑器划词）
+            </span>
+          ) : null}
         </label>
         <label className="inline-flex items-center gap-1.5">
           <input

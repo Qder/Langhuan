@@ -55,6 +55,10 @@ Composer 旁提示：「追问会带上本会话近期对话（不清空就不�
 
 验收：单测已钉「状态文案含完整 path、同日同文件追加不建 -2.md」。浏览器点「收入」再在阁里打开同一篇：**未验**（本机 Cursor 浏览器页空白 / Next overlay）。
 
+## 本次引用芯片
+
+点「本次引用」必须有可见结果：成功 `setStatus('已打开 path:line')`；找不到时候选区出 `jumpNotice`（同名候选或「没有同名候选可点」），失败芯片改色。`jumpCitation` 走 `runExplainCitationJump` → `openFile`。Composer「当前选区」无划词时 `disabled`，title / 旁注「先在编辑器划词」，不假装可勾。
+
 ## 流式中打开文件
 
 生成中 **busy 只锁 Composer 发送**（以及停止按钮）。`openFile` / 资源树 / Tab / `useExplainJump` 没有 busy 门闩，点引用不会 abort 当前流。

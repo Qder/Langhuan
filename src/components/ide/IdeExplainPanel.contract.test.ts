@@ -120,6 +120,27 @@ describe("讲解面板：流式中可跳转、不无条件滚底", () => {
   });
 });
 
+describe("讲解面板：引用芯片点一下必有结果", () => {
+  it("jumpCitation 走 runExplainCitationJump，成功文案是已打开 path:line", () => {
+    expect(jumpSrc).toContain("runExplainCitationJump");
+    expect(jumpSrc).toContain("formatExplainOpenedStatus");
+    expect(jumpSrc).toContain("jumpCitation");
+    expect(jumpSrc).toContain("openFile");
+  });
+
+  it("找不到时候选区仍可见，不只写 status", () => {
+    expect(listSrc).toContain("jumpNotice");
+    expect(listSrc).toContain("没有同名候选可点");
+    expect(listSrc).toContain("failedCitePath");
+  });
+
+  it("无选区时当前选区写明先在编辑器划词且 disabled", () => {
+    expect(composerSrc).toContain("先在编辑器划词");
+    expect(composerSrc).toContain("disabled={!selectionActive}");
+    expect(composerSrc).toContain("checked={includeSelection && selectionActive}");
+  });
+});
+
 describe("讲解面板：收入藏书阁路径可见", () => {
   it("空态与设置说明落盘目录，气泡旁能展示完整相对路径", () => {
     expect(listSrc).toContain("IDE_NOTE_DESTINATION_HINT");
