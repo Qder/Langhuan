@@ -8,6 +8,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { EXPORT_CSS } from "./export/standalone";
+import { CALLOUT_KINDS, CALLOUT_LABELS } from "./callout";
 
 const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
 const reader = readFileSync(new URL("../components/MarkdownReader.tsx", import.meta.url), "utf8");
@@ -125,10 +126,32 @@ describe("标题与列表收一收", () => {
   });
 });
 
-describe("三种 callout 仍在", () => {
-  it("tip / note / warn 各用自己的色相淡底", () => {
+describe("五种 callout 的色相表仍在", () => {
+  it("kind 表是五种，且有默认标题", () => {
+    for (const kind of ["note", "tip", "important", "warning", "caution"]) {
+      expect(CALLOUT_KINDS).toContain(kind);
+      expect(CALLOUT_LABELS[kind as keyof typeof CALLOUT_LABELS]).toBeTruthy();
+    }
+    expect(CALLOUT_KINDS).toHaveLength(5);
+  });
+
+  it("tip / note 各用主题色相，其余三种挂在 --accent 一系", () => {
     expect(cssCode).toMatch(/\.callout\.tip\s*\{[^}]*var\(--teal\)/);
     expect(cssCode).toMatch(/\.callout\.note\s*\{[^}]*var\(--gold\)/);
+    // warn 是 warning 的历史别名，与 important 共用 accent
     expect(cssCode).toMatch(/\.callout\.warn\s*\{[^}]*var\(--accent\)/);
+    expect(cssCode).toMatch(/\.callout\.important\s*\{[^}]*var\(--accent\)/);
+    // warning / caution 是 accent 与 gold / fg 的混色，不是新增色
+    expect(cssCode).toMatch(/\.callout\.warning\s*\{[^}]*color-mix\(/);
+    expect(cssCode).toMatch(/\.callout\.caution\s*\{[^}]*color-mix\(/);
+  });
+
+  it("rehypeCallout 的 className 与 globals.css 的选择器对得上", () => {
+    const calloutPlugin = stripComments(
+      readFileSync(new URL("./rehypeCallout.ts", import.meta.url), "utf8")
+    );
+    // warning 同时带 warning / warn 两个类，老样式和手写 HTML 都不掉色
+    expect(calloutPlugin).toContain('"warning", "warn"');
+    expect(calloutPlugin).toContain("callout-${kind}");
   });
 });

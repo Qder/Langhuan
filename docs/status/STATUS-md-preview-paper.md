@@ -75,7 +75,12 @@
 - `h3` 的 `::before { content: "◆" }` 删除，h3 只靠字号与间距；`h2` 的 28px 短下划线保留；
   `h1` 略放大（1.95rem）。
 - 列表：一层 `1.25em` 缩进、实心点；二层缩进 `1.45em`、5px **空心环**；三层 2px `--muted` 实心。
-- 三种 callout（tip / note / warn）保持原样，仍是青 / 金 / 朱砂淡底。
+- callout 五种 kind（`note` / `tip` / `important` / `warning` / `caution`）全部渲成卡片。
+  kind 表与默认标题在 `src/lib/callout.ts`（`CALLOUT_KINDS` / `CALLOUT_LABELS`），
+  AST → 卡片由 `src/lib/rehypeCallout.ts` 负责；
+  **色相只有三个**——`--teal`（tip）、`--gold`（note）、`--accent`（其余三种），
+  `warning` / `caution` 是 accent 与 gold / fg 的 `color-mix`，见 `globals.css` 的
+  `.callout.tip/.note/.warn/.important/.warning/.caution` 那一组。不新增主题色。
 
 ## 导出（`src/lib/export/standalone.ts`）
 
@@ -89,7 +94,7 @@
 ## 验收怎么跑
 
 ```bash
-npm run check   # 85 files / 984 passed + 1 expected fail / 62 warnings 0 errors
+npm run check   # 128 files / 1495 passed + 1 expected fail / 81 warnings 0 errors
 npm run build   # ✓ Compiled successfully
 ```
 

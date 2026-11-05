@@ -26,10 +26,13 @@ npm start
 ## 桌面应用（Tauri 2）
 
 - `npm run tauri:dev`：**开发壳**（WebView 连本机 Next，Rust 读写 `content/`）。需本机 Rust +（Windows）WebView2。
-- `npm run tauri:build`：目前可编过 Rust，但安装包内前端仍是**占位页**，**不能**当作正式桌面应用使用。
-- **桌面版不支持 HTML 项目导入与资源索引，请用浏览器**
+- `npm run tauri:build`：产出安装包（`langhuan.exe` + NSIS + MSI）。**安装后打开就是琅嬛 UI**，能读、能改、能存本地 `content/`（已在本机实测）。
+- **桌面版仍有的限制**：
+  - HTML 项目导入 / CSS·JS 资源索引 / 元素定位只在浏览器（`npm run dev`）可用；
+  - 读码里的 IDE 讲解依赖 Next 流式 API，桌面版不可用；
+  - macOS / Linux **未验证**，目前只在 Windows 上跑过。
 
-详见 [STATUS-tauri.md](./docs/status/STATUS-tauri.md)。
+日常功能全走浏览器 `npm run dev`；桌面版是「离线带着走」的补充形态。详见 [STATUS-tauri.md](./docs/status/STATUS-tauri.md)。
 
 ## 主题
 
