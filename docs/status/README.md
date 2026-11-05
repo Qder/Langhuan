@@ -16,8 +16,10 @@
 | [STATUS-export-offline.md](./STATUS-export-offline.md) | 导出 | 单篇 HTML / 整库 zip 的离线可读性：callout 卡片、双链可点或明说、图片内联或落盘 |
 | [STATUS-preview-source-sync.md](./STATUS-preview-source-sync.md) | 定位 | 预览 ⇄ 源码双向联动实现摘要与验收状态 |
 | [STATUS-project-import.md](./STATUS-project-import.md) | 项目 | 把 `index.html + css/ + js/` 的文件夹整目录导入，预览前内联样式/脚本 |
-| [STATUS-tauri.md](./STATUS-tauri.md) | 桌面 | Tauri 2 桌面壳 MVP：开发联调与生产构建现状 |
-| [STATUS-android.md](./STATUS-android.md) | Android | debug / release APK、strip 体积、侧载换包、应用私有 content |
+| [STATUS-tauri.md](./STATUS-tauri.md) | 桌面 | Tauri 2 桌面壳：开发联调、生产构建（`frontendDist` 为 `../out`，不是占位页） |
+| [STATUS-updater.md](./STATUS-updater.md) | 桌面 | Windows 应用内更新（GitHub Releases + minisign）；Android 仍是侧载换包 |
+| [STATUS-android.md](./STATUS-android.md) | Android | debug / release APK；浏览器仍是完整产品；实体平板按该文件（目前仍阻塞） |
+| [STATUS-phycat-theme.md](./STATUS-phycat-theme.md) | 主题 | 绯猫四套纸面主题 |
 | [STATUS-tier1.md](./STATUS-tier1.md) | Tier 1 | 数据安全：备份/恢复、版本历史、回收站、未保存保护 |
 | [STATUS-tier2-fs-sync.md](./STATUS-tier2-fs-sync.md) | Tier 2 | 本地文件夹双向同步（File System Access）设计要点 |
 | [STATUS-tier2-kb.md](./STATUS-tier2-kb.md) | Tier 2 | 知识库能力：双链、图谱、嵌入、每日笔记、搜索语法等 |

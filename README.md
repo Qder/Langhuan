@@ -34,11 +34,13 @@ npm start
 
 日常功能全走浏览器 `npm run dev`；桌面版是「离线带着走」的补充形态。详见 [STATUS-tauri.md](./docs/status/STATUS-tauri.md)。
 
-## Android（侧载）
+## Android（侧载 APK）
 
-- `npm run android:apk`：debug APK（未 strip，体积大，给本机/模拟器开发）。
-- `npm run android:apk:release`：release + strip `.so`，用本机 keystore 签名（keystore 不进 git）。
-- **没有应用内自动更新**。换包：升 `versionCode` 后覆盖安装（`adb install -r`），库仍在应用私有目录。真机平板 / 体积与签名见 [STATUS-android.md](./docs/status/STATUS-android.md)。
+**浏览器仍是完整产品**（HTML 项目导入 / CSS·JS 索引只在 `npm run dev`）。APK 是同一套藏书阁 + 读码壳，库在应用私有目录，不是完整浏览器能力。
+
+- `npm run android:apk`：打 **debug APK**。平板/真机用 `app-arm64-debug.apk`，常见模拟器用 `app-x86_64-debug.apk`。未 strip，体积很大。
+- `npm run android:apk:release`：同一壳的 strip + 本机 keystore 签名包（keystore 不进 git）。无应用内自动更新，换包用 `adb install -r`。
+- **平板实体验收**以 [STATUS-android.md](./docs/status/STATUS-android.md) 为准：实体平板目前仍阻塞（本机 `adb` 无设备）；x86_64 模拟器已验打开、seed、杀进程库还在。
 
 ## 主题
 
@@ -83,7 +85,7 @@ npm start
 - 跳不到时状态栏说清原因：`未唯一命中` / `不是相对导入（不解析 node_modules / 路径别名）` /
   `未找到定义 …（非 LSP）`，而不是什么都不发生
 - IDE 模式右侧「讲解」面板（`⌘/Ctrl+Shift+L`，不占用浏览器地址栏 Ctrl+L）：问当前文件/选区，答复里的 `[[路径:行]]` 文内芯片 + 底部「本次引用」清单均可点跳文件并滚到行（未展开的精确路径也会尝试打开；打开后左侧树展开并把该文件滚入视野短暂高亮）；讲解会带上已扫描的文件路径（不含正文）；编辑器划词右键「讲解选区」会打开面板并自动开讲；可选带上当前文件相对 import 的邻文件正文（最多 3 个，大文件只送头 160 行；Java 包名 import 在清单里唯一时也会带）；未配 API Key 时用本地示例讲解
-- IDE 资源管理器会像 VS Code 一样把单子目录链收成一行（如 `java/com/campus/food/campusfood`），点开仍是真实相对路径
+- IDE 资源管理器会把只有单子目录的路径收成一行（如 `java/com/campus/food/campusfood`），点开仍是真实相对路径
 - 导入文件夹 / 文件；支持 File System Access 的浏览器可打开本地文件夹
 - 项目预览把项目内的图片 / 图标 / 字体换成 data URL 再塞进 srcDoc（沙箱拿不到相对路径）：
   `<img src>` / `srcset`、`<source>`、`<video poster>`、CSS 的 `background` 与 `@font-face`

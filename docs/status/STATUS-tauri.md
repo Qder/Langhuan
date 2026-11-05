@@ -6,7 +6,7 @@
 
 - **浏览器 `npm run dev` 仍是完整产品**（唯一支持 HTML 项目导入 / CSS·JS 索引的形态）。IDE 讲解在浏览器走 Next `/api/ide/explain`。
 - **`npm run tauri:dev`**：一条命令起 Next + WebView，桌面侧用 Rust `invoke` 读写磁盘 `content/`。已本机实测。
-- **`npm run tauri:build`**：产出可安装包，**前端不再是占位页**——打开就是琅嬛 UI，能读、能改、能存本地 `content/`。已本机实测（NSIS + MSI）。
+- **`npm run tauri:build`**：产出可安装包，前端是 `out/` 静态导出（`frontendDist`: `../out`），打开就是琅嬛 UI，能读、能改、能存本地 `content/`。已本机实测（NSIS + MSI）。历史上的 `src-tauri/ui-dist/` 占位页已删，不要再按那页理解正式包。
 - **打包版读码讲解**：不依赖 Next Route Handler。前端把已组装的 prompt 交给 Rust `ide_explain`，由它直连**用户自己填的** OpenAI 兼容 Base URL 并推流。没填 Key 时仍是同一份本地示例讲解。
 
 ## 怎么跑
