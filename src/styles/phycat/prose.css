@@ -17,7 +17,7 @@ html[data-theme^="phycat"] .prose-langhuan {
 
 html[data-theme^="phycat"] .prose-langhuan p {
   margin: 0.75em 0;
-  color: color-mix(in srgb, var(--fg) 88%, var(--muted));
+  color: var(--fg);
   word-spacing: 0.05em;
 }
 
@@ -147,7 +147,7 @@ html[data-theme^="phycat"] .prose-langhuan blockquote {
   border: none;
   border-left: 0;
   border-radius: 16px;
-  color: color-mix(in srgb, var(--fg) 72%, var(--muted));
+  color: color-mix(in srgb, var(--fg) 90%, var(--muted));
 }
 
 html[data-theme^="phycat"] .prose-langhuan blockquote::before {
@@ -219,24 +219,22 @@ html[data-theme^="phycat"] .prose-langhuan .lh-md-img {
   box-shadow: 0 4px 12px color-mix(in srgb, var(--phycat-element) 12%, transparent);
 }
 
-/* —— Callouts pick up phycat tint —— */
-html[data-theme^="phycat"] .callout.tip {
-  border-color: color-mix(in srgb, var(--phycat-element) 40%, var(--border));
-  background: color-mix(in srgb, var(--phycat-element) 8%, var(--card));
+/* —— Callouts: keep semantic --callout-hue, but ink stays readable —— */
+html[data-theme^="phycat"] .callout-title {
+  color: color-mix(in srgb, var(--callout-hue) 42%, var(--fg));
 }
 
-html[data-theme^="phycat"] .callout.warn {
-  border-color: color-mix(in srgb, var(--phycat-element-deep) 40%, var(--border));
-  background: color-mix(in srgb, var(--phycat-element-deep) 8%, var(--card));
+html[data-theme^="phycat"] .callout-body {
+  color: var(--fg);
 }
 
-/* Abyss: slightly cooler quote / paragraph tone */
-html[data-theme="phycat-abyss"] .prose-langhuan p {
-  color: var(--muted);
+html[data-theme="phycat-abyss"] .callout {
+  background: color-mix(in srgb, var(--callout-hue) 18%, var(--card));
+  border-color: color-mix(in srgb, var(--callout-hue) 48%, var(--border));
 }
 
-html[data-theme="phycat-abyss"] .prose-langhuan blockquote {
-  color: var(--muted);
+html[data-theme="phycat-abyss"] .callout-title {
+  color: color-mix(in srgb, var(--callout-hue) 35%, var(--fg));
 }
 
 html[data-theme="phycat-abyss"] .prose-langhuan h2 {

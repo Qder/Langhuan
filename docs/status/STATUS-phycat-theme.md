@@ -15,4 +15,6 @@
 
 壳层走 `--bg/--fg/--accent…`；预览粉条 H2、引用✨、虚线 HR 等只在 `html[data-theme^="phycat"] .prose-langhuan` 生效，不改原五套纸面。
 
+对比度抛光（2026-11-05）：正文用 `--fg` 墨色，不再掺 `--muted`；侧栏 `--chrome` 与纸面拉开；浅色 H2 渐变改走深朱砂/青绿，白字可辨；深渊 callout 加浓度、标题偏墨。宣纸体系未动。
+
 加皮步骤见 `src/styles/phycat/NOTICE.md`。字体不内嵌，栈优先本机「霞鹜文楷」。

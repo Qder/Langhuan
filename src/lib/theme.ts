@@ -47,10 +47,10 @@ export const THEME_SWATCHES: Record<ThemeId, string> = {
   songyan: "#a8b0bc",
   jiang: "#8b3a4a",
   cyber: "#2dd4bf",
-  phycat: "#ff7096",
-  "phycat-mint": "#3db8bf",
-  "phycat-sky": "#3498db",
-  "phycat-abyss": "#6a9faf",
+  phycat: "#c43d62",
+  "phycat-mint": "#1f8e94",
+  "phycat-sky": "#2176b3",
+  "phycat-abyss": "#7eb4c4",
 };
 
 const DARK_THEMES: ReadonlySet<ThemeId> = new Set([
