@@ -247,7 +247,8 @@ export function IdeShell() {
     setCommandOpen,
   ]);
 
-  const showDrawer = !!session && isExplorerLayerVisible({ explorerOpen, explainOpen }, !isLg);
+  const showDrawer =
+    !!session && !isLg && isExplorerLayerVisible({ explorerOpen, explainOpen }, true);
   const showDocked = !!session && explorerOpen && isLg;
   const activeTab = tabs.find((t) => t.path === activePath) ?? null;
 

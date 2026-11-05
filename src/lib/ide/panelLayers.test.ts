@@ -293,4 +293,12 @@ describe("IdeShell 里不再用 effect 同步两个开关", () => {
     expect(src).toContain("toggleExplorerLayers(");
     expect(src).toContain("setExplainOpen(next)");
   });
+
+  it("窄屏抽屉只属于窄屏：宽屏别再渲染一份带遮罩的抽屉", () => {
+    // 可见性判据本身不分宽度，组件必须自己带上 !isLg，否则 1440 下
+    // 停靠树和抽屉会同时出现（一次真机验收里撞到过）。
+    const drawerDecl = src.match(/const showDrawer =[\s\S]*?;\r?\n/);
+    expect(drawerDecl).toBeTruthy();
+    expect(drawerDecl![0]).toContain("!isLg");
+  });
 });

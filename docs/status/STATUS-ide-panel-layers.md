@@ -52,7 +52,7 @@ React Compiler 会报 `react-hooks/set-state-in-effect`，而且它在渲染阶�
 ### 1440 × 900（桌面 lg）
 
 - [ ] 顶栏左侧是「切换文件树」图标（不是汉堡）。
-- [ ] 目录停靠在左、讲解停靠在右，**两者可以同时开着**互不影响。
+- [ ] 目录停靠在左、讲解停靠在右，**两者可以同时开着**互不影响；1440 下不应再出现一份带遮罩的抽屉。
 - [ ] 关掉讲解，左侧目录仍在；关掉目录，右侧讲解仍在。
 - [ ] 刷新后两者都还开着（宽屏不纠正）。
 
@@ -73,10 +73,11 @@ React Compiler 会报 `react-hooks/set-state-in-effect`，而且它在渲染阶�
 
 - `npx eslint src/components/ide/IdeShell.tsx` → **0 problem**（该文件的 `set-state-in-effect`
   与 `exhaustive-deps` 都已消失）。
-- `npm run check` → 129 test files / 1520 passed + 1 expected fail / 0 errors。
-- 自动化覆盖：`panelLayers.test.ts`（20 例）锁住窄屏双开只留一层、宽屏共存、rehydrate 纠正、
-  跳文件不抢层、拖窄时按可见性收敛，以及「IdeShell 没有 effect 同时依赖两个开关 / effect 里不关层」。
-- 浏览器实测（DevTools 设备模拟，非真机）：768 宽下抽屉与讲解互换只留一层、刷新后仍只一层；
-  1440 宽下左树与右讲解可同开。
+- `npm run check` → 129 test files / 1521 passed + 1 expected fail / 0 errors。
+- 自动化覆盖：`panelLayers.test.ts`（21 例）锁住窄屏双开只留一层、宽屏共存、rehydrate 纠正、
+  跳文件不抢层、拖窄时按可见性收敛、宽屏不渲染抽屉，以及「IdeShell 没有 effect 同时依赖两个开关 /
+  effect 里不关层」。
+- 浏览器实测（DevTools 设备模拟，非真机）：768 宽下抽屉与讲解互换只留一层、刷新后仍只一层、
+  拖窄后点「文件」能收讲解露出抽屉；1440 宽下左树与右讲解可同开且不再多渲染一份抽屉。
 - **未验**：真机平板（768 分辨率实设备）触屏点选、Tauri 桌面窗口（WebView 的 `matchMedia`
   与实际窗口宽度一致时才等同浏览器行为）、以及讲解请求打完一轮后的布局（本次只测开合）。
