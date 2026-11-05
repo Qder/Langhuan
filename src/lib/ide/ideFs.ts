@@ -23,45 +23,89 @@ export type IdeFolderSession = {
   handle: FileSystemDirectoryHandle | null;
   /** Absolute root path when using a future Tauri path backend. */
   absRoot: string | null;
+  /**
+   * `sandbox` = IndexedDB zip import (Android / no folder picker).
+   * Default / omitted = File System Access (`handle` set).
+   */
+  backend?: "fsa" | "sandbox";
 };
 
 export type IdeFsCapability = {
+  /** Chromium File System Access directory picker (not Android). */
   canPickFolder: boolean;
-  /** Human hint when canPickFolder is false. */
+  /**
+   * Zip → IndexedDB sandbox. Works on Android WebView via file input.
+   * Primary open path when canPickFolder is false.
+   */
+  canImportZip: boolean;
+  /** canPickFolder || canImportZip */
+  canOpenProject: boolean;
+  /**
+   * When neither open path works (SSR). Otherwise empty — use folderHint for
+   * the Android / no-FSA case so UI can still offer zip import.
+   */
   unsupportedHint: string;
+  /** Extra copy when folder pick is unavailable but zip import is. */
+  folderHint: string;
 };
+
+function isSandboxBackend(session: IdeFolderSession): boolean {
+  return (
+    session.backend === "sandbox" ||
+    (!session.handle && session.id.startsWith("sandbox:"))
+  );
+}
 
 export function getIdeFsCapability(): IdeFsCapability {
   if (typeof window === "undefined") {
     return {
       canPickFolder: false,
+      canImportZip: false,
+      canOpenProject: false,
       unsupportedHint: "服务端渲染中，请在浏览器打开。",
+      folderHint: "",
     };
   }
+  const canImportZip = true;
   if (isFsAccessSupported()) {
-    return { canPickFolder: true, unsupportedHint: "" };
+    return {
+      canPickFolder: true,
+      canImportZip,
+      canOpenProject: true,
+      unsupportedHint: "",
+      folderHint: "",
+    };
   }
   if (isAndroidWebView()) {
     // Android WebView 名义上有 showDirectoryPicker，但真调用会让 Tauri 的
-    // showFilePicker 在 intent.type 为 null 时 NPE，进程被杀。诚实说明，
-    // 不要假装能打开工程。
+    // showFilePicker 在 intent.type 为 null 时 NPE，进程被杀。
+    // 不假装能选目录；改走「导入工程 zip」沙箱。
     return {
       canPickFolder: false,
-      unsupportedHint:
-        "安卓版不能读取设备上的工程目录（系统文件选择器不支持整目录授权）。读码工作台留给桌面 / Chrome。",
+      canImportZip,
+      canOpenProject: true,
+      unsupportedHint: "",
+      folderHint:
+        "安卓不能选择整文件夹（系统选择器不支持目录授权）。请把工程打成 zip 后点「导入工程 zip」；导入落在应用沙箱，不会写入笔记库的 content/。",
     };
   }
   if (isTauriRuntime()) {
-    // v1: Tauri webviews without FSA still need plugin-fs; don't pretend.
     return {
       canPickFolder: false,
-      unsupportedHint:
-        "当前桌面 WebView 未提供目录选择 API。请用 Chrome / Edge 打开，或等待后续桌面文件插件。",
+      canImportZip,
+      canOpenProject: true,
+      unsupportedHint: "",
+      folderHint:
+        "当前桌面 WebView 未提供目录选择 API。可「导入工程 zip」，或用 Chrome / Edge 打开文件夹。",
     };
   }
   return {
     canPickFolder: false,
-    unsupportedHint: "用桌面版打开工程（或使用支持「选择文件夹」的 Chrome / Edge）。",
+    canImportZip,
+    canOpenProject: true,
+    unsupportedHint: "",
+    folderHint:
+      "当前环境不能选择文件夹。可「导入工程 zip」，或换用支持目录选择的 Chrome / Edge。",
   };
 }
 
@@ -114,6 +158,7 @@ export async function pickIdeFolder(): Promise<IdeFolderSession | null> {
       pathLabel: handle.name,
       handle,
       absRoot: null,
+      backend: "fsa",
     };
   } catch {
     // user cancelled or denied
@@ -121,7 +166,7 @@ export async function pickIdeFolder(): Promise<IdeFolderSession | null> {
   }
 }
 
-/** Re-open a recent project by restoring its directory handle. */
+/** Re-open a recent project by restoring its directory handle (FSA only). */
 export async function reopenIdeFolder(
   id: string,
   meta: { name: string; pathLabel: string }
@@ -136,6 +181,7 @@ export async function reopenIdeFolder(
     pathLabel: meta.pathLabel || handle.name,
     handle,
     absRoot: null,
+    backend: "fsa",
   };
 }
 
@@ -169,12 +215,20 @@ export async function listIdeDir(
   session: IdeFolderSession,
   relDir: string = ""
 ): Promise<IdeFsEntry[]> {
+  if (isSandboxBackend(session)) {
+    const { loadSandboxProject, listSandboxDir } = await import("./sandboxFs");
+    const project = await loadSandboxProject(session.id);
+    if (!project) throw new Error("沙箱工程已丢失，请重新导入 zip");
+    return listSandboxDir(project, relDir);
+  }
   if (!session.handle) throw new Error("无目录句柄");
   const dir = relDir ? await resolveDir(session.handle, relDir) : session.handle;
   const entries: IdeFsEntry[] = [];
   for await (const [name, handle] of dir.entries()) {
     if (shouldIgnoreName(name)) continue;
-    const path = relDir ? `${relDir.replace(/\\/g, "/").replace(/\/$/, "")}/${name}` : name;
+    const path = relDir
+      ? `${relDir.replace(/\\/g, "/").replace(/\/$/, "")}/${name}`
+      : name;
     entries.push({
       name,
       path,
@@ -192,6 +246,12 @@ export async function readIdeFile(
   session: IdeFolderSession,
   relPath: string
 ): Promise<string> {
+  if (isSandboxBackend(session)) {
+    const { loadSandboxProject, readSandboxFile } = await import("./sandboxFs");
+    const project = await loadSandboxProject(session.id);
+    if (!project) throw new Error("沙箱工程已丢失，请重新导入 zip");
+    return readSandboxFile(project, relPath);
+  }
   if (!session.handle) throw new Error("无目录句柄");
   const fh = await resolveFile(session.handle, relPath);
   const file = await fh.getFile();
@@ -203,6 +263,13 @@ export async function writeIdeFile(
   relPath: string,
   content: string
 ): Promise<void> {
+  if (isSandboxBackend(session)) {
+    const { loadSandboxProject, writeSandboxFile } = await import("./sandboxFs");
+    const project = await loadSandboxProject(session.id);
+    if (!project) throw new Error("沙箱工程已丢失，请重新导入 zip");
+    await writeSandboxFile(project, relPath, content);
+    return;
+  }
   if (!session.handle) throw new Error("无目录句柄");
   const fh = await resolveFile(session.handle, relPath);
   const writable = await fh.createWritable();
@@ -210,62 +277,4 @@ export async function writeIdeFile(
   await writable.close();
 }
 
-/** Heuristic: skip huge / binary-looking files in the editor. */
-export function isLikelyTextPath(path: string): boolean {
-  const base = path.replace(/\\/g, "/").split("/").pop() || "";
-  const ext = base.includes(".") ? base.split(".").pop()!.toLowerCase() : "";
-  const textExts = new Set([
-    "java",
-    "cpp",
-    "cc",
-    "cxx",
-    "c",
-    "h",
-    "hpp",
-    "hh",
-    "hxx",
-    "js",
-    "mjs",
-    "cjs",
-    "jsx",
-    "ts",
-    "tsx",
-    "json",
-    "md",
-    "markdown",
-    "mdx",
-    "html",
-    "htm",
-    "css",
-    "scss",
-    "less",
-    "xml",
-    "xsl",
-    "svg",
-    "py",
-    "rs",
-    "go",
-    "txt",
-    "toml",
-    "yaml",
-    "yml",
-    "ini",
-    "cfg",
-    "properties",
-    "gradle",
-    "kt",
-    "kts",
-    "sql",
-    "sh",
-    "bash",
-    "zsh",
-    "env",
-    "gitignore",
-    "dockerignore",
-    "editorconfig",
-    "xml",
-    "pom",
-  ]);
-  if (!ext) return base.startsWith(".") || base === "Makefile" || base === "Dockerfile";
-  return textExts.has(ext) || base === "pom.xml";
-}
+export { isLikelyTextPath } from "./textPath";

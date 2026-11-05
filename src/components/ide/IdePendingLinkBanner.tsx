@@ -5,18 +5,20 @@ import { CornerDownRight, FolderOpen, X } from "lucide-react";
 import { Button } from "../ui/button";
 import { useIdeStore } from "@/lib/ide/store";
 import { getIdeFsCapability } from "@/lib/ide/ideFs";
+import { isSandboxSessionId } from "@/lib/ide/sandboxFs";
 import {
   guessPendingProject,
   pendingLinkLocation,
 } from "@/lib/ide/pendingLink";
+import { IdeImportZipButton } from "./IdeImportZipButton";
 
 /**
  * Shown on the 读码 welcome screen when a note's `[[ide:…]]` link arrived with
  * no project open. The link itself is persisted, so this banner survives a
  * reload instead of the click being a one-shot status flash.
  *
- * Two ways out: open the project the file came from (one click, when we can
- * tell which one), or pick a folder manually. Dismissing forgets the link.
+ * Ways out: reopen the guessed project, open a folder (desktop), or import zip
+ * (Android). Dismissing forgets the link.
  */
 export function IdePendingLinkBanner() {
   const pending = useIdeStore((s) => s.pendingIdeLink);
@@ -39,10 +41,12 @@ export function IdePendingLinkBanner() {
 
   const cap = getIdeFsCapability();
   const location = pendingLinkLocation(pending);
-  // The project already open is not the one that owns the file — do not offer
-  // to "open" it again, that would just drop the current tabs for nothing.
   const guessIsOpen = !!guess && guess.id === (session?.id ?? null);
   const hasProject = !!session;
+  const guessCanOpen =
+    !!guess &&
+    !guessIsOpen &&
+    (isSandboxSessionId(guess.id) || cap.canPickFolder);
 
   const run = async (fn: () => Promise<boolean>) => {
     setBusy(true);
@@ -79,11 +83,11 @@ export function IdePendingLinkBanner() {
             </p>
           ) : hasProject ? (
             <p className="text-xs font-ui text-[var(--muted)]">
-              当前工程「{session.name}」里没有这个文件，换一个文件夹试试。
+              当前工程「{session.name}」里没有这个文件，换一个工程试试。
             </p>
           ) : (
             <p className="text-xs font-ui text-[var(--muted)]">
-              还不确定属于哪个工程，选一个文件夹试试。
+              还不确定属于哪个工程，打开文件夹或导入 zip 试试。
             </p>
           )}
         </div>
@@ -100,28 +104,37 @@ export function IdePendingLinkBanner() {
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        {guess && !guessIsOpen && (
+        {guessCanOpen && (
           <Button
             variant="accent"
             size="sm"
             className="gap-1.5"
-            disabled={busy || !cap.canPickFolder}
-            onClick={() => void run(() => openRecent(guess.id))}
+            disabled={busy}
+            onClick={() => void run(() => openRecent(guess!.id))}
           >
             <FolderOpen className="h-3.5 w-3.5" />
             打开该工程
           </Button>
         )}
-        <Button
-          variant={guess ? "ghost" : "accent"}
-          size="sm"
-          className="gap-1.5"
-          disabled={busy || !cap.canPickFolder}
-          onClick={() => void run(() => openFolder())}
-        >
-          <FolderOpen className="h-3.5 w-3.5" />
-          {guess ? "换个文件夹…" : "打开文件夹…"}
-        </Button>
+        {cap.canPickFolder && (
+          <Button
+            variant={guess ? "ghost" : "accent"}
+            size="sm"
+            className="gap-1.5"
+            disabled={busy}
+            onClick={() => void run(() => openFolder())}
+          >
+            <FolderOpen className="h-3.5 w-3.5" />
+            {guess ? "换个文件夹…" : "打开文件夹…"}
+          </Button>
+        )}
+        {cap.canImportZip && (
+          <IdeImportZipButton
+            variant={cap.canPickFolder || guessCanOpen ? "ghost" : "accent"}
+            size="sm"
+            label={guess ? "导入别的 zip…" : "导入工程 zip"}
+          />
+        )}
         <button
           type="button"
           className="text-xs font-ui text-[var(--muted)] hover:text-[var(--fg)] hover:underline"
@@ -132,10 +145,8 @@ export function IdePendingLinkBanner() {
         </button>
       </div>
 
-      {!cap.canPickFolder && (
-        <p className="text-xs font-ui text-[var(--muted)]">
-          {cap.unsupportedHint}
-        </p>
+      {!cap.canPickFolder && cap.folderHint && (
+        <p className="text-xs font-ui text-[var(--muted)]">{cap.folderHint}</p>
       )}
     </section>
   );

@@ -16,6 +16,13 @@ import {
   type IdeFsEntry,
 } from "./ideFs";
 import {
+  clearSandboxProject,
+  importZipToSandbox,
+  isSandboxSessionId,
+  loadSandboxProject,
+  sessionFromSandbox,
+} from "./sandboxFs";
+import {
   IDE_RECENT_MAX,
   pushRecentProject,
   removeRecentProject,
@@ -141,6 +148,11 @@ type IdeState = {
   setExplorerOpen: (v: boolean) => void;
   setStatus: (msg: string | null) => void;
   openFolder: () => Promise<boolean>;
+  /**
+   * Android / no-FSA: import a coursework zip into IndexedDB sandbox and open it.
+   * Does not write into content/.
+   */
+  importZipProject: (file: File | ArrayBuffer | Uint8Array, sourceName?: string) => Promise<boolean>;
   openRecent: (id: string) => Promise<boolean>;
   /**
    * Open a cross-project recent file: same project opens in place, other
@@ -458,7 +470,12 @@ export const useIdeStore = create<IdeState>()(
       openFolder: async () => {
         const cap = getIdeFsCapability();
         if (!cap.canPickFolder) {
-          set({ status: cap.unsupportedHint });
+          set({
+            status:
+              cap.folderHint ||
+              cap.unsupportedHint ||
+              "当前不能选择文件夹，请改用「导入工程 zip」",
+          });
           return false;
         }
         if (get().anyDirty()) {
@@ -479,11 +496,74 @@ export const useIdeStore = create<IdeState>()(
         return true;
       },
 
+      importZipProject: async (file, sourceName) => {
+        const cap = getIdeFsCapability();
+        if (!cap.canImportZip) {
+          set({ status: cap.unsupportedHint || "当前环境不能导入 zip" });
+          return false;
+        }
+        if (get().anyDirty()) {
+          const dirty = get().tabs.find((t) => get().isDirty(t.path));
+          if (dirty) {
+            set({
+              pendingClose: { path: dirty.path, after: "none" },
+              status: "请先处理未保存的文件，再导入工程",
+            });
+            return false;
+          }
+        }
+        const name =
+          sourceName ||
+          (typeof File !== "undefined" && file instanceof File
+            ? file.name
+            : "工程.zip");
+        set({ status: "正在导入 zip…" });
+        const result = await importZipToSandbox(file, name);
+        if (!result.ok) {
+          set({ status: result.error });
+          return false;
+        }
+        const session = sessionFromSandbox(result.project);
+        rememberSession(set, get, session);
+        const notes: string[] = [];
+        if (result.skipped > 0) notes.push(`跳过 ${result.skipped} 个非文本/过大文件`);
+        if (result.truncated) notes.push("工程过大，已截断部分文件");
+        set({
+          status: notes.length
+            ? `已导入「${session.name}」（${notes.join("；")}）`
+            : `已导入「${session.name}」`,
+        });
+        await get().ensureDirListed("");
+        await get().consumePendingIdeLink();
+        return true;
+      },
+
       openRecent: async (id) => {
         const meta = get().recent.find((r) => r.id === id);
         if (!meta) {
           set({ status: "找不到该最近工程" });
           return false;
+        }
+        if (isSandboxSessionId(id)) {
+          const project = await loadSandboxProject(id);
+          if (!project) {
+            set((s) => ({
+              status: "沙箱工程已丢失，请重新「导入工程 zip」",
+              recent: removeRecentProject(s.recent, id),
+              recentFiles: pruneRecentFilesForSession(s.recentFiles, id),
+            }));
+            await clearSandboxProject(id);
+            return false;
+          }
+          const session = sessionFromSandbox({
+            ...project,
+            name: meta.name || project.name,
+            pathLabel: meta.pathLabel || project.pathLabel,
+          });
+          rememberSession(set, get, session);
+          await get().ensureDirListed("");
+          await get().consumePendingIdeLink();
+          return true;
         }
         const session = await reopenIdeFolder(id, meta);
         if (!session) {
@@ -650,7 +730,11 @@ export const useIdeStore = create<IdeState>()(
           // welcome screen keeps offering files that can no longer be opened.
           recentFiles: pruneRecentFilesForSession(s.recentFiles, id),
         }));
-        await clearIdeHandle(id);
+        if (isSandboxSessionId(id)) {
+          await clearSandboxProject(id);
+        } else {
+          await clearIdeHandle(id);
+        }
       },
 
       ensureDirListed: async (relDir) => {

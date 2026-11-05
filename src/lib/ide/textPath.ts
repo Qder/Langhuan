@@ -1,0 +1,61 @@
+/** Heuristic helpers for which project paths the editor will open as text. */
+
+/** Heuristic: skip huge / binary-looking files in the editor. */
+export function isLikelyTextPath(path: string): boolean {
+  const base = path.replace(/\\/g, "/").split("/").pop() || "";
+  const ext = base.includes(".") ? base.split(".").pop()!.toLowerCase() : "";
+  const textExts = new Set([
+    "java",
+    "cpp",
+    "cc",
+    "cxx",
+    "c",
+    "h",
+    "hpp",
+    "hh",
+    "hxx",
+    "js",
+    "mjs",
+    "cjs",
+    "jsx",
+    "ts",
+    "tsx",
+    "json",
+    "md",
+    "markdown",
+    "mdx",
+    "html",
+    "htm",
+    "css",
+    "scss",
+    "less",
+    "xml",
+    "xsl",
+    "svg",
+    "py",
+    "rs",
+    "go",
+    "txt",
+    "toml",
+    "yaml",
+    "yml",
+    "ini",
+    "cfg",
+    "properties",
+    "gradle",
+    "kt",
+    "kts",
+    "sql",
+    "sh",
+    "bash",
+    "zsh",
+    "env",
+    "gitignore",
+    "dockerignore",
+    "editorconfig",
+    "xml",
+    "pom",
+  ]);
+  if (!ext) return base.startsWith(".") || base === "Makefile" || base === "Dockerfile";
+  return textExts.has(ext) || base === "pom.xml";
+}

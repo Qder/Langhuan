@@ -1,6 +1,6 @@
 # Tauri 2 Android APK（debug + 可分发 release）
 
-上次更新：2026-11-05 19:12 · release + strip 把 arm64 从 386 MB 收到 25.4 MB；模拟器换包升级库仍在；自动更新仍未做
+上次更新：2026-11-05 · 读码可「导入工程 zip」进 IndexedDB 沙箱（安卓不再只能看桌面提示）
 
 ## 一句话现状
 
@@ -8,7 +8,8 @@
 - **Windows `npm run tauri:build`**：可安装桌面壳，见 [STATUS-tauri.md](./STATUS-tauri.md)。
 - **Android**：`src-tauri/gen/android` 已 init（`applicationId` `com.qder.langhuan`）。打开就是琅嬛壳（藏书阁 + 读码），库落在应用私有目录，首次 hydrate 会 seed 示例 md。
 - **分发**：`npm run android:apk:release` 打 **release + strip `.so` + 本机 keystore 签名**。不要走 Play 商店；**没有应用内自动更新**（Windows updater 不复用到 APK）。
-- **未做**：Play 上架、in-app 下载安装、终端、LSP、Cloud Agent。换包 = 升 `versionCode` 后侧载覆盖安装。
+- **读码（安卓）**：系统不能整目录授权 → 欢迎页主按钮是 **「导入工程 zip」**（解压进应用 IndexedDB 沙箱，不写 `content/`）。桌面仍「打开文件夹」。杀进程后可从「最近工程」恢复沙箱工程（最多 6 个）。
+- **未做**：Play 上架、in-app 下载安装、原生选目录、终端、LSP、Cloud Agent。换包 = 升 `versionCode` 后侧载覆盖安装。
 
 ## 本机前置（Windows 优先）
 
@@ -139,7 +140,7 @@ APK：`versionName` **0.1.0** / `versionCode` 1 · 本机产物时间 2026-11-05
 | 打开「快速上手」或任意 md，预览可读；杀进程再开库仍在 | **阻塞**（无真机） |
 | 顶栏「更多」、藏书阁\|读码切换 | **阻塞**（无真机） |
 | 窄屏一层互斥（抽屉与讲解不同时占满） | **阻塞**（无真机）；见 [STATUS-ide-panel-layers.md](./STATUS-ide-panel-layers.md) |
-| 读码：无目录选择时诚实提示，勿假打开工程 | **阻塞**（无真机）。代码已挡住 Android 上的 `showDirectoryPicker`（见下） |
+| 读码：导入 zip / 打开工程 | **阻塞**（无真机）。代码已提供 zip 沙箱；真机导入冒烟未跑 |
 | 没填 Key 时本地示例讲解可点开 | **阻塞**（无真机） |
 
 平板侧载这条路还在：把 `app-arm64-debug.apk` 拷到平板（局域网 HTTP / 网盘 / MTP）允许未知来源后安装。**本回合没有人在真机上点过「安装成功」**，不能拿模拟器代替。
@@ -171,13 +172,14 @@ AVD：`Medium_Phone_API_37.0`，另用 `1536×2048 @ 320dpi`（约 768×1024 d
 | 打开「快速上手」，预览可读；`am force-stop` 再开库仍在 | **过** |
 | 顶栏「更多」、藏书阁\|读码 | **过**（CDP / 触控坐标） |
 | 系统返回不杀进程 | **过**（修了 `MainActivity` 之后：`moveTaskToBack`，不再 finish → wry SIGSEGV） |
-| 读码诚实提示（不调会崩的目录选择） | **过**（修了 UA 过滤之后不再走 `showDirectoryPicker`） |
+| 读码诚实提示（不调会崩的目录选择） | **过**（UA 过滤仍在） |
+| 读码「导入工程 zip」→ 树 / 开文件 | **未验**（模拟器本回合未重装含本功能的 APK；单测已覆盖解压与列目录） |
 | 没填 Key 的本地示例讲解整段点开 | **未验**（模拟器上进了读码壳，没把讲解请求走完） |
 | `tauri android dev` HMR | **未验** |
 
 ### 本回合 P0（模拟器复现，代码已改）
 
-1. **点「打开文件夹」杀进程**。Android WebView 上 `typeof showDirectoryPicker === "function"`，调用却进 `RustWebChromeClient.showFilePicker`，`intent.type` 为 null 时 `intent.type!!` NPE。处理：`src/lib/platform.ts` 的 `directoryPickerSupported` 对 Android UA 一律 false；藏书阁退回 `<input webkitdirectory>`；读码顶栏改成「读码需桌面版」，不给假按钮。
+1. **点「打开文件夹」杀进程**。Android WebView 上 `typeof showDirectoryPicker === "function"`，调用却进 `RustWebChromeClient.showFilePicker`，`intent.type` 为 null 时 `intent.type!!` NPE。处理：`src/lib/platform.ts` 的 `directoryPickerSupported` 对 Android UA 一律 false；藏书阁退回 `<input webkitdirectory>`；读码顶栏不再假开文件夹；现已改为「导入 zip」（见上节）。
 2. **系统返回 SIGSEGV**。`TauriActivity.handleBackNavigation = false`，back 会 `finish()`，wry 拆 WebView 时 `pthread_mutex_lock` 打在已销毁 mutex 上。处理：`MainActivity` 用 `OnBackPressedCallback` → `moveTaskToBack(true)`。真退出走最近任务划掉。
 
 P0 代码 tip：**`f0d3d3a`**（`fix(android): keep the note shell from dying on folder pick or back`）。未做：缩 APK、updater、商店签名。
@@ -207,15 +209,35 @@ P0 代码 tip：**`f0d3d3a`**（`fix(android): keep the note shell from dying on
 | 本地库读写 | Next API → 仓库 `content/` | Rust → 便携/`app_data` | Rust → **应用私有目录** |
 | 首次 seed 示例 md | 有 | 有 | 有 |
 | HTML 项目导入 / CSS·JS 索引 | **唯一支持** | 明确不支持 | **同样不支持**（`desktopProjectsUnsupported`） |
-| 系统文件夹选择 / 双向同步 | File System Access | 不支持 | **不支持**（WebView 声称有 `showDirectoryPicker`，真调会 NPE；已按 UA 关掉） |
+| 系统文件夹选择 / 双向同步 | File System Access | 不支持 | **不支持整目录**（WebView `showDirectoryPicker` 会 NPE；已按 UA 关掉） |
+| 读码打开工程 | 选文件夹（FSA）或导入 zip | 选文件夹（FSA） | **导入 zip → IndexedDB 沙箱**（`sandbox:` 会话）；最近工程可恢复 |
 | 读码讲解 | Next `/api/ide/explain`，可读 `.env.local` | Rust `ide_explain`，只用设置里的 Key | 同桌面：Rust 管道；没填 Key 是本地示例 |
 | 自动更新 | 无 | Windows：设置里检查更新（见 [STATUS-updater.md](./STATUS-updater.md)） | **仅文档 / 未验**（设置只说明侧载重装，无 in-app 下载；Play 未验） |
 | 商店 / 正式签名 | — | 未签名 NSIS/MSI | debug：调试密钥；**release：本机 keystore 侧载签名（非 Play）** |
 | 终端 / LSP / 插件市场 | 产品不做 | 不做 | 不做 |
 
+## 读码：安卓导入工程 zip（沙箱）
+
+**路线 B**（本回合）：不假装 FSA 可用。用户把课件工程打成 `.zip` → 应用内选择文件 → `JSZip` 解压 → 文本文件进 IndexedDB（`langhuan-ide-sandbox:*`）→ `IdeFolderSession.backend = "sandbox"`，资源树 / 打开文件 / 讲解走同一套 `listIdeDir` / `readIdeFile`。
+
+| 项 | 说明 |
+| --- | --- |
+| 入口 | 欢迎页 / 顶栏「导入 zip」；更多菜单「导入工程 zip…」 |
+| 忽略 | `node_modules`、`.git`、`build`、`dist` 等（`ignore.ts`） |
+| 上限 | ≤3000 文件、单文件 ≤2MB、合计文本 ≤40MB；超限截断并 status 提示 |
+| 单根目录 | zip 内若全在 `campus-food/…` 下，会剥掉这一层当工程根 |
+| 持久化 | 沙箱正文在 IDB；「最近工程」最多 6 条；杀进程后点最近可再开 |
+| 不写 | **不会**把工程写进 `content/` 或笔记库 |
+| 未做 | 原生 SAF 选目录、从系统文件夹同步回写磁盘 zip |
+
+实现：`src/lib/ide/sandboxFs.ts`、`ideFs.ts`（backend 分支）、`store.importZipProject`、`IdeImportZipButton` / `IdeWelcome`。
+
+Yang 验收：本机 `npm run android:apk:release` → 装平板 → 读码 → 导入小工程 zip → 树可见 → 打开 `.java`/`.md` → 杀进程再开「最近工程」。
+
 ## 已知限制
 
 - 讲解 Key：只来自 IDE 设置（IndexedDB）。Android 包**不读**开发机 `.env.local`。没填就是本地示例讲解，不是联网失败。
+- 导入的沙箱工程只在本机 IDB；清应用数据会丢。编辑保存写回沙箱，不写回原始 zip / 磁盘文件夹。
 - 系统返回：`MainActivity` 把 back 改成进后台，避免 wry 拆 WebView SIGSEGV。划掉任务才是退出。
 - 图片预览仍是 base64 `data:` URL。
 - `tauri android dev`（连电脑 Next HMR）本文件不保证；可分发验收对象是 **release APK**。

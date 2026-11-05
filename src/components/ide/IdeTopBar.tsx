@@ -20,6 +20,11 @@ import { useMediaQuery } from "@/lib/useMediaQuery";
 import { IDE_WIDE_QUERY } from "@/lib/ide/panelLayers";
 import { getIdeFsCapability } from "@/lib/ide/ideFs";
 import { cn } from "@/lib/utils";
+import {
+  IdeImportZipButton,
+  IdeImportZipHost,
+  triggerIdeImportZipPicker,
+} from "./IdeImportZipButton";
 
 export function IdeTopBar({
   onToggleExplorer,
@@ -46,8 +51,10 @@ export function IdeTopBar({
   const openFolder = useIdeStore((s) => s.openFolder);
   const closeProject = useIdeStore((s) => s.closeProject);
   const isLg = useMediaQuery(IDE_WIDE_QUERY);
-  // 当前环境能不能选目录 —— Android WebView 名义上有 API，实际会让文件选择器 NPE。
-  const canPickFolder = getIdeFsCapability().canPickFolder;
+  // Android WebView：目录选择会 NPE；改走 zip 导入。桌面仍可选文件夹。
+  const cap = getIdeFsCapability();
+  const canPickFolder = cap.canPickFolder;
+  const canImportZip = cap.canImportZip;
 
   const dirty = activePath ? isDirty(activePath) : false;
 
@@ -127,11 +134,16 @@ export function IdeTopBar({
           <FolderOpen className="h-3.5 w-3.5" />
           <span>打开文件夹</span>
         </Button>
+      ) : canImportZip ? (
+        <IdeImportZipButton
+          variant="accent"
+          size="sm"
+          className="gap-1.5 shrink-0 max-lg:h-11 max-lg:px-3"
+          label="导入 zip"
+        />
       ) : (
-        // 没目录选择能力（Android WebView / 无 FSA 的桌面 WebView）时不给假按钮：
-        // 点了只会走一条会崩的路径，改成一句诚实的说明。
         <span className="shrink-0 max-w-[45%] truncate text-xs text-[var(--muted)] font-ui px-1">
-          读码需桌面版
+          无法打开工程
         </span>
       )}
 
@@ -153,9 +165,16 @@ export function IdeTopBar({
             <DropdownItem onClick={onOpenWorkspaceSearch}>
               <Search className="h-3.5 w-3.5" /> 在工程中搜索
             </DropdownItem>
-            <DropdownItem onClick={() => void openFolder()}>
-              <FolderOpen className="h-3.5 w-3.5" /> 打开文件夹…
-            </DropdownItem>
+            {canPickFolder && (
+              <DropdownItem onClick={() => void openFolder()}>
+                <FolderOpen className="h-3.5 w-3.5" /> 打开文件夹…
+              </DropdownItem>
+            )}
+            {canImportZip && (
+              <DropdownItem onClick={() => triggerIdeImportZipPicker()}>
+                导入工程 zip…
+              </DropdownItem>
+            )}
             <DropdownItem onClick={() => closeProject()}>
               <X className="h-3.5 w-3.5" /> 关闭工程
             </DropdownItem>
@@ -173,17 +192,28 @@ export function IdeTopBar({
               <Save className="h-3.5 w-3.5" /> 保存当前文件
             </DropdownItem>
           </>
-        ) : canPickFolder ? (
-          <DropdownItem onClick={() => void openFolder()}>
-            <FolderOpen className="h-3.5 w-3.5" /> 打开文件夹…
-          </DropdownItem>
         ) : (
-          <DropdownItem disabled onClick={() => void openFolder()}>
-            <FolderOpen className="h-3.5 w-3.5" /> 读码需桌面版（本机不能选目录）
-          </DropdownItem>
+          <>
+            {canPickFolder && (
+              <DropdownItem onClick={() => void openFolder()}>
+                <FolderOpen className="h-3.5 w-3.5" /> 打开文件夹…
+              </DropdownItem>
+            )}
+            {canImportZip && (
+              <DropdownItem onClick={() => triggerIdeImportZipPicker()}>
+                导入工程 zip…
+              </DropdownItem>
+            )}
+            {!canPickFolder && !canImportZip && (
+              <DropdownItem disabled onClick={() => void openFolder()}>
+                <FolderOpen className="h-3.5 w-3.5" /> 无法打开工程
+              </DropdownItem>
+            )}
+          </>
         )}
       </Dropdown>
 
+      {canImportZip ? <IdeImportZipHost /> : null}
       <AppModeSwitch className={cn("ml-0.5")} />
     </header>
   );
