@@ -19,7 +19,9 @@ export type ExplainJumpNotice = {
 };
 
 /** Open a citation / fence in the editor; collect basename candidates on miss. */
-export function useExplainJump() {
+export function useExplainJump({
+  onOpened,
+}: { onOpened?: (path: string, line?: number) => void } = {}) {
   const session = useIdeStore((s) => s.session);
   const tabs = useIdeStore((s) => s.tabs);
   const children = useIdeStore((s) => s.children);
@@ -44,8 +46,9 @@ export function useExplainJump() {
       setJumpNotice(null);
       setFailedCitePath(null);
       setStatus(formatExplainOpenedStatus(path, line, endLine));
+      onOpened?.(path, line);
     },
-    [setStatus]
+    [onOpened, setStatus]
   );
 
   const applyMiss = React.useCallback(

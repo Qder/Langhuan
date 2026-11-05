@@ -14,6 +14,11 @@ import { useExplainSend } from "./explain/useExplainSend";
 import { usePendingExplain } from "./explain/usePendingExplain";
 import { useExplainCapture } from "./explain/useExplainCapture";
 import { useExplainJump } from "./explain/useExplainJump";
+import { ExplainSheet } from "./explain/ExplainSheet";
+import {
+  nextExplainSheetAfterJump,
+  type ExplainSheetState,
+} from "@/lib/ide/explainSheet";
 
 /**
  * 讲解面板 — 只编排。
@@ -33,7 +38,13 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
     [session, explainBySession]
   );
 
-  const jump = useExplainJump();
+  const [sheet, setSheet] = React.useState<ExplainSheetState>("half");
+  const jump = useExplainJump({
+    onOpened: () => {
+      // 窄屏跳转后编辑器必须可见：加高档自动收到半高，半高档不动。
+      setSheet((cur) => nextExplainSheetAfterJump(!isLg, cur, true));
+    },
+  });
   const stream = useExplainSend({
     onTurnStart: () => jump.clearJumpFeedback(),
   });
@@ -65,10 +76,10 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
         "flex flex-col bg-[var(--chrome)] border-[var(--chrome-border)]",
         isLg
           ? "w-[min(380px,38vw)] h-full border-l"
-          : "w-full max-h-[min(70dvh,100dvh)] min-h-0 rounded-t-2xl border-t shadow-2xl"
+          : "w-full flex-1 min-h-0 rounded-t-2xl border-t shadow-2xl"
       )}
-      role="dialog"
-      aria-label="讲解"
+      role={isLg ? "dialog" : undefined}
+      aria-label={isLg ? "讲解" : undefined}
     >
       <ExplainHeader
         isMock={stream.isMock}
@@ -127,16 +138,8 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
   if (isLg) return panel;
 
   return (
-    <>
-      <button
-        type="button"
-        className="absolute inset-0 z-40 bg-black/35"
-        aria-label="关闭讲解"
-        onClick={onClose}
-      />
-      <div className="absolute inset-x-0 bottom-0 z-50 max-h-[min(70dvh,100dvh)] flex flex-col min-h-0 animate-enter">
-        {panel}
-      </div>
-    </>
+    <ExplainSheet state={sheet} onState={setSheet} onClose={onClose}>
+      {panel}
+    </ExplainSheet>
   );
 }

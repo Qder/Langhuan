@@ -7,8 +7,22 @@
 
 | 宽度 | 资源管理器 | 讲解 | 可否同开 |
 |------|-----------|------|----------|
-| < 1024（手机 / 768 平板） | 左侧抽屉（带遮罩） | 底部抽屉（带遮罩） | **不能**，一次只留一层 |
+| < 1024（手机 / 768 平板） | 左侧抽屉（带遮罩） | 底部抽屉，**默认半高 62dvh**、抓手可加高到 92dvh | **不能**，一次只留一层 |
 | ≥ 1024（桌面 lg） | 左侧停靠 | 右侧停靠 | **可以**，左树 + 右讲解是正常布局 |
+
+### 窄屏讲解抽屉为什么不铺满
+
+早先讲解抽屉是 `inset-0` 遮罩 + `max-h-70dvh` 底部面板，遮罩把顶栏 Tab 和编辑器全盖住：
+开着讲解就切不了文件，引用跳转打开了文件也看不见。现在：
+
+- **默认半高**（`62dvh`，`explainSheetHeightStyle`），上方露出顶栏 + Tab + 编辑器上半段；
+- **抓手可切换**半高 ↔ 加高（`92dvh`，`toggleExplainSheet`），按钮文案「加高讲解 / 收起讲解」；
+- **遮罩只在加高档渲染**（`explainSheetHasScrim`），半高档顶栏 Tab、编辑器、资源树都能直接点；
+- **引用芯片跳转成功后**，若正在加高档会自动收成半高（`nextExplainSheetAfterJump`），让刚打开的文件立即可见；本来就是半高则不动，不打断用户手动拉的高度；
+- 高度走内联样式而不是 Tailwind 任意值类名，避免 JIT 没扫到时退化成内容高度。
+
+规则是纯函数，在 `src/lib/ide/explainSheet.ts`（`explainSheet.test.ts` 钉住档位、遮罩条件、跳转自动半收、宽屏不参与）。
+`IdeShell` 只负责在窄屏且 `explainOpen` 时渲染 `<IdeExplainPanel>`；抽屉外壳是 `explain/ExplainSheet.tsx`。
 
 窄屏的「只留一层」现在只有两个触发点：
 
@@ -39,7 +53,10 @@ React Compiler 会报 `react-hooks/set-state-in-effect`，而且它在渲染阶�
 ### 768 × 1024（平板，窄屏分支）
 
 - [ ] 点顶栏「文件」→ 抽屉从左滑出，有遮罩；再点遮罩或 Esc 收起。
-- [ ] 抽屉开着时点「讲解」→ **抽屉先收，底部讲解抽屉出现**；不会两层叠着。
+- [ ] 抽屉开着时点「讲解」→ **抽屉先收，底部讲解抽屉出现**（半高）；不会两层叠着。
+- [ ] 讲解半高时**直接点顶栏 Tab** → 能切文件，编辑器上半段可见。
+- [ ] 讲解半高时点抓手 → 加高到 92dvh 并出现遮罩；再点抓手 / 遮罩 → 回半高 / 关讲解。
+- [ ] 讲解加高时点「本次引用」芯片 → 文件打开，抽屉自动收成半高，正文可见。
 - [ ] 讲解开着时点「文件」→ 讲解收起，左侧文件抽屉出现。
 - [ ] 讲解开着时点文件（从「打开文件」按钮或选择文件）→ 讲解仍开着，目录不弹出来；
       再点「文件」，目录是展开好的、能定位到刚才那个文件。
@@ -64,10 +81,14 @@ React Compiler 会报 `react-hooks/set-state-in-effect`，而且它在渲染阶�
 ## 关键文件
 
 - `src/lib/ide/panelLayers.ts` — 纯规则（`oneLayerOnCompact` / `reconcilePanelLayers` / `isCompactIdeLayout`）
+- `src/lib/ide/explainSheet.ts` — 窄屏讲解抽屉档位（`explainSheetHeightStyle` / `explainSheetHasScrim` /
+  `toggleExplainSheet` / `nextExplainSheetAfterJump`）
+- `src/components/ide/explain/ExplainSheet.tsx` — 抽屉外壳：半高面板 + 抓手 + 仅加高档的遮罩
 - `src/lib/ide/store.ts` — 在 `setExplorerOpen` / `setExplainOpen` / `toggleExplainOpen` /
   `reconcilePanels` / `revealInExplorer` 上应用规则；`onRehydrateStorage` 纠正一次
 - `src/components/ide/IdeShell.tsx` — 只有渲染与事件，不再有同步 setState 的 effect
 - `src/lib/ide/panelLayers.test.ts` — 窄屏互斥、宽屏共存、rehydrate 纠正、IdeShell 无该 effect 的守卫
+- `src/lib/ide/explainSheet.test.ts` — 抽屉档位、遮罩条件、跳转自动半收、宽屏不参与
 
 ## 验收状态
 
@@ -79,6 +100,11 @@ React Compiler 会报 `react-hooks/set-state-in-effect`，而且它在渲染阶�
   effect 里不关层」。
 - 浏览器实测（DevTools 设备模拟，非真机）：768 宽下抽屉与讲解互换只留一层、刷新后仍只一层、
   拖窄后点「文件」能收讲解露出抽屉；1440 宽下左树与右讲解可同开且不再多渲染一份抽屉。
+- 窄屏讲解抽屉改成半高后（2026-11-05）：768×1024 实测讲解抽屉高 394px（62dvh），顶栏 Tab（y=56..100）
+  与编辑器都在抽屉上方可点；`ExplainSheet` 半高档不渲染遮罩，加高档才铺。
+  **引用芯片跳转自动半收**：单测钉住 `nextExplainSheetAfterJump`，浏览器手势未逐条点完。
+- 高度不是 Tailwind 任意值类名：首版写 `h-[min(62dvh,100dvh)]`，JIT 未扫到，实测仍是 394px 内容高；
+  改内联 `style={{ height }}` 后按视口百分比生效。
 - 模拟器平板几何（2026-11-05，`1536×2048 @ 320dpi` ≈ 768×1024 dp，x86_64 debug APK）：
   藏书阁顶栏「更多」、藏书阁\|读码可点。**读码里抽屉↔讲解互斥手势整段未点完**（当时卡在目录选择 NPE；代码已挡住假「打开工程」，但互斥清单仍算未跑完）。
 - **实体平板：仍阻塞 / 未验**。2026-11-05 18:35 `adb devices` 空，没有型号、没有 `adb install` Success，768 真机触控不能签过。

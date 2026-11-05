@@ -14,6 +14,7 @@ import { join } from "node:path";
 const dir = join(process.cwd(), "src/components/ide");
 const read = (rel: string) => readFileSync(join(dir, rel), "utf8");
 const panel = read("IdeExplainPanel.tsx");
+const panelSrc = panel;
 const sendSrc = read("explain/useExplainSend.ts");
 const pendingSrc = read("explain/usePendingExplain.ts");
 const hintSrc = read("explain/ExplainDesktopHint.tsx");
@@ -136,6 +137,37 @@ describe("讲解面板：同工程多 thread", () => {
     expect(sendSrc.indexOf("selectExplainPriorMessages")).toBeLessThan(
       sendSrc.indexOf("pushExplainMessage")
     );
+  });
+});
+
+describe("讲解面板：窄屏抽屉不整屏盖住编辑器", () => {
+  const sheetSrc = read("explain/ExplainSheet.tsx");
+  const heightSrc = read("../../lib/ide/explainSheet.ts");
+
+  it("半高默认、加高档才铺遮罩，遮罩由档位决定", () => {
+    expect(panelSrc).toContain("ExplainSheet");
+    expect(sheetSrc).toContain("explainSheetHasScrim");
+    expect(sheetSrc).toContain("explainSheetHeightStyle");
+    expect(sheetSrc).toMatch(/explainSheetHasScrim\(state\)\s*&&/);
+    expect(heightSrc).toContain("62");
+    expect(heightSrc).toContain("92");
+    // dvh + min() 走内联样式，别丢给 Tailwind JIT 扫描（未命中会退化成内容高度）。
+    expect(heightSrc).toContain("dvh");
+    expect(sheetSrc).toContain("style={explainSheetHeightStyle(state)}");
+  });
+
+  it("有抓手可在半高 / 加高之间切换", () => {
+    expect(sheetSrc).toContain("toggleExplainSheet");
+    expect(sheetSrc).toContain("explainSheetToggleLabel");
+  });
+
+  it("引用跳转成功后自动把加高档收到半高", () => {
+    expect(panelSrc).toContain("nextExplainSheetAfterJump");
+    expect(jumpSrc).toContain("onOpened");
+  });
+
+  it("窄屏不再写死 max-h-70dvh 的整块抽屉", () => {
+    expect(panelSrc).not.toContain("max-h-[min(70dvh,100dvh)] flex flex-col min-h-0 animate-enter");
   });
 });
 
