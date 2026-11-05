@@ -26,6 +26,11 @@ React Compiler 会报 `react-hooks/set-state-in-effect`，而且它在渲染阶�
 跳文件（打开引用 / 搜索结果）会展开目录并置 `pendingExplorerReveal`。窄屏且讲解正开着时
 **不会**强行弹抽屉——展开状态和 reveal 都留着，用户点开抽屉时自然滚到那一行。
 
+「宽屏开着两层 → 把窗口拖窄」不经过任何打开动作，两个标记会同时留着。这一条不做成 effect
+（那正是要去掉的东西），而是在渲染时按 `isExplorerLayerVisible()` 收敛：窄屏讲解优先显示，
+抽屉标记保留着，拖回宽屏左树自己回来。同理，拖窄后点「文件」用 `toggleExplorerLayers()`
+判断「眼前有没有抽屉」，而不是看原始标记，避免「点了没反应」。
+
 ## 手测清单
 
 浏览器：Chrome / Edge（本机 `npm run dev` → `http://localhost:3000` → 顶栏切到「读码」）。
@@ -39,6 +44,9 @@ React Compiler 会报 `react-hooks/set-state-in-effect`，而且它在渲染阶�
 - [ ] 讲解开着时点文件（从「打开文件」按钮或选择文件）→ 讲解仍开着，目录不弹出来；
       再点「文件」，目录是展开好的、能定位到刚才那个文件。
 - [ ] 刷新页面（讲解开着、抽屉也开着地离开）→ 回来只剩讲解一层。
+- [ ] 先开到 1440 让左树 + 右讲解同开，再把窗口拖到 768 → **只剩讲解**，抽屉不叠在上面；
+      拖回 1440 → 左树自己回来（标记没被丢掉）。
+- [ ] 上一条之后在 768 点「文件」→ 抽屉出现、讲解收起（不是点了没反应）。
 - [ ] `Ctrl/⌘+Shift+L` 切讲解、`Ctrl/⌘+B` 切目录，同样一次只留一层。
 
 ### 1440 × 900（桌面 lg）
@@ -65,9 +73,9 @@ React Compiler 会报 `react-hooks/set-state-in-effect`，而且它在渲染阶�
 
 - `npx eslint src/components/ide/IdeShell.tsx` → **0 problem**（该文件的 `set-state-in-effect`
   与 `exhaustive-deps` 都已消失）。
-- `npm run check` → 129 test files / 1518 passed + 1 expected fail / 0 errors。
-- 自动化覆盖：`panelLayers.test.ts`（18 例）锁住窄屏双开只留一层、宽屏共存、rehydrate 纠正、
-  跳文件不抢层，以及「IdeShell 没有 effect 同时依赖两个开关 / effect 里不关层」。
+- `npm run check` → 129 test files / 1520 passed + 1 expected fail / 0 errors。
+- 自动化覆盖：`panelLayers.test.ts`（20 例）锁住窄屏双开只留一层、宽屏共存、rehydrate 纠正、
+  跳文件不抢层、拖窄时按可见性收敛，以及「IdeShell 没有 effect 同时依赖两个开关 / effect 里不关层」。
 - 浏览器实测（DevTools 设备模拟，非真机）：768 宽下抽屉与讲解互换只留一层、刷新后仍只一层；
   1440 宽下左树与右讲解可同开。
 - **未验**：真机平板（768 分辨率实设备）触屏点选、Tauri 桌面窗口（WebView 的 `matchMedia`

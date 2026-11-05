@@ -64,6 +64,33 @@ export function openLayer(
   return oneLayerOnCompact(wanted, compact, winner);
 }
 
+/**
+ * 抽屉此刻是不是真的看得见。
+ *
+ * 正常路径下窄屏不会双开，但「宽屏开着两层 → 把窗口拖窄」这种实时改尺寸
+ * 不经过任何打开动作，两个标记会同时留着。这里让讲解优先显示（它是底部
+ * 抽屉，盖上去也是在读的内容），抽屉标记保留着 —— 拖回宽屏时左树会自己回来。
+ */
+export function isExplorerLayerVisible(
+  layers: IdePanelLayers,
+  compact: boolean
+): boolean {
+  return layers.explorerOpen && !(compact && layers.explainOpen);
+}
+
+/**
+ * 点「文件」按钮想要的结果：眼前没抽屉就打开它，眼前有就收起它。
+ * 用可见性而不是原始标记，拖窄之后那一下才不会「点了没反应」。
+ * 收起时只给 explorerOpen，另一层的状态原样不动。
+ */
+export function toggleExplorerLayers(
+  layers: IdePanelLayers,
+  compact: boolean
+): Partial<IdePanelLayers> {
+  if (isExplorerLayerVisible(layers, compact)) return { explorerOpen: false };
+  return openLayer(layers, "explorer", compact);
+}
+
 /** 当前视口是否放不下两层。SSR / 无 matchMedia 时按宽屏处理（不纠正）。 */
 export function isCompactIdeLayout(): boolean {
   if (typeof window === "undefined") return false;

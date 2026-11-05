@@ -25,7 +25,11 @@ import {
 } from "@/lib/ide/formatDocument";
 import { IDE_FIND_EVENT, IDE_GOTO_DEF_EVENT } from "@/lib/ide/ideEvents";
 import { claimShortcut } from "@/lib/shortcuts";
-import { IDE_WIDE_QUERY } from "@/lib/ide/panelLayers";
+import {
+  IDE_WIDE_QUERY,
+  isExplorerLayerVisible,
+  toggleExplorerLayers,
+} from "@/lib/ide/panelLayers";
 import { cn } from "@/lib/utils";
 
 export function IdeShell() {
@@ -89,9 +93,13 @@ export function IdeShell() {
   }, [setExplorerOpen]);
 
   const toggleExplorer = React.useCallback(() => {
-    const next = !useIdeStore.getState().explorerOpen;
-    setExplorerOpen(next);
-  }, [setExplorerOpen]);
+    const { explorerOpen: open, explainOpen: explain } = useIdeStore.getState();
+    const next = toggleExplorerLayers(
+      { explorerOpen: open, explainOpen: explain },
+      !isLg
+    );
+    setExplorerOpen(next.explorerOpen ?? false);
+  }, [isLg, setExplorerOpen]);
 
   const toggleExplain = React.useCallback(() => {
     const next = !useIdeStore.getState().explainOpen;
@@ -239,7 +247,7 @@ export function IdeShell() {
     setCommandOpen,
   ]);
 
-  const showDrawer = !!session && explorerOpen && !isLg;
+  const showDrawer = !!session && isExplorerLayerVisible({ explorerOpen, explainOpen }, !isLg);
   const showDocked = !!session && explorerOpen && isLg;
   const activeTab = tabs.find((t) => t.path === activePath) ?? null;
 
@@ -287,7 +295,7 @@ export function IdeShell() {
                       <div className="mx-auto max-w-md px-6 py-12 flex flex-col items-center gap-2 text-sm text-[var(--muted)] font-ui text-center">
                         <p>打开一个文件开始读码。</p>
                         <p>选中后讲解；点回复里的代码块可跳回源码。</p>
-                        {!isLg && !explorerOpen && (
+                        {!isLg && !showDrawer && (
                           <button
                             type="button"
                             className="mt-2 text-[var(--accent)] hover:underline"

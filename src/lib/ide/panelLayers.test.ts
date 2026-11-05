@@ -33,9 +33,11 @@ vi.mock("idb-keyval", () => {
 import {
   IDE_WIDE_QUERY,
   isCompactIdeLayout,
+  isExplorerLayerVisible,
   oneLayerOnCompact,
   openLayer,
   reconcilePanelLayers,
+  toggleExplorerLayers,
 } from "./panelLayers";
 import { useIdeStore } from "./store";
 
@@ -96,8 +98,29 @@ describe("oneLayerOnCompact（纯规则）", () => {
     ).toEqual({ explorerOpen: false, explainOpen: true });
   });
 
-  it("openLayer 先置真再收另一层（宽屏则两层都在）", () => {
-    expect(openLayer({ explorerOpen: false, explainOpen: false }, "explorer", true)).toEqual({
+  it("窗口拖窄时不靠 effect：可见性只在渲染时收敛，标记都保留", () => {
+    const both = { explorerOpen: true, explainOpen: true };
+    expect(isExplorerLayerVisible(both, true)).toBe(false);
+    expect(isExplorerLayerVisible(both, false)).toBe(true);
+    expect(isExplorerLayerVisible({ explorerOpen: true, explainOpen: false }, true)).toBe(true);
+    expect(isExplorerLayerVisible({ explorerOpen: false, explainOpen: true }, true)).toBe(false);
+  });
+
+  it("拖窄后点「文件」不是无响应：先把讲解收起来，抽屉露面", () => {
+    const both = { explorerOpen: true, explainOpen: true };
+    expect(toggleExplorerLayers(both, true)).toEqual({
+      explorerOpen: true,
+      explainOpen: false,
+    });
+    // 抽屉真的开着时，再点是收起。
+    expect(toggleExplorerLayers({ explorerOpen: true, explainOpen: false }, true)).toEqual({
+      explorerOpen: false,
+    });
+    // 宽屏同开时点「文件」还是收起停靠树。
+    expect(toggleExplorerLayers(both, false)).toEqual({ explorerOpen: false });
+  });
+
+  it("openLayer 先置真再收另一层（宽屏则两层都在）", () => {    expect(openLayer({ explorerOpen: false, explainOpen: false }, "explorer", true)).toEqual({
       explorerOpen: true,
       explainOpen: false,
     });
@@ -266,7 +289,8 @@ describe("IdeShell 里不再用 effect 同步两个开关", () => {
 
   it("互斥逻辑在 store 里，而不是组件渲染阶段", () => {
     expect(src).not.toMatch(/explainOpen\s*&&\s*explorerOpen/);
-    expect(src).toContain("setExplorerOpen(next)");
+    // 打开/切换只是把意图交给 store，合并规则不在组件里再写一遍。
+    expect(src).toContain("toggleExplorerLayers(");
     expect(src).toContain("setExplainOpen(next)");
   });
 });
