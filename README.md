@@ -29,7 +29,7 @@ npm start
 - `npm run tauri:build`：产出安装包（`langhuan.exe` + NSIS + MSI）。**安装后打开就是琅嬛 UI**，能读、能改、能存本地 `content/`（已在本机实测）。
 - **桌面版仍有的限制**：
   - HTML 项目导入 / CSS·JS 资源索引 / 元素定位只在浏览器（`npm run dev`）可用；
-  - 读码里的 IDE 讲解依赖 Next 流式 API，桌面版不可用；
+  - 读码讲解：打包版用 Rust 直连你在设置里填的 OpenAI 兼容端点（没填 Key 就是本地示例）；浏览器仍走 Next `/api/ide/explain`；
   - macOS / Linux **未验证**，目前只在 Windows 上跑过。
 
 日常功能全走浏览器 `npm run dev`；桌面版是「离线带着走」的补充形态。详见 [STATUS-tauri.md](./docs/status/STATUS-tauri.md)。

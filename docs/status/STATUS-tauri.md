@@ -1,12 +1,13 @@
 # Tauri 2 桌面壳（MVP）
 
-上次更新：2026-11-05 · tip `3c6e994` 之后
+上次更新：2026-11-05 · 桌面讲解走 Rust `ide_explain`
 
 ## 一句话现状
 
-- **浏览器 `npm run dev` 仍是完整产品**（唯一支持 HTML 项目导入 / CSS·JS 索引 / IDE 讲解的形态）。
+- **浏览器 `npm run dev` 仍是完整产品**（唯一支持 HTML 项目导入 / CSS·JS 索引的形态）。IDE 讲解在浏览器走 Next `/api/ide/explain`。
 - **`npm run tauri:dev`**：一条命令起 Next + WebView，桌面侧用 Rust `invoke` 读写磁盘 `content/`。已本机实测。
 - **`npm run tauri:build`**：产出可安装包，**前端不再是占位页**——打开就是琅嬛 UI，能读、能改、能存本地 `content/`。已本机实测（NSIS + MSI）。
+- **打包版读码讲解**：不依赖 Next Route Handler。前端把已组装的 prompt 交给 Rust `ide_explain`，由它直连**用户自己填的** OpenAI 兼容 Base URL 并推流。没填 Key 时仍是同一份本地示例讲解。
 
 ## 怎么跑
 
@@ -58,7 +59,7 @@ App Router + Route Handlers 不能直接 `output: "export"`：`export const dyna
 
 `distDir` 特意设成 `out` 而不是默认 `.next`：否则一次桌面构建会把正在跑的 `npm run dev` 的 `.next` 缓存冲掉。`out/` 已在 `.gitignore` 里。
 
-没有 sidecar Node：不需要，桌面版也没有任何运行时依赖外部服务。
+没有 sidecar Node：不需要。讲解也不是再起一个本地 HTTP 服务，只是 Rust 按用户填的 Base URL 发一次 `/chat/completions`。没填 Key、没填 URL 时不会联系任何地址。
 
 ## content 根目录
 
@@ -74,7 +75,17 @@ App Router + Route Handlers 不能直接 `output: "export"`：`export const dyna
 
 ## 命令一览（Rust）
 
-`library_content_root` · `library_scan` · `library_put_doc` · `library_put_asset` · `library_delete_path` · `library_trash_restore` · `library_trash_purge` · `library_mkdir` · `library_read_file` · `library_bulk`
+库：`library_content_root` · `library_scan` · `library_put_doc` · `library_put_asset` · `library_delete_path` · `library_trash_restore` · `library_trash_purge` · `library_mkdir` · `library_read_file` · `library_bulk`
+
+讲解：`ide_explain`（带 Tauri Channel 推流）· `ide_explain_cancel`
+
+### 桌面讲解的隐私边界
+
+- **Key 从哪来**：IDE 设置（IndexedDB）。浏览器还可以读 `.env.local`；桌面版**不读环境变量**，只用设置里那一项。
+- **Key 去哪**：随这一次 `ide_explain` IPC 进 Rust，放进 `Authorization` 头。不写磁盘、不写日志、不进 `content/`。
+- **连谁**：只 POST 用户填的 `baseUrl`（空则默认 `https://api.openai.com/v1`）的 `/chat/completions`。没有账号系统、没有插件市场、没有遥测。
+- **prompt 谁组**：TypeScript `src/lib/ide/explain.ts` 是唯一来源（和浏览器同一份 mock / system prompt）。Rust 是哑管道，不改写问题、不扫工程。
+- **失败**：超时、连不上、401/404/429 都是中文短句；旧安装包没有这条命令时提示更新，而不是把 IPC 内部异常甩到面板上。
 
 ## 本机实测记录（2026-11-05）
 
@@ -105,7 +116,7 @@ Finished 2 bundles at:
 ## 已知限制
 
 - **HTML 项目导入 / CSS·JS 资源索引 / 元素定位：桌面版不支持**，请用浏览器。桌面版 `fetchLibrary()` 返回 `desktopProjectsUnsupported: true`，`putLibraryRawFile` 直接抛 `DESKTOP_UNSUPPORTED_PROJECTS`，不会假装成功。
-- **IDE 讲解（读码）：桌面版不可用**。它依赖 Next `/api/ide/explain` 的流式响应，静态导出里没有这个路由。面板里现在是明确文案，不是 fetch 报错。
+- **IDE 讲解（读码）**：打包版走 Rust `ide_explain`，不再依赖 Next `/api/ide/explain`。没配 Key 时是本地示例；配了 Key 就直连用户填的端点。浏览器 `npm run dev` 仍走原来的 Route Handler，两条通路共用 `explain.ts` 的 prompt / mock。
 - 图片预览走 base64 `data:` URL，极大附件会偏慢。
 - 未接系统托盘 / 自动更新 / 代码签名。安装包未签名，Windows 会提示未知发布者。
 - 依赖 Rust 工具链和 WebView2 运行时，不是「双击即用」的单文件分发。

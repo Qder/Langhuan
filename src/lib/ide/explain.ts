@@ -11,9 +11,12 @@ import { shouldIgnoreName } from "./ignore";
 export const IDE_EXPLAIN_MAX_FULL_LINES = 400;
 export const IDE_EXPLAIN_CONTEXT_PAD = 80;
 
-/** Shown when the packaged desktop shell (static UI, no Node server) tries to explain. */
-export const TAURI_EXPLAIN_UNAVAILABLE =
-  "桌面版没有 Next 服务端，IDE 讲解不可用；请用浏览器 `npm run dev`。";
+/**
+ * 打包版没有 Next 服务端，讲解走 Rust `ide_explain` 直连用户配置的端点。
+ * 这句话只在「连不上 / 没配 Key」这类提示里出现，用来说明桌面版的能力边界。
+ */
+export const TAURI_EXPLAIN_HINT =
+  "桌面版讲解直连你填的 Base URL（不需要 Next 服务）；留空 Key 时只有本地示例讲解。";
 export const IDE_EXPLAIN_HISTORY_MAX = 20;
 export const IDE_EXPLAIN_FILE_INDEX_MAX = 200;
 /** When scanned files are below this, optionally BFS from root (still capped). */

@@ -1,0 +1,7 @@
+[[permission]]
+identifier = "allow-langhuan-explain"
+description = "桌面讲解：把已组装的 prompt 发到用户自己填的 OpenAI 兼容端点，并取消进行中的请求。Key 只随这一次 IPC 走，不落盘。"
+commands.allow = [
+  "ide_explain",
+  "ide_explain_cancel"
+]

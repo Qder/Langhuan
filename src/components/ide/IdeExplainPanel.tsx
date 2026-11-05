@@ -18,10 +18,11 @@ import {
   citationsFromMarkdown,
   collectFileIndexWithOptionalBfs,
   listNearbyImports,
-  TAURI_EXPLAIN_UNAVAILABLE,
+  TAURI_EXPLAIN_HINT,
   truncateNeighborExplainContent,
   type IdeExplainMessage,
 } from "@/lib/ide/explain";
+import { streamExplain } from "@/lib/ide/explainClient";
 import { isTauriRuntime } from "@/lib/storage/contentApi";
 import { locateExplainFence } from "@/lib/ide/snippetJump";
 import {
@@ -304,6 +305,7 @@ const EXPLAIN_PRESETS = [
 
 export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
   const isLg = useMediaQuery(IDE_WIDE_QUERY);
+  const isDesktop = isTauriRuntime();
   const session = useIdeStore((s) => s.session);
   const activePath = useIdeStore((s) => s.activePath);
   const tabs = useIdeStore((s) => s.tabs);
@@ -607,76 +609,41 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
     const ac = new AbortController();
     abortRef.current = ac;
 
-    // The packaged desktop shell ships a static UI: Next Route Handlers
-    // (including /api/ide/explain) are not part of `tauri build`. Explain
-    // needs a Node server, so say so instead of showing a fetch error.
-    if (isTauriRuntime()) {
-      updateLastAssistant(TAURI_EXPLAIN_UNAVAILABLE);
-      setStatus("桌面版不支持 IDE 讲解，请在浏览器使用");
-      setBusy(false);
-      abortRef.current = null;
-      return;
-    }
-
+    // 桌面版没有 Next Route Handler，但可以直连用户自己配置的 OpenAI 兼容
+    // 端点（Rust `ide_explain`）。prompt / mock 仍来自 explain.ts，两条通路
+    // 共用同一份语义，见 src/lib/ide/explainClient.ts。
     try {
-      const body: Record<string, unknown> = {
-        question: q,
-        files,
-        fileIndex,
-        locale: "zh",
-      };
-      if (explainSettings.apiKey.trim()) body.apiKey = explainSettings.apiKey.trim();
-      if (explainSettings.baseUrl.trim()) body.baseUrl = explainSettings.baseUrl.trim();
-      if (explainSettings.model.trim()) body.model = explainSettings.model.trim();
-
-      const res = await fetch("/api/ide/explain", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-        signal: ac.signal,
-      });
-
-      if (!res.ok) {
-        let err = `讲解失败（${res.status}）`;
-        try {
-          const j = (await res.json()) as { error?: string };
-          if (j.error) err = j.error;
-        } catch {
-          /* ignore */
-        }
-        updateLastAssistant(`（${err}）`);
-        setStatus(err);
-        setBusy(false);
-        return;
-      }
-
-      const mock = res.headers.get("X-Langhuan-Explain") === "mock";
-      setIsMock(mock);
-
-      const reader = res.body?.getReader();
-      if (!reader) {
-        updateLastAssistant("（无响应流）");
-        setBusy(false);
-        return;
-      }
-      const decoder = new TextDecoder();
       let acc = "";
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        acc += decoder.decode(value, { stream: true });
-        updateLastAssistant(acc, { mock });
-      }
-      updateLastAssistant(acc, { mock });
-      // Ensure citations snapshot
-      void citationsFromMarkdown(acc);
+      await streamExplain(
+        {
+          question: q,
+          files,
+          fileIndex,
+          apiKey: explainSettings.apiKey,
+          baseUrl: explainSettings.baseUrl,
+          model: explainSettings.model,
+          signal: ac.signal,
+        },
+        {
+          onDelta: (text) => {
+            acc += text;
+            updateLastAssistant(acc, { mock: false });
+          },
+          onDone: ({ mock }) => {
+            setIsMock(mock);
+            updateLastAssistant(acc, { mock });
+            // Citations snapshot so chips survive a reload.
+            void citationsFromMarkdown(acc);
+          },
+        }
+      );
     } catch (e) {
-      if ((e as { name?: string })?.name === "AbortError") {
+      if (ac.signal.aborted) {
         setStatus("已停止生成");
       } else {
         const msg = e instanceof Error ? e.message : String(e);
-        updateLastAssistant(`（网络失败：${msg}）`);
-        setStatus(`网络失败：${msg}`);
+        updateLastAssistant(`（${msg}）`);
+        setStatus(msg);
       }
     } finally {
       abortRef.current = null;
@@ -835,8 +802,12 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
       {showSettings && (
         <div className="px-3 py-2 border-b border-[var(--chrome-border)] space-y-2 text-xs font-ui">
           <div className="text-[var(--muted)]">
-            Key 只存在本机 IDE 存储；也可放在 <code>.env.local</code>。
+            Key 只存在本机 IDE 存储；也可放在 <code>.env.local</code>
+            {isDesktop ? "（桌面版不支持 .env，只用这里的设置）" : ""}。
           </div>
+          {isDesktop && (
+            <div className="text-[var(--muted)]">{TAURI_EXPLAIN_HINT}</div>
+          )}
           <label className="block">
             <span className="text-[var(--muted)]">API Key</span>
             <input

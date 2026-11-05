@@ -61,3 +61,13 @@ describe("讲解面板：React Compiler 规则", () => {
     );
   });
 });
+
+describe("讲解面板：桌面通路", () => {
+  it("走 streamExplain，不再在面板里写死「桌面不可用」", () => {
+    expect(src).toContain('from "@/lib/ide/explainClient"');
+    expect(src).toContain("streamExplain(");
+    expect(src).not.toContain("桌面版不支持 IDE 讲解");
+    expect(src).not.toContain("TAURI_EXPLAIN_UNAVAILABLE");
+    expect(src).not.toMatch(/fetch\(\s*["']\/api\/ide\/explain["']/);
+  });
+});

@@ -1,4 +1,5 @@
 mod content;
+mod explain;
 
 use content::{AssetMeta, Document, LibrarySnapshot, TrashItem};
 use serde::Deserialize;
@@ -177,6 +178,7 @@ fn library_bulk(app: AppHandle, args: BulkArgs) -> Result<LibrarySnapshot, Strin
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(explain::ExplainState::default())
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -200,6 +202,8 @@ pub fn run() {
             library_mkdir,
             library_read_file,
             library_bulk,
+            explain::ide_explain,
+            explain::ide_explain_cancel,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
