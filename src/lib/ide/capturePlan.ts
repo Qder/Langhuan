@@ -322,7 +322,8 @@ export async function captureExplainThread(
   });
 }
 
-/** Status line after a successful capture, naming the real path. */export function captureStatusMessage(
+/** Status line after a successful capture, naming the real path. */
+export function captureStatusMessage(
   result: Extract<CaptureResult, { ok: true }>,
   verb = "已收入藏书阁"
 ): string {
