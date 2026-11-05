@@ -1,6 +1,6 @@
 # 桌面自动更新（Tauri 2 updater + GitHub Releases）
 
-上次更新：2026-11-05 · Windows 测试 channel 已走通检查 → 下载 → 安装（0.0.9→0.1.1）
+上次更新：2026-11-05 18:48 · Windows 测试 channel 再跑通 0.0.9→0.1.1（本机 `E:\tmp\langhuan-v009`）
 
 采用路线：**Tauri 2 `@tauri-apps/plugin-updater` + GitHub Releases 上的 `latest.json`（HTTPS）**。浏览器版不接这套。不做应用商店上架（可作为以后选项）。
 
@@ -11,8 +11,8 @@
 | Windows 应用内「检查更新」 | **已做**（设置对话框） |
 | minisign 更新签名 | **已做**（公钥在 `tauri.conf.json`；私钥只在本机/CI secret） |
 | GitHub Releases 托管清单 | **仅文档**（endpoint 已指向 `https://github.com/Qder/Langhuan/releases/latest/download/latest.json`，仓库此刻还没有正式 Release） |
-| 本机旧包 → 新清单 → 安装成新版本 | **已验**（2026-11-05：0.0.9 → 下载安装后 `plugin:app|version` = 0.1.1。测试 channel 用本机 HTTP overlay；生产 conf 仍是 HTTPS-only） |
-| 已是最新 / 网络失败 / 签名失败 | **已验**（设置里中文：`已是最新版本。` / `连不上更新服务器。检查网络后重试。` / `更新包签名校验失败，没有安装。…`；签名在下完包之后、安装之前失败） |
+| 本机旧包 → 新清单 → 安装成新版本 | **已验**（2026-11-05 18:48 再跑：安装 0.0.9 → 设置「检查更新」发现 0.1.1「测试通道：签名安装包」→ 下载并安装 → 进程重启后 invoke `plugin:app` version = **0.1.1**，设置文案「当前版本 0.1.1」。测试 channel 用本机 HTTP overlay；生产 conf 仍是 HTTPS-only） |
+| 已是最新 / 网络失败 / 签名失败 | **已验**（同一次 0.0.9 进程上点设置，中文分别为：`已是最新版本。` / `连不上更新服务器。检查网络后重试。` / 下载 16.6 MB 后 `更新包签名校验失败，没有安装。请从 GitHub Releases 核对来源后再试。`。签名失败发生在下完包之后、安装之前，应用仍停在 0.0.9） |
 | Android in-app 更新 | **仅文档**（设置里有侧载说明，无下载安装实现；Play **未验**） |
 | Play 商店 / Windows 商店 | **未做**（后续选项） |
 | 浏览器 | 不需要；刷新页面即可 |
@@ -101,7 +101,14 @@ GitHub Actions：Repository secret `TAURI_SIGNING_PRIVATE_KEY` = 私钥文件全
    - **`latest.json`（资产名必须是 `latest.json`）**，这样 `…/releases/latest/download/latest.json` 才能解析。
 8. 打开上一版安装的琅嬛 → 设置 → 检查更新，应看到新版本说明。
 
-半自动：`scripts/write-latest-json.mjs`。上传可用 `gh release create v0.1.1 ./artifact... ./latest.json`（需 `gh auth`）。
+半自动：
+
+```powershell
+npm run tauri:build
+powershell -File scripts/publish-desktop-release.ps1 -Version 0.1.1 -Notes "修复…"
+```
+
+`publish-desktop-release.ps1` 调 `write-latest-json.mjs` 并打印 `gh release create`（需 `gh auth`）。发现 git 里有 `*.key` 会直接拒绝。
 
 应用商店上架（Microsoft Store / Play）**不是**这条路，以后若要再单独做签名与审核。
 
@@ -122,6 +129,8 @@ node scripts/serve-updater-fixture.mjs --dir E:\tmp\langhuan-updater\www --port 
 ```
 
 装 0.0.9 → 检查更新 → 下载 0.1.1 → 打开后应为 0.1.1。三种提示：把 `latest.json` 的 version 改成 `0.0.9`（已是最新）、关掉 server（网络失败）、把 `signature` 改坏（签名失败）。
+
+2026-11-05 18:45–18:48 按上面再跑了一轮（WebView2 `--remote-debugging-port=9223`）：三种提示原文如上；随后恢复 `latest.good.json`，安装完成后 `E:\tmp\langhuan-v009\langhuan.exe` FileVersion **0.1.1**，窗口里 `plugin:app|version` **0.1.1**。
 
 ## Android 怎么更新
 

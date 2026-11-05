@@ -158,7 +158,7 @@ P0 代码 tip：**`f0d3d3a`**（`fix(android): keep the note shell from dying on
 | HTML 项目导入 / CSS·JS 索引 | **唯一支持** | 明确不支持 | **同样不支持**（`desktopProjectsUnsupported`） |
 | 系统文件夹选择 / 双向同步 | File System Access | 不支持 | **不支持**（WebView 声称有 `showDirectoryPicker`，真调会 NPE；已按 UA 关掉） |
 | 读码讲解 | Next `/api/ide/explain`，可读 `.env.local` | Rust `ide_explain`，只用设置里的 Key | 同桌面：Rust 管道；没填 Key 是本地示例 |
-| 自动更新 | 无 | Windows：设置里检查更新（见 [STATUS-updater.md](./STATUS-updater.md)） | **仅文档 / 侧载 APK**（无 in-app 下载；Play 未验） |
+| 自动更新 | 无 | Windows：设置里检查更新（见 [STATUS-updater.md](./STATUS-updater.md)） | **仅文档 / 未验**（设置只说明侧载重装，无 in-app 下载；Play 未验） |
 | 商店 / 正式签名 | — | 未签名 NSIS/MSI | **仅 debug 签名** |
 | 终端 / LSP / 插件市场 | 产品不做 | 不做 | 不做 |
 
