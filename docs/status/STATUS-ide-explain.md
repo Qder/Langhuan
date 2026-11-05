@@ -100,6 +100,9 @@ Composer「当前选区」无划词时 `disabled`，title 与旁注都是「先�
 - **窄屏抽屉半高、遮罩不盖顶栏**：默认 62dvh，抓手可加到 92dvh；遮罩只在加高档出现，半高时顶栏 Tab /
   编辑器可点。引用芯片跳转成功后加高档自动收成半高，开的文件立刻可见。规则在
   `src/lib/ide/explainSheet.ts`，外壳 `explain/ExplainSheet.tsx`。**手测清单见 STATUS-ide-panel-layers.md。**
+  2026-11-06 复测（768×1024，qa-goto）：半高档高 634.875px / `top=365` / 遮罩 0；加高档 942px / `top=58` /
+  遮罩 1；从加高档点 `MerchantMapper.java:7` 芯片 → 自动回 62dvh、遮罩归 0、编辑器露出约 264px；
+  半高时点文件 Tab `format.ts` 能切换、正文随之变。1440×900 仍是右侧 380px 停靠、无抓手无遮罩。
 - 浏览器生成中途点芯片 / 宽屏点树 / 切 Tab / 上滚不拽底：**未验**。清 `.next` 后读码能开 `MerchantMapper.java`，点「这个文件在干什么」后 Composer 变为「停止」（流已开始）；本机讲解 Base URL 是 `127.0.0.1:4010`，立刻 `fetch failed`，页面上没有路径芯片可点。mock 段间 280ms 已加上，无 Key 时应能中途点。单测与契约已钉粘性 pin 与「busy 不锁 openFile」。**流式后**（`onDone` 之后）点芯片已在 2026-11-05 的同一轮实测里覆盖：stub 分段间隔 280ms，答复结束后点 `MerchantMapper.java:7` / `NotThere.java:3` 均按预期出成功文案与失败提示。
 
 ## 验收
@@ -120,6 +123,13 @@ Composer「当前选区」无划词时 `disabled`，title 与旁注都是「先�
 - [x] 单测：v5 单列表升一条 thread；v6 多 thread 不拍平；清空只擦当前 thread；新对话可切回；上限保住活动条。
 - [x] 单测：`pruneEmptyExplainThreads` 只留一条空 thread、不碰有内容的、不丢活动那条；「清空 → 新对话 → 再清空」不再堆出两条空对话。
 - [x] 契约：`useExplainSend` 先 `selectExplainPriorMessages` 再 `pushExplainMessage`。
+- [x] 窄视口开讲解 → 点 Tab 能看到并切换文件。浏览器 768×1024：半高档遮罩数 0，顶栏「读码」与文件 Tab
+  的 `elementFromPoint` 都命中 Tab 本身；点 `format.ts` 后编辑器正文换成 `formatPrice(cents…)`。
+- [x] 点「本次引用」芯片 → 文件打开且编辑器可见。浏览器：加高档点 `MerchantMapper.java:7` → 抽屉自动
+  收成 62dvh、遮罩归 0、状态栏 `已打开 …:7`、新 Tab 打开，编辑器在抽屉上方露出约 264px。
+- [x] 宽屏不回归。浏览器 1440×900：右侧 380px 停靠、`top=56`、无内联 height / 无抓手 / 无遮罩；点
+  「切换文件树」讲解仍开着。
+- [x] 窄屏互斥不两层全屏。浏览器 768×1024：讲解半高时点「文件」→ 讲解关闭，只剩目录抽屉一层遮罩。
 - [x] `npm run check`（146 files / 1662 passed + 1 expected fail）
 - [x] 浏览器：读码已开 `format.ts`，点「清空当前对话」后预设回来；再点「这个文件在干什么」发出请求。热更中途 route 曾报 `messages` 重复定义 500（已修）。
 - [ ] 有 Key：第二答须指涉第一答 / 同一文件。**未验**（本机 `OPENAI_API_KEY` 已设，直连上游在 8s 内无响应，未拿到模型第二答）。
