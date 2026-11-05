@@ -43,11 +43,13 @@ function mockStream(text: string): ReadableStream<Uint8Array> {
   const parts = text.split(/(?<=\n\n)/);
   let i = 0;
   return new ReadableStream({
-    pull(controller) {
+    async pull(controller) {
       if (i >= parts.length) {
         controller.close();
         return;
       }
+      // Pause between paragraphs so 生成中 chips stay clickable in mock.
+      await new Promise((r) => setTimeout(r, 280));
       controller.enqueue(encoder.encode(parts[i]));
       i += 1;
     },
