@@ -1,3 +1,4 @@
+mod android_updater;
 mod content;
 mod explain;
 
@@ -179,6 +180,7 @@ fn library_bulk(app: AppHandle, args: BulkArgs) -> Result<LibrarySnapshot, Strin
 pub fn run() {
     tauri::Builder::default()
         .manage(explain::ExplainState::default())
+        .plugin(android_updater::native_bridge_plugin())
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -210,6 +212,10 @@ pub fn run() {
             library_bulk,
             explain::ide_explain,
             explain::ide_explain_cancel,
+            android_updater::android_app_version,
+            android_updater::android_fetch_latest_manifest,
+            android_updater::android_download_update,
+            android_updater::android_install_update,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

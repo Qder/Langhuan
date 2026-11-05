@@ -22,7 +22,8 @@
     "gen:bridge": "node scripts/gen-bridge.mjs",
     "predev": "npm run gen:bridge",
     "prebuild": "npm run gen:bridge",
-    "pretest": "npm run gen:bridge"
+    "pretest": "npm run gen:bridge",
+    "updater:android-latest-json": "node scripts/write-android-latest-json.mjs"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.4",

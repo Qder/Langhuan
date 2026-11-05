@@ -1,0 +1,9 @@
+[[permission]]
+identifier = "allow-langhuan-android-updater"
+description = "Android 应用内更新：读版本、下载 APK、调起系统安装器。不触及桌面 updater。"
+commands.allow = [
+  "android_app_version",
+  "android_fetch_latest_manifest",
+  "android_download_update",
+  "android_install_update"
+]

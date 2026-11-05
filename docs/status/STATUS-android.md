@@ -1,16 +1,17 @@
 # Tauri 2 Android APK（debug + 可分发 release）
 
-上次更新：2026-11-05 · 读码「导入工程 zip」+ 藏书阁「导入笔记 zip」（安卓不能选文件夹）
+上次更新：2026-11-05 · 读码/笔记 zip 导入 + **应用内更新（代码；真机未验）**
 
 ## 一句话现状
 
 - **浏览器 `npm run dev` 仍是完整产品**（HTML 项目导入 / CSS·JS 索引只在这里）。
 - **Windows `npm run tauri:build`**：可安装桌面壳，见 [STATUS-tauri.md](./STATUS-tauri.md)。
 - **Android**：`src-tauri/gen/android` 已 init（`applicationId` `com.qder.langhuan`）。打开就是琅嬛壳（藏书阁 + 读码），库落在应用私有目录，首次 hydrate 会 seed 示例 md。
-- **分发**：`npm run android:apk:release` 打 **release + strip `.so` + 本机 keystore 签名**。不要走 Play 商店；**没有应用内自动更新**（Windows updater 不复用到 APK）。
+- **分发**：`npm run android:apk:release` 打 **release + strip `.so` + 本机 keystore 签名**。不要走 Play 商店。
+- **应用内更新**：设置 →「检查更新」拉 `android-latest.json` → 下载 APK → sha256 → 系统安装器（见 [STATUS-android-updater.md](./STATUS-android-updater.md)）。**真机未验**；仍可用 `adb install -r`。Windows updater **不复用**到 APK。
 - **藏书阁导入（安卓）**：不能选整文件夹 → 侧栏 / 首页用 **「导入笔记 zip」**（解压后进库 `content/`，可再选目标子目录）。「导入文件夹 / 打开本地文件夹」会诚实提示并改走 zip。
 - **读码（安卓）**：系统不能整目录授权 → 欢迎页主按钮是 **「导入工程 zip」**（解压进应用 IndexedDB 沙箱，**不写** `content/`）。桌面仍「打开文件夹」。杀进程后可从「最近工程」恢复沙箱工程（最多 6 个）。
-- **未做**：Play 上架、in-app 下载安装、原生选目录、终端、LSP、Cloud Agent。换包 = 升 `versionCode` 后侧载覆盖安装。
+- **未做**：Play 上架、原生选目录、终端、LSP、Cloud Agent。换包也可继续侧载；in-app 更新见 STATUS-android-updater（真机未验）。
 
 ## 本机前置（Windows 优先）
 
@@ -105,9 +106,9 @@ APK 几乎等于 **未压缩、页对齐的 `libapp_lib.so`**（AGP 为 Android 
 keytool -genkeypair -keystore E:\tmp\langhuan-android\langhuan-release.jks -storetype PKCS12 -keyalg RSA -keysize 2048 -validity 10000 -alias langhuan
 ```
 
-### 换包升级剧本（手动，无 in-app 更新）
+### 换包升级剧本（侧载仍可用；in-app 见 STATUS-android-updater）
 
-自动更新 **仍未做**。用户怎么换包：
+应用内更新已接设置「检查更新」。侧载换包：
 
 1. `versionName` 与桌面叙事对齐（现在 `0.1.0`）；**每次新 APK 把 `versionCode` +1**。
 2. `powershell -File scripts/build-android-apk.ps1 -Release -VersionName 0.1.0 -VersionCode 2`
@@ -213,7 +214,7 @@ P0 代码 tip：**`f0d3d3a`**（`fix(android): keep the note shell from dying on
 | 系统文件夹选择 / 双向同步 | File System Access | 不支持 | **不支持整目录**（FSA NPE；webkitdirectory 也选不了）→ **笔记 zip / 工程 zip** |
 | 读码打开工程 | 选文件夹（FSA）或导入 zip | 选文件夹（FSA） | **导入 zip → IndexedDB 沙箱**（`sandbox:` 会话）；最近工程可恢复 |
 | 读码讲解 | Next `/api/ide/explain`，可读 `.env.local` | Rust `ide_explain`，只用设置里的 Key | 同桌面：Rust 管道；没填 Key 是本地示例 |
-| 自动更新 | 无 | Windows：设置里检查更新（见 [STATUS-updater.md](./STATUS-updater.md)） | **仅文档 / 未验**（设置只说明侧载重装，无 in-app 下载；Play 未验） |
+| 自动更新 | 无 | Windows：设置里检查更新（见 [STATUS-updater.md](./STATUS-updater.md)） | **已做代码**（见 [STATUS-android-updater.md](./STATUS-android-updater.md)）；**真机未验**；Play 不做 |
 | 商店 / 正式签名 | — | 未签名 NSIS/MSI | debug：调试密钥；**release：本机 keystore 侧载签名（非 Play）** |
 | 终端 / LSP / 插件市场 | 产品不做 | 不做 | 不做 |
 

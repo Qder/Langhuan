@@ -25,6 +25,9 @@ tauri = { version = "2", features = [] }
 tauri-plugin-log = "2"
 base64 = "0.22"
 rand = "0.8"
+sha2 = "0.10"
+hex = "0.4"
+futures-util = "0.3"
 
 # 桌面版讲解的 HTTP 通路：只连用户自己配置的 OpenAI 兼容端点。
 # Windows 用 `native-tls`（SChannel），避开 cmake/Perl 和 aws-lc-rs。

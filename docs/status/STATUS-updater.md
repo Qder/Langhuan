@@ -13,7 +13,7 @@
 | GitHub Releases 托管清单 | **仅文档**（endpoint 已指向 `https://github.com/Qder/Langhuan/releases/latest/download/latest.json`，仓库此刻还没有正式 Release） |
 | 本机旧包 → 新清单 → 安装成新版本 | **已验**（2026-11-05 18:48 再跑：安装 0.0.9 → 设置「检查更新」发现 0.1.1「测试通道：签名安装包」→ 下载并安装 → 进程重启后 invoke `plugin:app` version = **0.1.1**，设置文案「当前版本 0.1.1」。测试 channel 用本机 HTTP overlay；生产 conf 仍是 HTTPS-only） |
 | 已是最新 / 网络失败 / 签名失败 | **已验**（同一次 0.0.9 进程上点设置，中文分别为：`已是最新版本。` / `连不上更新服务器。检查网络后重试。` / 下载 16.6 MB 后 `更新包签名校验失败，没有安装。请从 GitHub Releases 核对来源后再试。`。签名失败发生在下完包之后、安装之前，应用仍停在 0.0.9） |
-| Android in-app 更新 | **仅文档**（设置里有侧载说明，无下载安装实现；Play **未验**） |
+| Android in-app 更新 | **已做代码**（[STATUS-android-updater.md](./STATUS-android-updater.md)；**真机未验**） |
 | Play 商店 / Windows 商店 | **未做**（后续选项） |
 | 浏览器 | 不需要；刷新页面即可 |
 
@@ -134,12 +134,11 @@ node scripts/serve-updater-fixture.mjs --dir E:\tmp\langhuan-updater\www --port 
 
 ## Android 怎么更新
 
-**策略标签：仅文档（设置里有侧载说明；无 in-app 下载。Play 未验）。**
+**策略标签：自建 in-app（代码已做；真机未验）。详见 [STATUS-android-updater.md](./STATUS-android-updater.md)。**
 
-- debug APK 已能打开库（见 [STATUS-android.md](./STATUS-android.md)）。`tauri-plugin-updater` 在 Android target **未编译**（`cfg(not(android))`）。
-- **当前更新方式**：到 GitHub Releases（或构建产物）下载新 APK，系统文件管理器 / `adb install -r` 覆盖安装。设置 → 更新 只说明这件事，不假装能下载。
-- **不选 in-app 更新的原因**：Play Core 要上架；自建 APK 下载要另套签名与安装 Intent，和桌面 updater 不是同一插件。
-- **以后可选项**：上 Play 走应用内更新 API；或继续侧载。本切片不做假进度条。
+- `tauri-plugin-updater` 在 Android target **仍未编译**（`cfg(not(android))`）——桌面与 Android **两套清单**（`latest.json` vs `android-latest.json`）。
+- **当前更新方式**：设置 →「检查更新」→ HTTPS 拉 `android-latest.json` → 下载 APK → sha256 → FileProvider 调系统安装器。侧载 `adb install -r` 仍可用。
+- **不做**：Play In-App Updates / 账号。
 
 ## 代码入口
 

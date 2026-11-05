@@ -6,6 +6,7 @@
   "permissions": [
     "core:default",
     "allow-langhuan-library",
-    "allow-langhuan-explain"
+    "allow-langhuan-explain",
+    "allow-langhuan-android-updater"
   ]
 }
