@@ -188,16 +188,34 @@ describe("讲解面板：引用芯片点一下必有结果", () => {
     expect(jumpSrc).toContain("openFile");
   });
 
+  it("成功之后才清 failure：openFile 结果决定走 applyOpened 还是 applyMiss", () => {
+    expect(jumpSrc).toMatch(/if\s*\(result\.ok\)\s*\{\s*applyOpened\(/);
+    expect(jumpSrc).toContain("applyMiss(c.path, result.candidates, result.message)");
+    // applyOpened 是唯一写成功文案的地方，且文案来自 formatExplainOpenedStatus。
+    expect(jumpSrc).toMatch(
+      /const applyOpened[\s\S]*?formatExplainOpenedStatus\(path, line, endLine\)/
+    );
+  });
+
   it("找不到时候选区仍可见，不只写 status", () => {
     expect(listSrc).toContain("jumpNotice");
     expect(listSrc).toContain("没有同名候选可点");
     expect(listSrc).toContain("failedCitePath");
   });
 
+  it("失败芯片与正常芯片配色不同（--danger）", () => {
+    const md = read("explain/markdown.tsx");
+    expect(md).toContain("citeLooksFailed");
+    expect(md).toContain("citeChipClass");
+    expect(md).toContain("--danger");
+  });
+
   it("无选区时当前选区写明先在编辑器划词且 disabled", () => {
     expect(composerSrc).toContain("先在编辑器划词");
     expect(composerSrc).toContain("disabled={!selectionActive}");
     expect(composerSrc).toContain("checked={includeSelection && selectionActive}");
+    // 旁注与 title 同一句话，别只灰掉不解释。
+    expect(composerSrc).toMatch(/title=\{!selectionActive \? "先在编辑器划词"/);
   });
 });
 

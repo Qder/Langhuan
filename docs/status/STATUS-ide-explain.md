@@ -68,7 +68,26 @@ Composer 旁提示：「追问会带上当前对话；『新对话』或『清�
 
 ## 本次引用芯片
 
-点「本次引用」必须有可见结果：成功 `setStatus('已打开 path:line')`；找不到时候选区出 `jumpNotice`（同名候选或「没有同名候选可点」），失败芯片改色。`jumpCitation` 走 `runExplainCitationJump` → `openFile`。Composer「当前选区」无划词时 `disabled`，title / 旁注「先在编辑器划词」，不假装可勾。
+点「本次引用」必须有可见结果，三层缺一不可：
+
+| 情况 | 用户看到什么 |
+| --- | --- |
+| 命中（含 basename 唯一匹配） | 状态栏 `已打开 <path>:<line>`（跨行 `:<line>-<endLine>`），编辑器切到该文件；窄屏加高档自动收到半高 |
+| 路径不存在 | 状态栏 + 气泡内 `工程里找不到 <path>`；同名候选本身用 `--danger` 配色 |
+| basename 有多个同名 | 气泡内出候选列表（最多 5 条）可点，提示「同名候选」；绝不猜着打开其中一个 |
+| 非路径 token（`java.util.List:1`） | 不打开任何文件，按失败处理 |
+
+实现：`jumpCitation` → `runExplainCitationJump` → `openFile`。`applyOpened` 是唯一写成功文案的地方（`formatExplainOpenedStatus`），`applyMiss` 同时写 `failedCitePath` / `candidates` / `jumpNotice` 与状态栏——所以失败不可能只落在状态栏。芯片配色由 `citeLooksFailed` + `citeChipClass` 按 `failedCitePath` 切到 `--danger`。
+
+Composer「当前选区」无划词时 `disabled`，title 与旁注都是「先在编辑器划词」，且 `checked={includeSelection && selectionActive}`——不会在无选区时假装可勾。
+
+### 手测记录（2026-11-05，768×1024，qa-goto）
+
+- 点 `MerchantMapper.java:7` 芯片 → 状态栏 `已打开 merchant-service/src/main/java/com/campus/food/mapper/MerchantMapper.java:7`，Tab 选中 `MerchantMapper.java`，编辑器 `cm-content` 为该文件正文。
+- 点 `NotThere.java:3` → `工程里找不到 merchant-service/.../NotThere.java` + `没有同名候选可点`；该芯片类名切到 `--danger`，同气泡里正常芯片仍是 `--accent`。
+- 点 `MerchantMapper.java:2`（工程里 `mapper/` 与 `other/` 各有一个同名文件）→ 状态栏写的是解析后的完整路径，不是裸文件名。
+- 无选区：`当前选区` `disabled=true`、`checked=false`、label 含「（先在编辑器划词）」、title 同名。点进编辑器产生选区后：`disabled=false`，点一下即 `checked=true`，旁注消失。
+- 讲解源：本机 IDE 设置里的 Key 是占位的 `sk-fake`（Base URL `127.0.0.1:4010`，服务没起）→ 直接 `fetch failed`，一个芯片都出不来。为验芯片，临时在 `127.0.0.1:4010` 起了个一次性 OpenAI 兼容 SSE stub（不在仓库里），用它固定回复 4 条引用。**这可作为「本机芯片手测」的标准做法**：清 Key 走 mock 只引用当前文件，验不到「找不到 / 同名候选」两种分支。
 
 ## 流式中打开文件
 
@@ -79,10 +98,14 @@ Composer 旁提示：「追问会带上当前对话；『新对话』或『清�
 - **窄屏抽屉半高、遮罩不盖顶栏**：默认 62dvh，抓手可加到 92dvh；遮罩只在加高档出现，半高时顶栏 Tab /
   编辑器可点。引用芯片跳转成功后加高档自动收成半高，开的文件立刻可见。规则在
   `src/lib/ide/explainSheet.ts`，外壳 `explain/ExplainSheet.tsx`。**手测清单见 STATUS-ide-panel-layers.md。**
-- 浏览器生成中途点芯片 / 宽屏点树 / 切 Tab / 上滚不拽底：**未验**。清 `.next` 后读码能开 `MerchantMapper.java`，点「这个文件在干什么」后 Composer 变为「停止」（流已开始）；本机讲解 Base URL 是 `127.0.0.1:4010`，立刻 `fetch failed`，页面上没有路径芯片可点。mock 段间 280ms 已加上，无 Key 时应能中途点。单测与契约已钉粘性 pin 与「busy 不锁 openFile」。
+- 浏览器生成中途点芯片 / 宽屏点树 / 切 Tab / 上滚不拽底：**未验**。清 `.next` 后读码能开 `MerchantMapper.java`，点「这个文件在干什么」后 Composer 变为「停止」（流已开始）；本机讲解 Base URL 是 `127.0.0.1:4010`，立刻 `fetch failed`，页面上没有路径芯片可点。mock 段间 280ms 已加上，无 Key 时应能中途点。单测与契约已钉粘性 pin 与「busy 不锁 openFile」。**流式后**（`onDone` 之后）点芯片已在 2026-11-05 的同一轮实测里覆盖：stub 分段间隔 280ms，答复结束后点 `MerchantMapper.java:7` / `NotThere.java:3` 均按预期出成功文案与失败提示。
 
 ## 验收
 
+- [x] 点存在的芯片 → 文件打开 + `已打开 <path>:<line>`。浏览器：`MerchantMapper.java:7`（qa-goto / 768×1024）。
+- [x] 点不存在的路径 → 可见失败，不静默。浏览器：`NotThere.java:3` → 气泡内 `工程里找不到 …` + `没有同名候选可点`，芯片转 `--danger`。
+- [x] 同名 basename → 出候选而不是乱开。浏览器：`MerchantMapper.java:2` 解析到完整路径（单测另钉多条同名 → `candidates` 列表）。
+- [x] 「当前选区」无划词不可勾且写明原因；有划词可勾。浏览器：`disabled/title` 与勾选前后都核过。
 - [x] 多轮后点「收入本段」→ 阁中打开全文含问答。浏览器（qa-goto，768×1024）：状态栏 `已收入本段对话 · 读码笔记/qa-goto/2026-11-05-讲解-第二段问题 BETA.md`，Header 下展示同一路径 +「在藏书阁打开」；藏书阁树里该篇在，正文含标题、`第 1 轮`、问题与讲解。
 - [x] 单条「收入藏书阁」旧路径仍可用。浏览器：同一 thread 的气泡上点它 → `读码笔记/qa-goto/2026-11-05-未命名文件.md`（当时没开文件），与整段那篇互不覆盖。
 - [ ] 点「在藏书阁打开」自动跳到那篇。**未验（被人为挡住）**：当时 `第4-5章-笔记` 有未保存草稿，点了弹出既有「有未保存的修改 → 继续编辑 / 放弃修改 / 保存并离开」，我没有替用户选保存或放弃，所以只核到「笔记确实在树里、正文在盘上」。用户选「保存并离开」后应正常跳转；该确认框是既有行为，不是本切片引入。
@@ -93,7 +116,7 @@ Composer 旁提示：「追问会带上当前对话；『新对话』或『清�
 - [x] 单测：第二问请求 messages 含第一问；prior 不含 `class A {}` 正文；清空后不再带旧 turn；mock 第二问可读。
 - [x] 单测：v5 单列表升一条 thread；v6 多 thread 不拍平；清空只擦当前 thread；新对话可切回；上限保住活动条。
 - [x] 契约：`useExplainSend` 先 `selectExplainPriorMessages` 再 `pushExplainMessage`。
-- [x] `npm run check`（142 files / 1614 passed + 1 expected fail）
+- [x] `npm run check`（146 files / 1657 passed + 1 expected fail）
 - [x] 浏览器：读码已开 `format.ts`，点「清空当前对话」后预设回来；再点「这个文件在干什么」发出请求。热更中途 route 曾报 `messages` 重复定义 500（已修）。
 - [ ] 有 Key：第二答须指涉第一答 / 同一文件。**未验**（本机 `OPENAI_API_KEY` 已设，直连上游在 8s 内无响应，未拿到模型第二答）。
 - [ ] 清空后再问，**模型**不应引用已清空上一答。请求侧 `prior=[]` 已单测；有 Key 的模型行为 **未验**。
