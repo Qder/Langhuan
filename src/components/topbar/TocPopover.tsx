@@ -22,6 +22,7 @@ export function TocPopover({
   backlinks,
   activeHeading,
   onNavigateHeading,
+  anchor = "topbar",
 }: {
   open: boolean;
   panelRef: React.RefObject<HTMLDivElement | null>;
@@ -30,6 +31,11 @@ export function TocPopover({
   backlinks: Document[];
   activeHeading: string;
   onNavigateHeading: (id: string) => void;
+  /**
+   * What the panel hangs under. `topbar` clears the 3.5rem header; `floating`
+   * clears the MD 专注 floating strip instead (no header exists there).
+   */
+  anchor?: "topbar" | "floating";
 }) {
   if (!open) return null;
   return (
@@ -38,10 +44,15 @@ export function TocPopover({
       data-toc-popover=""
       className={cn(
         "fixed z-[70] rounded-2xl border border-[var(--border)] bg-[var(--card)] shadow-xl animate-enter",
-        // Pin under the 3.5rem header; keep clear of the bottom chrome.
-        "left-2 right-2 top-[3.75rem] max-h-[calc(100dvh-5rem)] overflow-y-auto",
-        // Tablet+: right-aligned compact card (same width DocAside popover uses).
-        "sm:left-auto sm:right-3 sm:w-[min(280px,80vw)]"
+        // Pin under the header (or under the 专注 floating strip); keep clear of
+        // the bottom chrome in both cases.
+        anchor === "floating"
+          ? "left-2 right-2 top-[3.25rem] max-h-[calc(100dvh-4.5rem)] overflow-y-auto sm:left-3 sm:right-auto sm:w-[min(280px,80vw)]"
+          : cn(
+              "left-2 right-2 top-[3.75rem] max-h-[calc(100dvh-5rem)] overflow-y-auto",
+              // Tablet+: right-aligned compact card (same width DocAside popover uses).
+              "sm:left-auto sm:right-3 sm:w-[min(280px,80vw)]"
+            )
       )}
     >
       <DocAside

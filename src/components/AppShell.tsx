@@ -32,8 +32,10 @@ import { CreateDocDialogHost } from "./CreateDocDialog";
 import { openCreateDocDialog } from "@/lib/createDocDialogBus";
 import { RegisterSW } from "./pwa/RegisterSW";
 import { IdeShell } from "./ide/IdeShell";
+import { MdFocusExitButton } from "./MdFocusExitButton";
 import { AUTOSAVE_DEBOUNCE_MS } from "@/lib/storage/constants";
 import { claimShortcut, matchShortcut, normalizeShortcuts } from "@/lib/shortcuts";
+import { tocPanelOpenInDom, requestToggleToc } from "@/lib/tocPanel";
 import { shouldHandlePreviewUndoShortcut } from "@/lib/previewUndo";
 
 export function AppShell() {
@@ -204,6 +206,11 @@ export function AppShell() {
         setFindReplaceOpen(true);
         return;
       }
+      if (matchShortcut(e, shortcuts.toggleToc) && !typing) {
+        claimShortcut(e);
+        requestToggleToc();
+        return;
+      }
 
       // Preview-edit document undo/redo — never steal CodeMirror history.
       if (
@@ -243,6 +250,9 @@ export function AppShell() {
       }
       if (active?.type === "md" && !typing) {
         if (e.key === "Escape" && mdFocusMode) {
+          // 分层 Esc：目录开着时先关目录。面板自己的 document 监听没有区分
+          // 优先级，这里必须让出这一次按键，否则一次 Esc 两步跳。
+          if (tocPanelOpenInDom()) return;
           claimShortcut(e);
           setMdFocusMode(false);
           setStatus("已退出专注模式");
@@ -317,6 +327,7 @@ export function AppShell() {
         <main className="flex-1 min-h-0 overflow-hidden">
           {activeId ? <DualDocLayout /> : <HomeView />}
         </main>
+        {focusMd && <MdFocusExitButton />}
         {!chromeHidden && <StatusBar />}
       </div>
       <CommandPalette />

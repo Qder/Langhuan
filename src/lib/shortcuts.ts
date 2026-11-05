@@ -13,7 +13,8 @@ export type ShortcutAction =
   | "findReplace"
   | "search"
   | "previewUndo"
-  | "previewRedo";
+  | "previewRedo"
+  | "toggleToc";
 
 export type ShortcutMap = Record<ShortcutAction, string>;
 
@@ -32,6 +33,7 @@ export const DEFAULT_SHORTCUTS: ShortcutMap = {
   search: "mod+f",
   previewUndo: "mod+z",
   previewRedo: "mod+shift+z",
+  toggleToc: "mod+shift+o",
 };
 
 export const SHORTCUT_LABELS: Record<ShortcutAction, string> = {
@@ -48,6 +50,7 @@ export const SHORTCUT_LABELS: Record<ShortcutAction, string> = {
   search: "文件内查找",
   previewUndo: "撤销预览编辑",
   previewRedo: "重做预览编辑",
+  toggleToc: "打开 / 关闭目录",
 };
 
 export function normalizeShortcuts(

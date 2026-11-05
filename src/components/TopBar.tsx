@@ -21,6 +21,7 @@ import { RenameDialog, DeleteDialog } from "./topbar/DocDialogs";
 import { usePopover } from "./topbar/usePopover";
 import { useActiveHeading } from "./topbar/useActiveHeading";
 import { useDocAsideData } from "./topbar/useDocAsideData";
+import { onToggleTocRequest } from "@/lib/tocPanel";
 
 /**
  * 藏书阁 TopBar — orchestration only.
@@ -106,6 +107,20 @@ export function TopBar() {
 
   const showTocButton = asideAvailable && (!wide || !outlineRailOpen);
   const showRailToggle = asideAvailable && wide;
+
+  // mod+shift+o works with or without 专注; each mounted panel toggles itself.
+  const tocToggle = toc.toggle;
+  React.useEffect(
+    () =>
+      onToggleTocRequest(() => {
+        if (!asideAvailable) {
+          setStatus("这篇还没有大纲，加几个标题就能跳转");
+          return;
+        }
+        tocToggle();
+      }),
+    [asideAvailable, setStatus, tocToggle]
+  );
 
   const exportDoc = () => {
     if (!active) return;
