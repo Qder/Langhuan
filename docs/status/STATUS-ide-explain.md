@@ -18,6 +18,7 @@ messages = [system, …prior user/assistant 文本对…, 本轮 user(assembleEx
 - **组装时机**：`useExplainSend` 在 `pushExplainMessage` **之前** `getState()` 快照。否则会把本轮空助手气泡和当前问句再带进 prior。
 - **清空**：只清**当前 thread** 的 messages（条目仍在「历史」里，标题回到「新对话」）。其它 thread 不动。下一请求 `prior = []`。
 - **新对话 / 历史**：同工程多 thread（`id/title/updatedAt/messages`）。「新对话」在当前非空时另开一条；空 thread 不堆第二条。「历史」抽屉切换。关闭面板 / 刷新后经「最近工程」再开，活动 thread 仍在（`langhuan-ide-store` v6）。
+- **空 thread 只留一条**：`pruneEmptyExplainThreads` 在「清空 / 新对话 / 推消息」三处收口。清空会留下一个空 thread，若之后又点「新对话」，旧版会把空壳一并留着，历史抽屉里出现两条一模一样的「新对话 · 空对话」。现在只保留活动那条空 thread，有内容的 thread 永不被清理，活动 thread 也永不被丢（即使它是空的）。
 
 ## 单线程 → 多 thread
 
@@ -33,6 +34,7 @@ TS 是唯一组装者：`assembleExplainChatMessages` / `selectExplainPriorMessa
 | --- | --- | --- |
 | `IDE_EXPLAIN_HISTORY_MAX` | 20 | 每个 thread 面板里能看见的条数 |
 | `IDE_EXPLAIN_THREADS_MAX` | 12 | 每个工程最多保留的对话 thread（保住当前） |
+| 空 thread | 1 | 清空 / 新对话后只留活动那一条空壳，历史里不会出现重复 `新对话 · 空对话` |
 | `IDE_EXPLAIN_MODEL_PRIOR_MAX` | 8 | 送给模型的近期对话条数（约 4 轮） |
 | `IDE_EXPLAIN_PRIOR_CHARS_MAX` | 2500 | 历史每条文本截断，尾部加 `…` |
 
@@ -109,14 +111,16 @@ Composer「当前选区」无划词时 `disabled`，title 与旁注都是「先�
 - [x] 多轮后点「收入本段」→ 阁中打开全文含问答。浏览器（qa-goto，768×1024）：状态栏 `已收入本段对话 · 读码笔记/qa-goto/2026-11-05-讲解-第二段问题 BETA.md`，Header 下展示同一路径 +「在藏书阁打开」；藏书阁树里该篇在，正文含标题、`第 1 轮`、问题与讲解。
 - [x] 单条「收入藏书阁」旧路径仍可用。浏览器：同一 thread 的气泡上点它 → `读码笔记/qa-goto/2026-11-05-未命名文件.md`（当时没开文件），与整段那篇互不覆盖。
 - [ ] 点「在藏书阁打开」自动跳到那篇。**未验（被人为挡住）**：当时 `第4-5章-笔记` 有未保存草稿，点了弹出既有「有未保存的修改 → 继续编辑 / 放弃修改 / 保存并离开」，我没有替用户选保存或放弃，所以只核到「笔记确实在树里、正文在盘上」。用户选「保存并离开」后应正常跳转；该确认框是既有行为，不是本切片引入。
-- [x] 同工程两段对话，点历史找回第一段。浏览器：qa-goto 在「新对话」里发「第二段问题 BETA」，历史抽屉点回「从哪读起」，上一段回复仍在。
-- [x] 刷新后经「最近工程」再开，当前 thread 仍在。浏览器：硬刷新后历史抽屉仍有「新对话（空）/ 第二段问题 BETA（2 条）」，活动 thread 保持。
-- [x] 清空只影响当前 thread。浏览器：在第一条对话点「清空当前对话」→ 该条变「新对话 · 空对话」，同工程另一条「第二段问题 BETA 2 条」仍在。
+- [x] 同工程两段对话，点历史找回第一段。浏览器（qa-goto，1920×1080）：发「第一段问题 ALPHA」→「新对话」→ 发「第二段问题 ALPHA2」，历史抽屉列出 `第二段问题 ALPHA2 2 条` / `第一段问题 ALPHA 2 条`；点回第一段，标题、问题与答复都在。
+- [x] 刷新后经「最近工程」再开，当前 thread 仍在。浏览器：活动 thread 是第二段 → `location.reload()` → 首页点「qa-goto」→ Header 标题仍是「第二段问题 ALPHA2」，问题与答复都在；IndexedDB `langhuan-ide-store` v6 的 `explainThreadsBySession["fsa:qa-goto"]` 与 `explainActiveThreadIdBySession` 对得上。
+- [x] 清空只影响当前 thread。浏览器：在第一段点「清空当前对话」→ 历史变 `新对话 空对话` + `第二段问题 ALPHA2 2 条`；点第二段，问答完好。
+- [x] 空 thread 不堆积。浏览器：修 `pruneEmptyExplainThreads` 前，清空 + 新对话能让历史里出现两条「新对话 · 空对话」；修后刷新重开只剩一条，且是有内容 thread 之外的唯一空壳。
 - [ ] 桌面 WebView 同流程。**未验**（以浏览器 + 单测 / migrate 为准；持久化层相同）。
 - [x] 单测：第二问请求 messages 含第一问；prior 不含 `class A {}` 正文；清空后不再带旧 turn；mock 第二问可读。
 - [x] 单测：v5 单列表升一条 thread；v6 多 thread 不拍平；清空只擦当前 thread；新对话可切回；上限保住活动条。
+- [x] 单测：`pruneEmptyExplainThreads` 只留一条空 thread、不碰有内容的、不丢活动那条；「清空 → 新对话 → 再清空」不再堆出两条空对话。
 - [x] 契约：`useExplainSend` 先 `selectExplainPriorMessages` 再 `pushExplainMessage`。
-- [x] `npm run check`（146 files / 1657 passed + 1 expected fail）
+- [x] `npm run check`（146 files / 1662 passed + 1 expected fail）
 - [x] 浏览器：读码已开 `format.ts`，点「清空当前对话」后预设回来；再点「这个文件在干什么」发出请求。热更中途 route 曾报 `messages` 重复定义 500（已修）。
 - [ ] 有 Key：第二答须指涉第一答 / 同一文件。**未验**（本机 `OPENAI_API_KEY` 已设，直连上游在 8s 内无响应，未拿到模型第二答）。
 - [ ] 清空后再问，**模型**不应引用已清空上一答。请求侧 `prior=[]` 已单测；有 Key 的模型行为 **未验**。

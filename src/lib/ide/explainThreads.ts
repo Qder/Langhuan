@@ -69,6 +69,25 @@ export function capExplainThreads(
 }
 
 /**
+ * Keep at most one empty thread, and always the kept one.
+ *
+ * 清空当前对话 leaves an empty thread behind, and 新对话 adds another one.
+ * Without this, the history drawer fills with identical 「新对话 · 空对话」
+ * rows that carry nothing. The active thread is never dropped, even if empty.
+ */
+export function pruneEmptyExplainThreads(
+  threads: IdeExplainThread[],
+  keepId: string | undefined
+): IdeExplainThread[] {
+  const empties = threads.filter((t) => t.messages.length === 0);
+  if (empties.length <= 1) return threads;
+  const keep =
+    empties.find((t) => t.id === keepId) ??
+    [...empties].sort((a, b) => b.updatedAt - a.updatedAt)[0]!;
+  return threads.filter((t) => t.messages.length > 0 || t.id === keep.id);
+}
+
+/**
  * v5 blob (or an in-memory HMR state) may still hold a message list without
  * threads. Seed one thread instead of dropping the history.
  */
@@ -117,7 +136,10 @@ export function applyStartExplainThread(
   }
   const next = emptyExplainThread(now);
   return {
-    threads: capExplainThreads([next, ...ensured.threads], next.id),
+    threads: pruneEmptyExplainThreads(
+      capExplainThreads([next, ...ensured.threads], next.id),
+      next.id
+    ),
     activeId: next.id,
   };
 }
@@ -139,13 +161,14 @@ export function applyClearActiveExplainThread(
   now = Date.now()
 ): { threads: IdeExplainThread[]; activeId: string } {
   const ensured = ensureActiveExplainThread(threads, activeId, now);
+  const cleared = ensured.threads.map((t) =>
+    t.id === ensured.activeId
+      ? { ...t, title: "新对话", messages: [], updatedAt: now }
+      : t
+  );
   return {
     activeId: ensured.activeId,
-    threads: ensured.threads.map((t) =>
-      t.id === ensured.activeId
-        ? { ...t, title: "新对话", messages: [], updatedAt: now }
-        : t
-    ),
+    threads: pruneEmptyExplainThreads(cleared, ensured.activeId),
   };
 }
 
@@ -170,7 +193,10 @@ export function applyPushExplainMessage(
       title: titleFromExplainMessages(messages),
     };
   });
-  return { threads: threadsNext, activeId: ensured.activeId };
+  return {
+    threads: pruneEmptyExplainThreads(threadsNext, ensured.activeId),
+    activeId: ensured.activeId,
+  };
 }
 
 export function applyUpdateLastAssistant(
