@@ -22,3 +22,4 @@
 | [STATUS-tier2-kb.md](./STATUS-tier2-kb.md) | Tier 2 | 知识库能力：双链、图谱、嵌入、每日笔记、搜索语法等 |
 | [STATUS-tier3.md](./STATUS-tier3.md) | Tier 3 | 写作与阅读体验已实现项与验收提示 |
 | [STATUS-tier4.md](./STATUS-tier4.md) | Tier 4 | 效率与多端核心能力已实现项与已知限制 |
+| [STATUS-ide-panel-layers.md](./STATUS-ide-panel-layers.md) | 读码 | 资源管理器与讲解的层规则：窄屏一次只留一层，宽屏左树 + 右讲解可同开 |

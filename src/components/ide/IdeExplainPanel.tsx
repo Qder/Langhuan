@@ -32,6 +32,7 @@ import {
 import { flattenCodeText } from "@/lib/codeText";
 import { listIdeDir, readIdeFile } from "@/lib/ide/ideFs";
 import { useMediaQuery } from "@/lib/useMediaQuery";
+import { IDE_WIDE_QUERY } from "@/lib/ide/panelLayers";
 import { cn } from "@/lib/utils";
 import { BookMarked } from "lucide-react";
 import {
@@ -302,7 +303,7 @@ const EXPLAIN_PRESETS = [
 ] as const;
 
 export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
-  const isLg = useMediaQuery("(min-width: 1024px)");
+  const isLg = useMediaQuery(IDE_WIDE_QUERY);
   const session = useIdeStore((s) => s.session);
   const activePath = useIdeStore((s) => s.activePath);
   const tabs = useIdeStore((s) => s.tabs);

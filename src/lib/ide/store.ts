@@ -53,6 +53,11 @@ import {
   IDE_STORE_PERSIST_VERSION,
   migrateIdePersistedState,
 } from "./idePersist";
+import {
+  isCompactIdeLayout,
+  openLayer,
+  reconcilePanelLayers,
+} from "./panelLayers";
 
 export type IdeTab = {
   path: string;
@@ -162,6 +167,11 @@ type IdeState = {
 
   setExplainOpen: (v: boolean) => void;
   toggleExplainOpen: () => void;
+  /**
+   * 窄屏「一次只开一层」的唯一纠正点：持久化恢复、切换工程时调用一次。
+   * 不是 effect —— 没有状态变化就不会自己跑。
+   */
+  reconcilePanels: () => void;
   clearExplainHistory: () => void;
   pushExplainMessage: (msg: IdeExplainMessage) => void;
   updateLastAssistant: (content: string, extra?: { mock?: boolean }) => void;
@@ -203,6 +213,8 @@ function rememberSession(
     pendingExplainRequest: null,
     status: `已打开工程「${session.name}」`,
   });
+  // 换工程算一次「打开」：持久化里的双开状态在这里收一次，别留给渲染阶段。
+  get().reconcilePanels();
 }
 
 export const useIdeStore = create<IdeState>()(
@@ -233,15 +245,31 @@ export const useIdeStore = create<IdeState>()(
       },
       pendingExplainRequest: null,
 
-      setExplorerOpen: (v) => set({ explorerOpen: v }),
+      setExplorerOpen: (v) =>
+        set((s) => (v ? openLayer(s, "explorer", isCompactIdeLayout()) : { explorerOpen: false })),
       setOutlineOpen: (v) => set({ outlineOpen: v }),
       toggleOutlineOpen: () => set((s) => ({ outlineOpen: !s.outlineOpen })),
       setStatus: (msg) => set({ status: msg }),
       clearPendingReveal: () => set({ pendingReveal: null }),
       clearPendingExplorerReveal: () => set({ pendingExplorerReveal: null }),
       setSelection: (sel) => set({ selection: sel }),
-      setExplainOpen: (v) => set({ explainOpen: v }),
-      toggleExplainOpen: () => set((s) => ({ explainOpen: !s.explainOpen })),
+      setExplainOpen: (v) =>
+        set((s) => (v ? openLayer(s, "explain", isCompactIdeLayout()) : { explainOpen: false })),
+      toggleExplainOpen: () =>
+        set((s) =>
+          s.explainOpen ? { explainOpen: false } : openLayer(s, "explain", isCompactIdeLayout())
+        ),
+      reconcilePanels: () => {
+        const s = get();
+        const next = reconcilePanelLayers(
+          { explorerOpen: s.explorerOpen, explainOpen: s.explainOpen },
+          isCompactIdeLayout()
+        );
+        if (next.explorerOpen === s.explorerOpen && next.explainOpen === s.explainOpen) {
+          return;
+        }
+        set(next);
+      },
       setExplainSettings: (patch) =>
         set((s) => ({
           explainSettings: { ...s.explainSettings, ...patch },
@@ -250,15 +278,15 @@ export const useIdeStore = create<IdeState>()(
       requestExplainSelection: () => {
         const planned = planExplainSelectionRequest(get().selection);
         if (!planned) return false;
-        set({
-          explainOpen: true,
+        set((s) => ({
+          ...openLayer({ explorerOpen: s.explorerOpen, explainOpen: s.explainOpen }, "explain", isCompactIdeLayout()),
           pendingExplainRequest: {
             nonce: Date.now(),
             question: planned.question,
             includeSelection: true,
             includeFile: planned.includeFile,
           },
-        });
+        }));
         return true;
       },
 
@@ -548,9 +576,17 @@ export const useIdeStore = create<IdeState>()(
           set((s) => {
             const expanded: Record<string, boolean> = { ...s.expanded, "": true };
             for (const d of ancestors) expanded[d] = true;
+            // 跳文件会顺手展开目录并准备 reveal。宽屏把它当停靠树，顺手露出来；
+            // 窄屏如果讲解正开着，就别抢这一层（以前那条 effect 也会立刻把抽屉
+            // 关掉）—— expanded / pendingExplorerReveal 都会留着，用户点开抽屉时
+            // 自然滚到这一行。
+            const layer =
+              isCompactIdeLayout() && s.explainOpen
+                ? { explorerOpen: s.explorerOpen }
+                : { explorerOpen: true, explainOpen: s.explainOpen };
             return {
               expanded,
-              explorerOpen: true,
+              ...layer,
               pendingExplorerReveal: {
                 path: filePath,
                 nonce: (s.pendingExplorerReveal?.nonce ?? 0) + 1,
@@ -779,6 +815,11 @@ export const useIdeStore = create<IdeState>()(
       version: IDE_STORE_PERSIST_VERSION,
       migrate: (persisted, fromVersion) =>
         migrateIdePersistedState(persisted, fromVersion),
+      // 持久化里可能同时存着「抽屉开着」和「讲解开着」。恢复是一次性事件，
+      // 在这里按当前宽度纠正一次；不放在 effect 里跟着两个布尔值反复跑。
+      onRehydrateStorage: () => (state) => {
+        state?.reconcilePanels();
+      },
     }
   )
 );

@@ -17,6 +17,7 @@ import { AppModeSwitch } from "../AppModeSwitch";
 import { IdeOutlineToggle } from "./IdeOutlineRail";
 import { useIdeStore } from "@/lib/ide/store";
 import { useMediaQuery } from "@/lib/useMediaQuery";
+import { IDE_WIDE_QUERY } from "@/lib/ide/panelLayers";
 import { cn } from "@/lib/utils";
 
 export function IdeTopBar({
@@ -43,7 +44,7 @@ export function IdeTopBar({
   const saveFile = useIdeStore((s) => s.saveFile);
   const openFolder = useIdeStore((s) => s.openFolder);
   const closeProject = useIdeStore((s) => s.closeProject);
-  const isLg = useMediaQuery("(min-width: 1024px)");
+  const isLg = useMediaQuery(IDE_WIDE_QUERY);
 
   const dirty = activePath ? isDirty(activePath) : false;
 

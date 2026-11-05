@@ -25,6 +25,7 @@ import {
 } from "@/lib/ide/formatDocument";
 import { IDE_FIND_EVENT, IDE_GOTO_DEF_EVENT } from "@/lib/ide/ideEvents";
 import { claimShortcut } from "@/lib/shortcuts";
+import { IDE_WIDE_QUERY } from "@/lib/ide/panelLayers";
 import { cn } from "@/lib/utils";
 
 export function IdeShell() {
@@ -44,7 +45,7 @@ export function IdeShell() {
   const outlineOpen = useIdeStore((s) => s.outlineOpen);
   const setOutlineOpen = useIdeStore((s) => s.setOutlineOpen);
   const toggleOutlineOpen = useIdeStore((s) => s.toggleOutlineOpen);
-  const isLg = useMediaQuery("(min-width: 1024px)");
+  const isLg = useMediaQuery(IDE_WIDE_QUERY);
   const isXl = useMediaQuery("(min-width: 1280px)");
   const [quickOpen, setQuickOpen] = React.useState(false);
   const [gotoLineOpen, setGotoLineOpen] = React.useState(false);
@@ -76,30 +77,26 @@ export function IdeShell() {
     return () => window.removeEventListener("keydown", onKey);
   }, [isLg, explorerOpen, session, setExplorerOpen]);
 
-  // Tablet: one modal drawer at a time (explorer ↔ explain)
-  React.useEffect(() => {
-    if (isLg) return;
-    if (explainOpen && explorerOpen) {
-      setExplorerOpen(false);
-    }
-  }, [explainOpen, isLg, explorerOpen, setExplorerOpen]);
+  // Tablet: one modal drawer at a time (explorer ↔ explain).
+  // This used to be a sync setState effect on [explainOpen, explorerOpen], which
+  // React Compiler flags (set-state-in-effect) and which also mutated state on
+  // any render where the two booleans happened to be true together. The rule
+  // now lives in the store — applied when a layer is actually opened, plus one
+  // reconcile on rehydrate / project open — so this component only renders.
 
   const openExplorer = React.useCallback(() => {
-    if (!isLg) setExplainOpen(false);
     setExplorerOpen(true);
-  }, [isLg, setExplainOpen, setExplorerOpen]);
+  }, [setExplorerOpen]);
 
   const toggleExplorer = React.useCallback(() => {
     const next = !useIdeStore.getState().explorerOpen;
-    if (!isLg && next) setExplainOpen(false);
     setExplorerOpen(next);
-  }, [isLg, setExplainOpen, setExplorerOpen]);
+  }, [setExplorerOpen]);
 
   const toggleExplain = React.useCallback(() => {
     const next = !useIdeStore.getState().explainOpen;
-    if (!isLg && next) setExplorerOpen(false);
     setExplainOpen(next);
-  }, [isLg, setExplainOpen, setExplorerOpen]);
+  }, [setExplainOpen]);
 
   // Central IDE shortcut claim (capture) so browser never steals Mod+F/P/S/W/B/G etc.
   React.useEffect(() => {
@@ -239,6 +236,7 @@ export function IdeShell() {
     setDraft,
     saveFile,
     requestCloseTab,
+    setCommandOpen,
   ]);
 
   const showDrawer = !!session && explorerOpen && !isLg;
