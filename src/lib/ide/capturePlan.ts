@@ -17,12 +17,15 @@ import {
   appendSnippetBlock,
   buildExplainNote,
   buildExplainSection,
+  buildExplainThreadNote,
   buildSnippetBlock,
   explainNotePath,
+  explainThreadNotePath,
   noteDateStamp,
   snippetNotePath,
   SNIPPET_NOTE_HEADER,
   type ExplainCitation,
+  type ExplainThreadTurn,
 } from "./captureNote";
 
 export type CaptureResult =
@@ -244,8 +247,82 @@ export async function captureSnippet(
   });
 }
 
-/** Status line after a successful capture, naming the real path. */
-export function captureStatusMessage(
+export type ExplainThreadCaptureInput = {
+  /** 当前 thread 的短标题（Header 显示的那个）。 */
+  title: string;
+  turns: ExplainThreadTurn[];
+  projectName?: string | null;
+  /** 收入时刻；同时决定文件名里的日期。 */
+  createdAt?: number;
+};
+
+/**
+ * 「收入本段对话」：当前 thread 全文 → 读码笔记/<工程>/YYYY-MM-DD-讲解-<短标题>.md。
+ *
+ * 与单条收入同一天同一文件的「追加一节」不同，这里**整篇覆盖**：同一 thread
+ * 再收入一次只会刷新那篇，不会把同样的问答再抄一遍。仍走同一把按路径的串行
+ * 队列，所以连点不会交错读写。
+ */
+export async function captureExplainThread(
+  writer: NoteWriter,
+  input: ExplainThreadCaptureInput
+): Promise<CaptureResult> {
+  const turns = input.turns.filter((t) => t.content.trim());
+  if (turns.length === 0) {
+    return { ok: false, message: "这段对话还没有内容，先问一句" };
+  }
+
+  const requested = explainThreadNotePath({
+    projectName: input.projectName,
+    title: input.title,
+    date: noteDateStamp(new Date(input.createdAt ?? Date.now())),
+  });
+  const body = buildExplainThreadNote({
+    projectName: input.projectName,
+    title: input.title,
+    turns,
+    createdAt: input.createdAt,
+  });
+
+  return enqueueCapture(requested, async () => {
+    try {
+      const existing = writer.findByPath(requested);
+      if (existing) {
+        const written = await writer.write(existing.id, body);
+        if (!written.ok) {
+          return { ok: false, message: `收入失败：${written.message}` };
+        }
+        return {
+          ok: true,
+          docId: existing.id,
+          path: existing.path,
+          renamed: false,
+          appended: false,
+        };
+      }
+      const doc = writer.create({ type: "md", path: requested, content: body });
+      if (!doc) return { ok: false, message: "新建笔记失败" };
+      const written = await writer.write(doc.id, doc.content);
+      if (!written.ok) {
+        return { ok: false, message: `收入失败：${written.message}` };
+      }
+      return {
+        ok: true,
+        docId: doc.id,
+        path: doc.path,
+        renamed: requested !== doc.path,
+        appended: false,
+      };
+    } catch (e) {
+      return {
+        ok: false,
+        message: `收入失败：${e instanceof Error ? e.message : String(e)}`,
+      };
+    }
+  });
+}
+
+/** Status line after a successful capture, naming the real path. */export function captureStatusMessage(
   result: Extract<CaptureResult, { ok: true }>,
   verb = "已收入藏书阁"
 ): string {

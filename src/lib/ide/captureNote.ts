@@ -23,6 +23,7 @@ export const IDE_SNIPPET_NOTE_NAME = "速记.md";
 /** 讲解空态 / 设置里用的落盘说明（2–3 行）。目录约定只这一处。 */
 export const IDE_NOTE_DESTINATION_HINT = [
   "「收入藏书阁」写到 读码笔记/<工程>/YYYY-MM-DD-<文件名>.md；当天同一文件再收入会追加一节，不会新建 -2.md。",
+  "「收入本段」把当前对话整篇写到 读码笔记/<工程>/YYYY-MM-DD-讲解-<短标题>.md；再点一次整篇刷新，不重复抄。",
   "「速记」追加到 读码笔记/速记.md。",
   "工程源码不会写进 content 根或其他乱七八糟的位置。",
 ].join("\n");
@@ -378,4 +379,116 @@ export function appendSnippetBlock(existing: string, block: string): string {
   const trimmed = body.replace(/\s+$/, "");
   const head = trimmed.length > 0 ? trimmed : SNIPPET_NOTE_HEADER.trimEnd();
   return `${head}\n\n${block.replace(/\s+$/, "")}\n`;
+}
+
+/* ------------------------------------------------------------------ *
+ * 整段对话（当前 thread）→ 一篇笔记
+ *
+ * 单条收入是「一天一个文件、再收入就追加一节」；整段对话相反：一个 thread
+ * 一篇，同一天再点收入**整篇覆盖**，否则每点一次就把同样的问答再抄一遍。
+ * 文件名带上 `-讲解-` 前缀，和单条（YYYY-MM-DD-<文件名>.md）互不碰撞。
+ * ------------------------------------------------------------------ */
+
+/** 文件名里短标题的长度上限（汉字也算 1）。 */
+export const EXPLAIN_THREAD_NOTE_TITLE_MAX = 16;
+
+export type ExplainThreadTurn = {
+  role: "user" | "assistant";
+  content: string;
+  /** 该轮的时间；用来分节和定文件名日期。 */
+  createdAt?: number;
+  citations?: ExplainCitation[];
+};
+
+/** 短标题：压平空白、去掉路径分隔符，截到 16 字，空则「讲解」。 */
+export function explainThreadNoteShortTitle(raw: string): string {
+  const flat = sanitizeNoteTitle(raw, "讲解")
+    .replace(/^讲解\s*[·:：-]\s*/, "")
+    .trim();
+  const clipped =
+    flat.length > EXPLAIN_THREAD_NOTE_TITLE_MAX
+      ? flat.slice(0, EXPLAIN_THREAD_NOTE_TITLE_MAX)
+      : flat;
+  return sanitizeNoteSegment(clipped, "讲解").replace(/[-_\s]+$/, "") || "讲解";
+}
+
+/** 读码笔记/<工程>/YYYY-MM-DD-讲解-<短标题>.md */
+export function explainThreadNotePath(opts: {
+  projectName?: string | null;
+  title: string;
+  date?: string;
+}): string {
+  const date = opts.date ?? noteDateStamp();
+  const dir = [
+    IDE_NOTE_ROOT,
+    sanitizeNoteSegment(opts.projectName || "未命名工程", "未命名工程"),
+  ].join("/");
+  return `${dir}/${date}-讲解-${explainThreadNoteShortTitle(opts.title)}.md`;
+}
+
+/** 这条路径是不是整段对话笔记（决定「可以整篇覆盖」）。 */
+export function isExplainThreadNotePath(path: string): boolean {
+  return /\/\d{4}-\d{2}-\d{2}-讲解-/.test(normalizeNewlines(path || ""));
+}
+
+function clipExplainBody(raw: string, emptyText: string): string {
+  const text = normalizeNewlines(String(raw ?? "").trim());
+  if (!text) return emptyText;
+  return text.length > EXPLAIN_NOTE_MAX_CHARS
+    ? `${text.slice(0, EXPLAIN_NOTE_MAX_CHARS)}\n\n> （内容过长，已截断）\n`
+    : text;
+}
+
+/**
+ * 整段对话的 markdown：frontmatter + 每轮「问题 / 讲解 / 引用」。
+ *
+ * 只写对话文本和引用路径，**不写** `files` 里的源码正文——工程源码不进笔记库。
+ */
+export function buildExplainThreadNote(input: {
+  projectName?: string | null;
+  title: string;
+  turns: ExplainThreadTurn[];
+  /** 收入时刻，默认现在。 */
+  createdAt?: number;
+}): string {
+  const project = sanitizeNoteSegment(
+    input.projectName || "未命名工程",
+    "未命名工程"
+  );
+  const title = sanitizeNoteTitle(input.title, "讲解");
+  const stamp = new Date(input.createdAt ?? Date.now());
+  const rounds = input.turns.filter((t) => t.role === "user").length;
+
+  const lines: string[] = [
+    "---",
+    `title: ${yamlString(`讲解 · ${title}`)}`,
+    "tags: [读码, 讲解]",
+    `created: ${stamp.toISOString()}`,
+    "---",
+    "",
+    `# 讲解 · ${title}`,
+    "",
+    `- 工程：**${project}**`,
+    `- 轮次：${rounds} 轮`,
+    `- 收入时间：${noteLocalStamp(stamp)}`,
+  ];
+
+  let round = 0;
+  for (const turn of input.turns) {
+    if (turn.role === "user") {
+      round += 1;
+      const at = new Date(turn.createdAt ?? stamp.getTime());
+      lines.push("", `## 第 ${round} 轮 · ${noteTimeStamp(at)}`, "", "### 问题", "");
+      lines.push(clipExplainBody(turn.content, "（未记录问题）"));
+      continue;
+    }
+    lines.push("", "### 讲解", "");
+    lines.push(clipExplainBody(turn.content, "（讲解没有返回内容）"));
+    const cites = normalizeCites(turn.citations);
+    if (cites.length > 0) {
+      lines.push("", "### 引用", "", ...citeLines(cites));
+    }
+  }
+
+  return `${lines.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd()}\n`;
 }

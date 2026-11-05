@@ -23,6 +23,15 @@ const listSrc = read("explain/ExplainMessageList.tsx");
 const captureBarSrc = read("explain/ExplainCaptureBar.tsx");
 const jumpSrc = read("explain/useExplainJump.ts");
 const headerSrc = read("explain/ExplainHeader.tsx");
+const captureSrc = read("explain/useExplainCapture.ts");
+const noteSrc = readFileSync(
+  join(process.cwd(), "src/lib/ide/captureNote.ts"),
+  "utf8"
+);
+const planSrc = readFileSync(
+  join(process.cwd(), "src/lib/ide/capturePlan.ts"),
+  "utf8"
+);
 const explorerSrc = read("IdeExplorer.tsx");
 
 describe("讲解面板：编排层够瘦", () => {
@@ -199,6 +208,31 @@ describe("讲解面板：收入藏书阁路径可见", () => {
     expect(captureBarSrc).toContain("savedPath");
     expect(captureBarSrc).toContain("在藏书阁打开");
     expect(panel).toContain("savedNotes=");
+  });
+});
+
+describe("讲解面板：收入本段对话", () => {
+  it("Header 有「收入本段」，落点与「在藏书阁打开」都在头部可见", () => {
+    expect(headerSrc).toContain("onCaptureThread");
+    expect(headerSrc).toContain("收入本段");
+    expect(headerSrc).toContain("savedThreadPath");
+    expect(headerSrc).toContain("在藏书阁打开");
+  });
+
+  it("整段收入走 captureExplainThreadToLibrary，单条路径仍在", () => {
+    expect(captureSrc).toContain("captureExplainThreadToLibrary");
+    expect(captureSrc).toContain("captureExplainToLibrary(");
+    expect(captureSrc).toContain("captureSnippetToLibrary(");
+    expect(panel).toContain("capture.captureThread");
+    expect(panel).toContain("capture.savedThread");
+  });
+
+  it("落点用 讲解-<短标题>，与单条 YYYY-MM-DD-<文件>.md 不碰撞", () => {
+    expect(noteSrc).toContain("explainThreadNotePath");
+    expect(noteSrc).toContain("-讲解-");
+    // 整段对话不写 files 里的源码正文。
+    expect(noteSrc).toContain("turns");
+    expect(planSrc).toContain("captureExplainThread");
   });
 });
 

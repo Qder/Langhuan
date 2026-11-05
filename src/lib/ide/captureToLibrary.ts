@@ -15,10 +15,12 @@
 import { useStore } from "@/lib/store";
 import {
   captureExplain,
+  captureExplainThread,
   captureSnippet,
   captureStatusMessage,
   type CaptureWriteOutcome,
   type ExplainCaptureInput,
+  type ExplainThreadCaptureInput,
   type NoteWriter,
   type SnippetCaptureInput,
 } from "./capturePlan";
@@ -26,6 +28,7 @@ import {
 export type {
   CaptureResult,
   ExplainCaptureInput,
+  ExplainThreadCaptureInput,
   SnippetCaptureInput,
 } from "./capturePlan";
 export { captureStatusMessage };
@@ -71,4 +74,11 @@ export function captureSnippetToLibrary(
   input: SnippetCaptureInput
 ): Promise<import("./capturePlan").CaptureResult> {
   return captureSnippet(writer(), input);
+}
+
+/** 「收入本段对话」：当前 thread 全文 → 一篇 讲解-<短标题>.md（整篇覆盖）。 */
+export function captureExplainThreadToLibrary(
+  input: ExplainThreadCaptureInput
+): Promise<import("./capturePlan").CaptureResult> {
+  return captureExplainThread(writer(), input);
 }

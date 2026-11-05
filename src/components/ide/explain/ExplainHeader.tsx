@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Eraser, History, Plus, Settings2, Sparkles, X } from "lucide-react";
+import { BookMarked, Eraser, History, Plus, Settings2, Sparkles, X } from "lucide-react";
 import { Button } from "../../ui/button";
 import { cn } from "@/lib/utils";
 import { useIdeStore } from "@/lib/ide/store";
@@ -17,11 +17,19 @@ export function ExplainHeader({
   onToggleSettings,
   onStop,
   onClose,
+  onCaptureThread,
+  savedThreadPath,
+  onOpenSavedThread,
 }: {
   isMock: boolean;
   onToggleSettings: () => void;
   onStop: () => void;
   onClose: () => void;
+  /** 「收入本段对话」：当前 thread 全文 → 一篇 讲解-<短标题>.md。 */
+  onCaptureThread: () => void;
+  /** 已收入过就显示路径 + 「在藏书阁打开」。 */
+  savedThreadPath?: string;
+  onOpenSavedThread: () => void;
 }) {
   const threads = useIdeStore((s) => {
     const id = s.session?.id;
@@ -89,6 +97,17 @@ export function ExplainHeader({
         </Button>
         <Button
           variant="ghost"
+          size="sm"
+          className="h-8 px-2 text-[11px] font-ui"
+          aria-label="收入本段对话"
+          title="把这段对话的全部问答写成 读码笔记/<工程>/YYYY-MM-DD-讲解-<短标题>.md；再点一次整篇刷新，不重复抄"
+          onClick={onCaptureThread}
+        >
+          <BookMarked className="h-3.5 w-3.5" />
+          <span className="max-sm:hidden">收入本段</span>
+        </Button>
+        <Button
+          variant="ghost"
           size="icon"
           aria-label="清空当前对话"
           title="清空当前对话"
@@ -103,6 +122,23 @@ export function ExplainHeader({
           <X className="h-4 w-4" />
         </Button>
       </div>
+      {savedThreadPath ? (
+        <div className="flex items-center gap-2 px-3 pb-1.5 min-w-0">
+          <p
+            className="flex-1 min-w-0 text-[11px] max-lg:text-[10px] font-mono text-[var(--muted)] truncate"
+            title={savedThreadPath}
+          >
+            {savedThreadPath}
+          </p>
+          <button
+            type="button"
+            className="shrink-0 text-[11px] max-lg:min-h-10 font-ui text-[var(--accent)] hover:underline"
+            onClick={onOpenSavedThread}
+          >
+            在藏书阁打开
+          </button>
+        </div>
+      ) : null}
       {historyOpen ? (
         <div
           className="max-h-40 overflow-y-auto px-2 pb-2 space-y-1"

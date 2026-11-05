@@ -62,6 +62,7 @@ import { putLibraryDoc } from "../storage/contentApi";
 import { resetCaptureQueues } from "./capturePlan";
 import {
   captureExplainToLibrary,
+  captureExplainThreadToLibrary,
   captureSnippetToLibrary,
   captureStatusMessage,
 } from "./captureToLibrary";
@@ -313,5 +314,46 @@ describe("captureExplainToLibrary → 读码笔记/<工程>/<日期>-<文件>.md
     expect(notes).toHaveLength(1);
     // Both turns are present — the second was appended, not lost.
     expect(diskBodyOf(a.ok ? a.path : "").match(/只该有一份/g)).toHaveLength(2);
+  });
+});
+
+describe("captureExplainThreadToLibrary → 讲解-<短标题>.md", () => {
+  const turns = [
+    { role: "user" as const, content: "第一问 ALPHA", createdAt: 1 },
+    { role: "assistant" as const, content: "第一答 ALPHA", createdAt: 2 },
+    { role: "user" as const, content: "第二问 BETA", createdAt: 3 },
+    { role: "assistant" as const, content: "第二答 BETA", createdAt: 4 },
+  ];
+
+  it("当前 thread 全文进一篇，再点覆盖不追加", async () => {
+    const createdAt = new Date(2026, 10, 5, 10, 0).getTime();
+    const first = await captureExplainThreadToLibrary({
+      title: "第二段问题 BETA",
+      turns,
+      projectName: "qa-goto",
+      createdAt,
+    });
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    expect(first.path).toMatch(
+      /^读码笔记\/qa-goto\/\d{4}-\d{2}-\d{2}-讲解-第二段问题 BETA\.md$/
+    );
+    expect(captureStatusMessage(first, "已收入本段对话")).toContain(first.path);
+
+    const second = await captureExplainThreadToLibrary({
+      title: "第二段问题 BETA",
+      turns,
+      projectName: "qa-goto",
+      createdAt,
+    });
+    expect(second.ok).toBe(true);
+    if (!second.ok) return;
+    expect(second.docId).toBe(first.docId);
+    expect(second.appended).toBe(false);
+    expect(
+      useStore.getState().documents.filter((d) => d.path === first.path)
+    ).toHaveLength(1);
+    expect(diskBodyOf(first.path).split("第一问 ALPHA").length - 1).toBe(1);
+    expect(diskBodyOf(first.path)).toContain("第二答 BETA");
   });
 });

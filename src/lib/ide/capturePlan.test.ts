@@ -8,6 +8,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   captureExplain,
+  captureExplainThread,
   captureSnippet,
   captureStatusMessage,
   resetCaptureQueues,
@@ -271,8 +272,113 @@ describe("captureExplain (B1)", () => {
   });
 });
 
-describe("captureSnippet (B2)", () => {
-  it("首次创建 读码笔记/速记.md，含标题块与来源链接", async () => {
+describe("captureExplainThread (B3 · 整段对话)", () => {
+  const turns = [
+    { role: "user" as const, content: "这个接口干什么？", createdAt: 1 },
+    {
+      role: "assistant" as const,
+      content: "它是 Mapper 接口。",
+      createdAt: 2,
+      citations: [{ path: "src/MerchantMapper.java", line: 3 }],
+    },
+    { role: "user" as const, content: "实现 XML 在哪？", createdAt: 3 },
+    { role: "assistant" as const, content: "在 resources/mapper 下。", createdAt: 4 },
+  ];
+
+  it("写到 读码笔记/<工程>/YYYY-MM-DD-讲解-<短标题>.md，含全部轮次", async () => {
+    const result = await captureExplainThread(w.writer, {
+      title: "MerchantMapper 在干什么",
+      turns,
+      projectName: "campus-food",
+      createdAt: new Date("2026-11-05T02:00:00Z").getTime(),
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.path).toMatch(
+      /^读码笔记\/campus-food\/\d{4}-\d{2}-\d{2}-讲解-MerchantMapper 在\.md$/
+    );
+
+    const body = w.docs.find((d) => d.id === result.docId)!.content;
+    expect(body).toContain("这个接口干什么？");
+    expect(body).toContain("在 resources/mapper 下。");
+    expect(body).toContain("[[ide:src/MerchantMapper.java:3]]");
+  });
+
+  it("再点一次是整篇覆盖同一篇，不追加也不新建 -2.md", async () => {
+    const created = new Date("2026-11-05T02:00:00Z").getTime();
+    const first = await captureExplainThread(w.writer, {
+      title: "入口在哪",
+      turns,
+      projectName: "demo",
+      createdAt: created,
+    });
+    const second = await captureExplainThread(w.writer, {
+      title: "入口在哪",
+      turns,
+      projectName: "demo",
+      createdAt: created,
+    });
+    expect(first.ok && second.ok).toBe(true);
+    if (!first.ok || !second.ok) return;
+
+    expect(w.docs).toHaveLength(1);
+    expect(second.docId).toBe(first.docId);
+    expect(second.path).toBe(first.path);
+    expect(second.appended).toBe(false);
+    // 同一句问题只出现一次（覆盖而不是追加）。
+    const body = w.diskBody(first.docId);
+    expect(body.split("这个接口干什么？").length - 1).toBe(1);
+  });
+
+  it("空对话不落盘，给一句可读的提示", async () => {
+    const result = await captureExplainThread(w.writer, {
+      title: "新对话",
+      turns: [],
+      projectName: "demo",
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.message).toContain("还没有内容");
+    expect(w.docs).toHaveLength(0);
+  });
+
+  it("和单条收入不互相覆盖：单条是 YYYY-MM-DD-<文件>.md", async () => {
+    const at = new Date("2026-11-05T02:00:00Z").getTime();
+    const single = await captureExplain(w.writer, {
+      question: "单条问题",
+      answer: "单条讲解",
+      projectName: "demo",
+      sourcePath: "src/A.java",
+      createdAt: at,
+    });
+    const whole = await captureExplainThread(w.writer, {
+      title: "整段",
+      turns,
+      projectName: "demo",
+      createdAt: at,
+    });
+    expect(single.ok && whole.ok).toBe(true);
+    if (!single.ok || !whole.ok) return;
+    expect(single.path).not.toBe(whole.path);
+    expect(w.docs).toHaveLength(2);
+    expect(w.diskBody(single.docId)).toContain("单条讲解");
+    expect(w.diskBody(single.docId)).not.toContain("它是 Mapper 接口。");
+  });
+
+  it("写入失败不谎报成功", async () => {
+    w.failNextWrites(1, "磁盘只读");
+    const result = await captureExplainThread(w.writer, {
+      title: "入口在哪",
+      turns,
+      projectName: "demo",
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.message).toContain("磁盘只读");
+  });
+});
+
+describe("captureSnippet (B2)", () => {  it("首次创建 读码笔记/速记.md，含标题块与来源链接", async () => {
     const result = await captureSnippet(w.writer, {
       path: "src/foo.ts",
       fromLine: 12,

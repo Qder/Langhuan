@@ -8,8 +8,12 @@ import {
   appendSnippetBlock,
   buildExplainNote,
   buildExplainSection,
+  buildExplainThreadNote,
   buildSnippetBlock,
   explainNotePath,
+  explainThreadNotePath,
+  explainThreadNoteShortTitle,
+  isExplainThreadNotePath,
   noteDateStamp,
   noteFileStem,
   noteLocalStamp,
@@ -84,6 +88,7 @@ describe("explainNotePath", () => {
     expect(isIdeNoteRootFolder("读码笔记")).toBe(true);
     expect(isIdeNoteRootFolder("读码笔记/demo")).toBe(false);
     expect(IDE_NOTE_DESTINATION_HINT).toContain("读码笔记/<工程>/YYYY-MM-DD-<文件名>.md");
+    expect(IDE_NOTE_DESTINATION_HINT).toContain("YYYY-MM-DD-讲解-<短标题>.md");
     expect(IDE_NOTE_DESTINATION_HINT).toContain("读码笔记/速记.md");
     expect(IDE_NOTE_DESTINATION_HINT).toContain("不会新建 -2.md");
     expect(IDE_NOTE_DESTINATION_HINT).toContain("content 根");
@@ -300,6 +305,61 @@ describe("appendExplainSection", () => {
   it("appending onto an empty body yields just the section", () => {
     const out = appendExplainSection("", "## 09:30 · q\n\nbody");
     expect(out).toBe("## 09:30 · q\n\nbody\n");
+  });
+});
+
+describe("explainThreadNotePath / 整段对话笔记", () => {
+  it("落在 读码笔记/<工程>/YYYY-MM-DD-讲解-<短标题>.md", () => {
+    expect(
+      explainThreadNotePath({
+        projectName: "campus-food",
+        title: "MerchantMapper 在干什么",
+        date: "2026-11-05",
+      })
+    ).toBe("读码笔记/campus-food/2026-11-05-讲解-MerchantMapper 在.md");
+    expect(isExplainThreadNotePath("读码笔记/demo/2026-11-05-讲解-入口.md")).toBe(
+      true
+    );
+    // 单条收入的笔记不算整段对话，不会被整篇覆盖。
+    expect(isExplainThreadNotePath("读码笔记/demo/2026-11-05-A.md")).toBe(false);
+  });
+
+  it("短标题压平空白、丢掉路径字符、空则「讲解」", () => {
+    expect(explainThreadNoteShortTitle("  a/b  c  ")).toBe("a-b c");
+    expect(explainThreadNoteShortTitle("讲解 · 入口在哪")).toBe("入口在哪");
+    expect(explainThreadNoteShortTitle("   ")).toBe("讲解");
+    // 截断到 16 字，文件名不会长到撑爆目录列表。
+    expect(explainThreadNoteShortTitle("很".repeat(40)).length).toBe(16);
+  });
+
+  it("正文含每轮问答与引用，但绝不写源码正文", () => {
+    const md = buildExplainThreadNote({
+      projectName: "campus-food",
+      title: "MerchantMapper 在干什么",
+      createdAt: new Date("2026-11-05T02:00:00Z").getTime(),
+      turns: [
+        { role: "user", content: "这个接口干什么？", createdAt: 0 },
+        {
+          role: "assistant",
+          content: "它是 Mapper 接口，方法由 XML 实现。",
+          citations: [{ path: "src/MerchantMapper.java", line: 3 }],
+        },
+        { role: "user", content: "那 XML 在哪？" },
+        { role: "assistant", content: "在 resources/mapper 下。" },
+      ],
+    });
+    expect(md).toContain("# 讲解 · MerchantMapper 在干什么");
+    expect(md).toContain("- 工程：**campus-food**");
+    expect(md).toContain("- 轮次：2 轮");
+    expect(md).toContain("## 第 1 轮");
+    expect(md).toContain("## 第 2 轮");
+    expect(md).toContain("### 问题");
+    expect(md).toContain("### 讲解");
+    expect(md).toContain("这个接口干什么？");
+    expect(md).toContain("在 resources/mapper 下。");
+    expect(md).toContain("[[ide:src/MerchantMapper.java:3]]");
+    // 源码正文不进笔记（files 字段不参与构建）。
+    expect(md).not.toContain("public interface MerchantMapper");
   });
 });
 

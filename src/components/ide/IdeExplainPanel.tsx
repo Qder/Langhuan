@@ -86,6 +86,9 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
         onToggleSettings={() => setShowSettings((v) => !v)}
         onStop={stream.stop}
         onClose={onClose}
+        onCaptureThread={() => void capture.captureThread()}
+        savedThreadPath={capture.savedThread?.path}
+        onOpenSavedThread={capture.openSavedThread}
       />
       {showSettings && <ExplainDesktopHint />}
       <ExplainMessageList
