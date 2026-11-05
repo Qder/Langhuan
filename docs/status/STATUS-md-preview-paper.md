@@ -94,7 +94,7 @@
 ## 验收怎么跑
 
 ```bash
-npm run check   # 128 files / 1495 passed + 1 expected fail / 81 warnings 0 errors
+npm run check   # 128 files / 1500 passed + 1 expected fail / 0 errors
 npm run build   # ✓ Compiled successfully
 ```
 

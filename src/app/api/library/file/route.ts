@@ -21,7 +21,7 @@ const CSS_INDEX_MAX_SOURCE_BYTES = 2 * 1024 * 1024;
 /** 同理，超过这个体积的 JS 不建索引。 */
 const JS_INDEX_MAX_SOURCE_BYTES = 2 * 1024 * 1024;
 import { FS_INDEX_DIR } from "@/lib/storage/constants";
-import { normalizeQuizStore } from "@/lib/quiz";
+import { emptyQuizStore, normalizeQuizStore } from "@/lib/quiz";
 import { safeRelPath } from "@/lib/storage/pathSanitize";
 
 export const runtime = "nodejs";
@@ -32,11 +32,34 @@ function pathHasTraversal(p: string): boolean {
   return p.replace(/\\/g, "/").split("/").some((seg) => seg === "..");
 }
 
+const QUIZ_META_REL = `${FS_INDEX_DIR}/${QUIZ_INDEX_FILE}`;
+
+/**
+ * `.langhuan/quiz.json` 是可选的元数据文件。
+ *
+ * 练习记录只有真正做过题才会有，冷启动第一次读时它本来就不存在。
+ * 把它当成 404 会让每次启动都在 Network 里红一条，而调用方（fetchQuizStore）
+ * 本来就要把「没有这个文件」解释成空练习库。所以缺文件时回 200 + 合法空库。
+ *
+ * 只对这一条路径开口子：其它文件缺了仍然是 404，坏 JSON 仍然是 200 原样返回
+ * （解析失败由调用方兜底），PUT 的校验也没动。
+ */
+function isQuizMetaPath(p: string): boolean {
+  const rel = safeRelPath(p);
+  return rel === QUIZ_META_REL || rel === QUIZ_INDEX_FILE;
+}
+
 export async function GET(req: NextRequest) {
   try {
     const pathParam = req.nextUrl.searchParams.get("path") || "";
     const file = await readFileBytes(pathParam);
     if (!file) {
+      if (isQuizMetaPath(pathParam)) {
+        return NextResponse.json(emptyQuizStore(), {
+          status: 200,
+          headers: { "Cache-Control": "no-store" },
+        });
+      }
       return NextResponse.json({ ok: false, error: "文件不存在" }, { status: 404 });
     }
     return new NextResponse(new Uint8Array(file.buf), {

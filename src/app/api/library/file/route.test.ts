@@ -14,7 +14,8 @@ const writeTextDoc = vi.fn(
 const ensureContentTree = vi.fn(async () => undefined);
 const ensureLibraryDir = vi.fn(async () => undefined);
 const hardDeletePath = vi.fn(async () => true);
-const readFileBytes = vi.fn(async () => null);
+type FileBytes = { buf: Buffer; mime: string; rel: string } | null;
+const readFileBytes = vi.fn<(path: string) => Promise<FileBytes>>(async () => null);
 const softDeleteDoc = vi.fn(async () => null);
 const writeCssIndex = vi.fn();
 const writeJsIndex = vi.fn();
@@ -26,7 +27,7 @@ vi.mock("@/lib/storage/contentFs", () => ({
   ensureContentTree: (...a: unknown[]) => ensureContentTree(...(a as [])),
   ensureLibraryDir: (...a: unknown[]) => ensureLibraryDir(...(a as [])),
   hardDeletePath: (...a: unknown[]) => hardDeletePath(...(a as [])),
-  readFileBytes: (...a: unknown[]) => readFileBytes(...(a as [])),
+  readFileBytes: (...a: unknown[]) => readFileBytes(...(a as [string])),
   softDeleteDoc: (...a: unknown[]) => softDeleteDoc(...(a as [])),
   writeCssIndex: (...a: unknown[]) => writeCssIndex(...(a as [])),
   writeJsIndex: (...a: unknown[]) => writeJsIndex(...(a as [])),
@@ -44,7 +45,7 @@ vi.mock("@/lib/locate/jsIndex", () => ({
   buildJsIndex: vi.fn(),
 }));
 
-import { PUT } from "./route";
+import { GET, PUT } from "./route";
 import type { NextRequest } from "next/server";
 
 function putReq(body: unknown): NextRequest {
@@ -54,6 +55,69 @@ function putReq(body: unknown): NextRequest {
     body: JSON.stringify(body),
   }) as unknown as NextRequest;
 }
+
+function getReq(path: string): NextRequest {
+  const url = new URL(
+    `http://localhost/api/library/file?path=${encodeURIComponent(path)}`
+  );
+  // 路由只用到 nextUrl.searchParams，不必构造完整 NextRequest
+  return { nextUrl: url } as unknown as NextRequest;
+}
+
+describe("GET /api/library/file", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    readFileBytes.mockResolvedValue(null);
+  });
+
+  it("缺 .langhuan/quiz.json 时回 200 + 合法空 QuizStore（不是 404）", async () => {
+    const res = await GET(getReq(".langhuan/quiz.json"));
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
+    const json = (await res.json()) as {
+      format: string;
+      version: number;
+      docs: unknown[];
+    };
+    // 与 emptyQuizStore() 同形：fetchQuizStore 拿到就能直接 normalize
+    expect(json.format).toBe("langhuan-quiz");
+    expect(json.version).toBe(1);
+    expect(json.docs).toEqual([]);
+  });
+
+  it("quiz.json 的裸文件名也认（老调用方 / 手写请求）", async () => {
+    const res = await GET(getReq("quiz.json"));
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { docs: unknown[] }).docs).toEqual([]);
+  });
+
+  it("其它缺失文件仍是 404", async () => {
+    const res = await GET(getReq("笔记/没有这篇.md"));
+    expect(res.status).toBe(404);
+    expect(((await res.json()) as { ok: boolean }).ok).toBe(false);
+  });
+
+  it("越界写法被 safeRelPath 折叠进 content/，不会读到库外", async () => {
+    const res = await GET(getReq("../.langhuan/quiz.json"));
+    // 路由把原始 path 交给 readFileBytes（内部 safeRelPath），`..` 被吃掉后
+    // 正好落在 content/.langhuan/quiz.json，仍然只在库内。
+    expect(readFileBytes.mock.calls[0]?.[0]).toBe("../.langhuan/quiz.json");
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { docs: unknown[] }).docs).toEqual([]);
+  });
+
+  it("quiz.json 存在时照旧把文件吐出来（不改成空库）", async () => {
+    readFileBytes.mockResolvedValueOnce({
+      buf: Buffer.from('{"format":"langhuan-quiz","version":1,"updatedAt":1,"docs":[]}'),
+      mime: "application/json; charset=utf-8",
+      rel: ".langhuan/quiz.json",
+    });
+    const res = await GET(getReq(".langhuan/quiz.json"));
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toBe("application/json; charset=utf-8");
+    expect(await res.text()).toContain("langhuan-quiz");
+  });
+});
 
 describe("PUT /api/library/file", () => {
   beforeEach(() => {
