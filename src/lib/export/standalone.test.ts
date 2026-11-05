@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   documentToStandaloneHtml,
-  mdBodyToHtml,
   suggestExportFilename,
   escapeHtml,
 } from "./standalone";
@@ -23,31 +22,41 @@ describe("export standalone", () => {
     expect(escapeHtml(`a<b>"&`)).toBe("a&lt;b&gt;&quot;&amp;");
   });
 
-  it("mdBodyToHtml uses frontmatter title", () => {
-    const { title, bodyHtml } = mdBodyToHtml(mdDoc().content);
-    expect(title).toBe("问候");
-    expect(bodyHtml).toContain("<strong>粗体</strong>");
+  it("uses frontmatter title", async () => {
+    const html = await documentToStandaloneHtml(mdDoc());
+    expect(html).toContain("<title>问候 · 琅嬛</title>");
+    expect(html).toContain("<strong>粗体</strong>");
   });
 
-  it("documentToStandaloneHtml wraps markdown", () => {
-    const html = documentToStandaloneHtml(mdDoc());
+  it("wraps markdown into a full document", async () => {
+    const html = await documentToStandaloneHtml(mdDoc());
     expect(html).toContain("<!DOCTYPE html>");
-    expect(html).toContain("问候");
+    expect(html).toContain("<h1");
     expect(html).toContain("粗体");
   });
 
-  it("passes through full html documents", () => {
+  it("falls back to the filename when there is no title", async () => {
+    const html = await documentToStandaloneHtml(mdDoc({ content: "只有正文" }));
+    expect(html).toContain("你好");
+  });
+
+  it("passes through full html documents", async () => {
     const doc = mdDoc({
       type: "html",
       path: "页/a.html",
       content: "<!DOCTYPE html><html><body><p>Hi</p></body></html>",
     });
-    const html = documentToStandaloneHtml(doc);
+    const html = await documentToStandaloneHtml(doc);
     expect(html).toContain("<p>Hi</p>");
   });
 
   it("suggestExportFilename", () => {
     expect(suggestExportFilename(mdDoc(), "html")).toBe("你好.html");
     expect(suggestExportFilename(mdDoc(), "source")).toBe("你好.md");
+  });
+
+  it("accepts a plain string as content (old call shape)", async () => {
+    const html = await documentToStandaloneHtml(mdDoc(), "# 覆盖\n\n新正文");
+    expect(html).toContain("新正文");
   });
 });

@@ -1,9 +1,17 @@
-import { marked } from "marked";
 import type { Document } from "../types";
-import { parseFrontmatter } from "../tags";
-import { titleOf, basename } from "../utils";
+import { titleOf } from "../utils";
+import { escapeHtml } from "./escape";
+import { renderMarkdownForExport, type ExportAssetReader } from "./renderMarkdown";
 
-/** Shared print / standalone CSS — 纸·墨·朱砂 */
+export { escapeHtml };
+
+/**
+ * Shared print / standalone CSS — 纸·墨·朱砂
+ *
+ * 导出是「一张纸」，只有浅纸形态：不跟应用里的九套主题联动。
+ * 这里额外带上了 callout 卡片、行内代码、图片占位与双链胶囊的样式，
+ * 因为导出物要能在没有琅嬛的机器上离线打开，样式必须自带。
+ */
 export const EXPORT_CSS = `
 :root {
   --bg: #f5efe2;
@@ -16,6 +24,10 @@ export const EXPORT_CSS = `
   --code-bg: #efe7d6;
   --code-fg: #2b261f;
   --code-border: rgba(43, 38, 31, 0.16);
+  /* callout 三色相：与预览的 tip/note/warn 对应 */
+  --callout-tip: #3d6b7a;
+  --callout-note: #a87a2c;
+  --callout-warn: #b3382a;
 }
 * { box-sizing: border-box; }
 html, body {
@@ -100,6 +112,76 @@ header.meta .path {
 .prose table { border-collapse: collapse; width: 100%; max-width: 100%; margin: 1em 0; font-size: 0.95em; }
 .prose th, .prose td { border: 1px solid var(--border); padding: 0.4em 0.6em; }
 .prose th { background: rgba(43,38,31,0.04); }
+
+/* ---- callout 卡片（rehypeCallout 的输出）---- */
+.prose .callout {
+  --callout-hue: var(--callout-note);
+  margin: 1.2em 0;
+  padding: 0.85em 1em;
+  border-left: 3px solid var(--callout-hue);
+  border-radius: 0 8px 8px 0;
+  background: color-mix(in srgb, var(--callout-hue) 8%, transparent);
+}
+.prose .callout.tip { --callout-hue: var(--callout-tip); }
+.prose .callout.note { --callout-hue: var(--callout-note); }
+.prose .callout.warn,
+.prose .callout.warning,
+.prose .callout.important,
+.prose .callout.caution { --callout-hue: var(--callout-warn); }
+.prose .callout-title {
+  font-weight: 700;
+  font-size: 0.95em;
+  letter-spacing: 0.02em;
+  color: color-mix(in srgb, var(--callout-hue) 78%, var(--fg));
+  margin-bottom: 0.35em;
+}
+.prose .callout-body > :first-child { margin-top: 0; }
+.prose .callout-body > :last-child { margin-bottom: 0; }
+.prose .callout-body blockquote { color: var(--muted); }
+
+/* ---- 代码高亮：与预览同一批 --syn-* 语义色（这里给浅纸一套）---- */
+.hljs { color: var(--code-fg); }
+.hljs-comment, .hljs-quote { color: #8a8071; font-style: normal; }
+.hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-type { color: #a8434a; }
+.hljs-title, .hljs-title.function_, .hljs-title.class_ { color: #6b4a8a; }
+.hljs-attr, .hljs-attribute, .hljs-number, .hljs-operator, .hljs-variable { color: #2f5d7a; }
+.hljs-string, .hljs-regexp { color: #4a6b3a; }
+.hljs-built_in, .hljs-symbol { color: #8a5a1e; }
+.hljs-name, .hljs-selector-id, .hljs-selector-class { color: #2f6b4f; }
+.hljs-emphasis { font-style: italic; }
+.hljs-strong { font-weight: 700; }
+
+/* ---- 双链胶囊：离线时目标不可达就不可点，别做成死链 ---- */
+.export-wiki {
+  display: inline;
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  color: var(--accent);
+  text-decoration: none;
+}
+a.export-wiki:hover { border-bottom-color: var(--accent); }
+.export-wiki-missing,
+.export-wiki-outside,
+.export-wiki-embed {
+  color: var(--muted);
+  border-bottom-style: dashed;
+  border-bottom-color: var(--border);
+  cursor: help;
+}
+
+/* ---- 取不到的文件：说明为什么，而不是一个碎掉的 img ---- */
+.export-missing-media {
+  display: block;
+  margin: 1em 0;
+  padding: 0.7em 0.9em;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  color: var(--muted);
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 0.85rem;
+  text-align: center;
+}
+.export-link-plain { color: var(--fg); border-bottom: 1px dotted var(--border); }
+
 .footer {
   margin-top: 3rem;
   padding-top: 1rem;
@@ -113,20 +195,10 @@ header.meta .path {
   .wrap { max-width: none; padding: 0; }
   .no-print { display: none !important; }
   a { color: inherit; text-decoration: none; }
+  .prose pre { break-inside: avoid; }
+  .prose .callout { break-inside: avoid; }
 }
 `.trim();
-
-marked.setOptions({ gfm: true, breaks: false });
-
-export function mdBodyToHtml(content: string): { title: string; bodyHtml: string } {
-  const { data, body } = parseFrontmatter(content);
-  const title =
-    (typeof data.title === "string" && data.title) ||
-    body.match(/^#\s+(.+)$/m)?.[1]?.trim() ||
-    "未命名";
-  const bodyHtml = marked.parse(body, { async: false }) as string;
-  return { title, bodyHtml };
-}
 
 export function wrapStandaloneHtml(opts: {
   title: string;
@@ -158,28 +230,51 @@ export function wrapStandaloneHtml(opts: {
 `;
 }
 
-export function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
+export type StandaloneOptions = {
+  content?: string;
+  /** 全库文档：双链据此解析目标。 */
+  docs?: Document[];
+  /** 读库内二进制（图片 / SVG 资源），用来内联成 data URL。 */
+  readAsset?: ExportAssetReader;
+};
 
-/** Build a self-contained HTML string for one document. */
-export function documentToStandaloneHtml(doc: Document, content?: string): string {
-  const raw = content ?? doc.content;
+/**
+ * Build a self-contained HTML string for one document.
+ *
+ * 单篇独立 HTML 是「发出去一份文件」的场景：图片必须内联，否则离线必裂；
+ * 双链目标不在这一份文件里，所以渲染成不可点的胶囊（带 tooltip 说明）。
+ */
+export async function documentToStandaloneHtml(
+  doc: Document,
+  contentOrOptions?: string | StandaloneOptions
+): Promise<string> {
+  const opts: StandaloneOptions =
+    typeof contentOrOptions === "string" ? { content: contentOrOptions } : contentOrOptions ?? {};
+  const raw = opts.content ?? doc.content;
+
   if (doc.type === "html") {
-    // If already a full document, return as-is; else wrap
-    if (/<html[\s>]/i.test(raw)) return raw;
-    const title = titleOf(doc.path);
-    return wrapStandaloneHtml({
-      title,
-      path: doc.path,
-      bodyHtml: raw,
-    });
+    const asIs = /<html[\s>]/i.test(raw);
+    if (asIs) return raw;
+    return wrapStandaloneHtml({ title: titleOf(doc.path), path: doc.path, bodyHtml: raw });
   }
-  const { title, bodyHtml } = mdBodyToHtml(raw);
+
+  const resolvedDoc: Document = { ...doc, content: raw };
+  const docs = opts.docs?.length ? opts.docs : [resolvedDoc];
+
+  const { title, bodyHtml } = await renderMarkdownForExport({
+    content: raw,
+    docPath: doc.path,
+    docs,
+    // 单文件里没有别的页面可跳：目标写回自己才算可达，其余一律不可点。
+    hrefForDoc: (target) => (target.path === doc.path ? `#${anchorSlug(title)}` : null),
+    resolveAsset: opts.readAsset
+      ? async (path) => {
+          const file = await opts.readAsset!(path);
+          return file ? `data:${file.mime};base64,${file.base64}` : null;
+        }
+      : undefined,
+  });
+
   return wrapStandaloneHtml({
     title: title === "未命名" ? titleOf(doc.path) : title,
     path: doc.path,
@@ -187,11 +282,20 @@ export function documentToStandaloneHtml(doc: Document, content?: string): strin
   });
 }
 
+function anchorSlug(heading: string): string {
+  return heading
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+    .replace(/[^\w\u4e00-\u9fff-]/g, "");
+}
+
 export function suggestExportFilename(doc: Document, kind: "html" | "md" | "source"): string {
-  const base = basename(doc.path).replace(/\.(md|html)$/i, "");
-  if (kind === "html") return `${base}.html`;
-  if (kind === "md") return `${base}.md`;
-  return basename(doc.path);
+  const base = doc.path.replace(/\\/g, "/").split("/").pop() ?? doc.path;
+  const stem = base.replace(/\.(md|html)$/i, "");
+  if (kind === "html") return `${stem}.html`;
+  if (kind === "md") return `${stem}.md`;
+  return base;
 }
 
 /** Open a print window for browser Print → PDF. */

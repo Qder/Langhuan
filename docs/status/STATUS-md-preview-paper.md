@@ -83,6 +83,9 @@
 浅纸值（不再是深色砖）、`figcaption` / 图片限高 / 表格宽度跟上。**没有**把
 `globals.css` 搬过去——那边要独立可分发，不能变成第二份真相。
 
+> 导出后来的离线可读性补强（callout 卡片、双链、图片内联/落盘、hljs 语义色）
+> 单独记在 [STATUS-export-offline.md](./STATUS-export-offline.md)。
+
 ## 验收怎么跑
 
 ```bash

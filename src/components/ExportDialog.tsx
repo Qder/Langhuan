@@ -11,8 +11,27 @@ import {
   suggestExportFilename,
 } from "@/lib/export/standalone";
 import { buildStaticSiteZip } from "@/lib/export/staticSite";
+import type { ExportAssetReader } from "@/lib/export/renderMarkdown";
+import { fetchProjectAsset } from "@/lib/storage/contentApi";
 import { downloadBlob } from "@/lib/shortcuts";
 import { basename } from "@/lib/utils";
+
+/** 超过这个体积不内联：单篇 HTML 里塞一张 40MB 的图只会让文件打不开。 */
+const INLINE_ASSET_LIMIT = 20 * 1024 * 1024;
+
+/**
+ * 导出时的媒体读取器：走库里的同一套读文件接口（浏览器 / Tauri 都通）。
+ * 读不到或太大就回 null，让导出渲染成「图片未找到」的说明块。
+ */
+const readExportAsset: ExportAssetReader = async (path) => {
+  try {
+    const file = await fetchProjectAsset(path, { maxBytes: INLINE_ASSET_LIMIT });
+    if (!file || file === "too-large") return null;
+    return { mime: file.mime, base64: file.base64 };
+  } catch {
+    return null;
+  }
+};
 
 export function ExportDialog() {
   const open = useStore((s) => s.exportDialogOpen);
@@ -42,26 +61,43 @@ export function ExportDialog() {
     setStatus(`已导出 ${basename(doc.path)}`);
   };
 
-  const exportStandalone = () => {
+  const buildStandalone = (doc: (typeof documents)[number]) =>
+    documentToStandaloneHtml(doc, {
+      content: getContent(doc.id),
+      docs: documents,
+      readAsset: readExportAsset,
+    });
+
+  const exportStandalone = async () => {
     const doc = selectedDocs[0] || active;
     if (!doc) return;
-    const html = documentToStandaloneHtml(doc, getContent(doc.id));
-    downloadBlob(
-      new Blob([html], { type: "text/html;charset=utf-8" }),
-      suggestExportFilename(doc, "html")
-    );
-    setStatus(`已导出独立 HTML：${suggestExportFilename(doc, "html")}`);
+    setBusy(true);
+    try {
+      const html = await buildStandalone(doc);
+      downloadBlob(
+        new Blob([html], { type: "text/html;charset=utf-8" }),
+        suggestExportFilename(doc, "html")
+      );
+      setStatus(`已导出独立 HTML：${suggestExportFilename(doc, "html")}（图片已内联）`);
+    } catch (e) {
+      setStatus(e instanceof Error ? e.message : "导出失败");
+    } finally {
+      setBusy(false);
+    }
   };
 
-  const exportPdfPrint = () => {
+  const exportPdfPrint = async () => {
     const doc = selectedDocs[0] || active;
     if (!doc) return;
+    setBusy(true);
     try {
-      const html = documentToStandaloneHtml(doc, getContent(doc.id));
+      const html = await buildStandalone(doc);
       openPrintWindow(html);
       setStatus("已打开打印预览，请选择「另存为 PDF」");
     } catch (e) {
       setStatus(e instanceof Error ? e.message : "打印失败");
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -71,10 +107,11 @@ export function ExportDialog() {
       const blob = await buildStaticSiteZip({
         documents,
         getContent: (id) => getContent(id),
+        readAsset: readExportAsset,
       });
       const name = `langhuan-site-${new Date().toISOString().slice(0, 10)}.zip`;
       downloadBlob(blob, name);
-      setStatus(`已导出静态站点 ${name}（${documents.length} 篇）`);
+      setStatus(`已导出静态站点 ${name}（${documents.length} 篇，含离线资源）`);
       setOpen(false);
     } catch (e) {
       setStatus(e instanceof Error ? e.message : "静态站点导出失败");
@@ -87,14 +124,13 @@ export function ExportDialog() {
     if (!selectedDocs.length) return;
     setBusy(true);
     try {
-      const { default: JSZip } = await import("jszip");
-      const zip = new JSZip();
-      for (const d of selectedDocs) {
-        const html = documentToStandaloneHtml(d, getContent(d.id));
-        const name = d.path.replace(/\\/g, "/").replace(/\.md$/i, ".html");
-        zip.file(name.endsWith(".html") ? name : name + ".html", html);
-      }
-      const blob = await zip.generateAsync({ type: "blob" });
+      // 选中多篇时也走完整的静态站点构建：双链能在选中集合内互跳，
+      // 图片落在同一个 assets/ 里，不会被复制成一堆内联大文件。
+      const blob = await buildStaticSiteZip({
+        documents: selectedDocs,
+        getContent: (id) => getContent(id),
+        readAsset: readExportAsset,
+      });
       downloadBlob(blob, `langhuan-selected-${selectedDocs.length}.zip`);
       setStatus(`已导出选中 ${selectedDocs.length} 篇`);
     } catch (e) {
@@ -132,16 +168,16 @@ export function ExportDialog() {
           <Button
             variant="secondary"
             className="justify-start gap-2"
-            disabled={!active && selectedDocs.length !== 1}
-            onClick={exportStandalone}
+            disabled={busy || (!active && selectedDocs.length !== 1)}
+            onClick={() => void exportStandalone()}
           >
             <FileCode2 className="h-4 w-4" /> 独立 HTML（内嵌样式）
           </Button>
           <Button
             variant="secondary"
             className="justify-start gap-2"
-            disabled={!active && selectedDocs.length !== 1}
-            onClick={exportPdfPrint}
+            disabled={busy || (!active && selectedDocs.length !== 1)}
+            onClick={() => void exportPdfPrint()}
           >
             <Printer className="h-4 w-4" /> 打印 / 另存 PDF
           </Button>
@@ -166,7 +202,9 @@ export function ExportDialog() {
         </div>
 
         <p className="text-xs text-[var(--muted)] leading-relaxed">
-          PDF 走浏览器打印引擎（MVP）。静态站点含 <code>index.html</code> 与各篇独立页面，可直接发布到任意静态托管。
+          独立 HTML 把图片内联进文件，发出去就能看；静态站点把用到的资源收进{" "}
+          <code>assets/</code>，解压即用。双链在导出范围内可点，范围外会标成不可点的胶囊；
+          图片读不到时渲染成「图片未找到」的说明块，而不是碎图。
         </p>
 
         <div className="flex justify-end">

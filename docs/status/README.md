@@ -13,6 +13,7 @@
 | [STATUS-js-behavior.md](./STATUS-js-behavior.md) | 定位 | 点元素看「谁绑了事件」：acorn 静态符号表 + 反查，跳到函数并高亮整段 |
 | [STATUS-locate-word-level.md](./STATUS-locate-word-level.md) | 定位 | 点击定位到「词」而非整元素；无文本节点走属性值；bridge 偏移契约 |
 | [STATUS-md-preview-paper.md](./STATUS-md-preview-paper.md) | 阅读 | Markdown 预览收成「藏书阁纸面」：代码块跟主题、表格/插图/图表当插页、标题列表收口 |
+| [STATUS-export-offline.md](./STATUS-export-offline.md) | 导出 | 单篇 HTML / 整库 zip 的离线可读性：callout 卡片、双链可点或明说、图片内联或落盘 |
 | [STATUS-preview-source-sync.md](./STATUS-preview-source-sync.md) | 定位 | 预览 ⇄ 源码双向联动实现摘要与验收状态 |
 | [STATUS-project-import.md](./STATUS-project-import.md) | 项目 | 把 `index.html + css/ + js/` 的文件夹整目录导入，预览前内联样式/脚本 |
 | [STATUS-tauri.md](./STATUS-tauri.md) | 桌面 | Tauri 2 桌面壳 MVP：开发联调与生产构建现状 |
