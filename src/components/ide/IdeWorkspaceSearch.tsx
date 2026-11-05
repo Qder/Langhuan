@@ -32,6 +32,22 @@ export function IdeWorkspaceSearch({
   open: boolean;
   onClose: () => void;
 }) {
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      labelledBy="ide-ws-search-title"
+      className="max-w-2xl p-0 overflow-hidden"
+    >
+      {/* 每次打开都挂一个新的搜索框：空关键词 / idle / 选中第一行就是 useState
+          的初始值，所以「打开即清空」不需要 effect 里 setState。收起来时整个
+          body 卸载，未跑完的扫描也跟着取消。 */}
+      {open && <WorkspaceSearchBody onClose={onClose} />}
+    </Dialog>
+  );
+}
+
+function WorkspaceSearchBody({ onClose }: { onClose: () => void }) {
   const session = useIdeStore((s) => s.session);
   const openFile = useIdeStore((s) => s.openFile);
   const setStatus = useIdeStore((s) => s.setStatus);
@@ -48,17 +64,14 @@ export function IdeWorkspaceSearch({
     cancelRef.current = null;
   }, []);
 
+  // 只做聚焦（DOM 副作用），不写任何 state：清空交给挂载时的初始值。
   React.useEffect(() => {
-    if (!open) return;
-    setQ("");
-    setPhase({ kind: "idle" });
-    setIdx(0);
     const t = window.setTimeout(() => inputRef.current?.focus(), 20);
     return () => {
       window.clearTimeout(t);
       cancelActive();
     };
-  }, [open, cancelActive]);
+  }, [cancelActive]);
 
   const run = React.useCallback(
     async (raw: string) => {
@@ -104,10 +117,9 @@ export function IdeWorkspaceSearch({
 
   // Debounced search as you type; Enter searches immediately.
   React.useEffect(() => {
-    if (!open) return;
     const t = window.setTimeout(() => void run(q), 320);
     return () => window.clearTimeout(t);
-  }, [q, open, run]);
+  }, [q, run]);
 
   const hits: WorkspaceSearchHit[] =
     phase.kind === "done" ? phase.result.hits : [];
@@ -139,12 +151,7 @@ export function IdeWorkspaceSearch({
   };
 
   return (
-    <Dialog
-      open={open}
-      onClose={onClose}
-      labelledBy="ide-ws-search-title"
-      className="max-w-2xl p-0 overflow-hidden"
-    >
+    <>
       <div className="flex items-center gap-2 px-3 py-2.5 border-b border-[var(--border)]">
         <Search className="h-4 w-4 text-[var(--muted)] shrink-0" />
         <input
@@ -240,6 +247,6 @@ export function IdeWorkspaceSearch({
           {phase.result.truncated && <span>已截断（结果较多）</span>}
         </div>
       )}
-    </Dialog>
+    </>
   );
 }

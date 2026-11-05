@@ -320,9 +320,10 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
   const pendingExplainRequest = useIdeStore((s) => s.pendingExplainRequest);
   const clearPendingExplainRequest = useIdeStore((s) => s.clearPendingExplainRequest);
 
-  const messages: IdeExplainMessage[] = session
-    ? explainBySession[session.id] || []
-    : [];
+  const messages: IdeExplainMessage[] = React.useMemo(
+    () => (session ? explainBySession[session.id] || [] : []),
+    [session, explainBySession]
+  );
 
   const [question, setQuestion] = React.useState("");
   const [includeFile, setIncludeFile] = React.useState(true);
@@ -343,6 +344,15 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
   const sendRef = React.useRef<
     (preset?: string, opts?: { includeFile?: boolean; includeSelection?: boolean }) => Promise<void>
   >(async () => {});
+  /** 已经发出的「讲解选区」请求 nonce，防止 effect 重跑时重复发送。 */
+  const handledRequestNonceRef = React.useRef<number | null>(null);
+  const aliveRef = React.useRef(true);
+  React.useEffect(() => {
+    aliveRef.current = true;
+    return () => {
+      aliveRef.current = false;
+    };
+  }, []);
 
   React.useEffect(() => {
     const el = listRef.current;
@@ -674,7 +684,11 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
     }
   };
 
-  sendRef.current = send;
+  // send 只属于事件/副作用：把 ref 赋值放进 effect，渲染期间不碰 ref
+  // （React Compiler: react-hooks/refs）。
+  React.useEffect(() => {
+    sendRef.current = send;
+  });
 
   /** B1 — the question that produced this answer is the previous user turn. */
   const captureExplain = React.useCallback(
@@ -751,18 +765,36 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
     );
   }, [activePath, selection, setStatus, tabs]);
 
+  // 右击「讲解选区」带进来的一次性请求：勾选项在渲染阶段按 nonce 对齐一次
+  // （React 推荐的「props 变化时调整 state」写法），发送本身仍是 effect 的活。
+  const [appliedRequestNonce, setAppliedRequestNonce] = React.useState<
+    number | null
+  >(null);
+  if (
+    pendingExplainRequest &&
+    pendingExplainRequest.nonce !== appliedRequestNonce
+  ) {
+    setAppliedRequestNonce(pendingExplainRequest.nonce);
+    setIncludeFile(pendingExplainRequest.includeFile);
+    setIncludeSelection(pendingExplainRequest.includeSelection);
+  }
+
   React.useEffect(() => {
-    if (!pendingExplainRequest) return;    const req = pendingExplainRequest;
+    const req = pendingExplainRequest;
+    if (!req || handledRequestNonceRef.current === req.nonce) return;
+    // 先记下 nonce：clearPendingExplainRequest() 会让这个 effect 再跑一次（req
+    // 变 null），没有这层记录就会重复发送。
+    handledRequestNonceRef.current = req.nonce;
     clearPendingExplainRequest();
-    setIncludeFile(req.includeFile);
-    setIncludeSelection(req.includeSelection);
-    const id = window.setTimeout(() => {
+    // 不能在这里返回 cleanup：store 更新会立刻重跑 effect 并清掉 timeout，
+    // 那次自动发送就没了。卸载保护改用 aliveRef 在回调里判断。
+    window.setTimeout(() => {
+      if (!aliveRef.current) return;
       void sendRef.current(req.question, {
         includeFile: req.includeFile,
         includeSelection: req.includeSelection,
       });
     }, 0);
-    return () => window.clearTimeout(id);
   }, [pendingExplainRequest, clearPendingExplainRequest]);
 
   const panel = (
