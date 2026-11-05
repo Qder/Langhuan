@@ -1,6 +1,6 @@
 # Tauri 2 Android APK（debug + 可分发 release）
 
-上次更新：2026-11-05 · 读码可「导入工程 zip」进 IndexedDB 沙箱（安卓不再只能看桌面提示）
+上次更新：2026-11-05 · 读码「导入工程 zip」+ 藏书阁「导入笔记 zip」（安卓不能选文件夹）
 
 ## 一句话现状
 
@@ -8,7 +8,8 @@
 - **Windows `npm run tauri:build`**：可安装桌面壳，见 [STATUS-tauri.md](./STATUS-tauri.md)。
 - **Android**：`src-tauri/gen/android` 已 init（`applicationId` `com.qder.langhuan`）。打开就是琅嬛壳（藏书阁 + 读码），库落在应用私有目录，首次 hydrate 会 seed 示例 md。
 - **分发**：`npm run android:apk:release` 打 **release + strip `.so` + 本机 keystore 签名**。不要走 Play 商店；**没有应用内自动更新**（Windows updater 不复用到 APK）。
-- **读码（安卓）**：系统不能整目录授权 → 欢迎页主按钮是 **「导入工程 zip」**（解压进应用 IndexedDB 沙箱，不写 `content/`）。桌面仍「打开文件夹」。杀进程后可从「最近工程」恢复沙箱工程（最多 6 个）。
+- **藏书阁导入（安卓）**：不能选整文件夹 → 侧栏 / 首页用 **「导入笔记 zip」**（解压后进库 `content/`，可再选目标子目录）。「导入文件夹 / 打开本地文件夹」会诚实提示并改走 zip。
+- **读码（安卓）**：系统不能整目录授权 → 欢迎页主按钮是 **「导入工程 zip」**（解压进应用 IndexedDB 沙箱，**不写** `content/`）。桌面仍「打开文件夹」。杀进程后可从「最近工程」恢复沙箱工程（最多 6 个）。
 - **未做**：Play 上架、in-app 下载安装、原生选目录、终端、LSP、Cloud Agent。换包 = 升 `versionCode` 后侧载覆盖安装。
 
 ## 本机前置（Windows 优先）
@@ -179,7 +180,7 @@ AVD：`Medium_Phone_API_37.0`，另用 `1536×2048 @ 320dpi`（约 768×1024 d
 
 ### 本回合 P0（模拟器复现，代码已改）
 
-1. **点「打开文件夹」杀进程**。Android WebView 上 `typeof showDirectoryPicker === "function"`，调用却进 `RustWebChromeClient.showFilePicker`，`intent.type` 为 null 时 `intent.type!!` NPE。处理：`src/lib/platform.ts` 的 `directoryPickerSupported` 对 Android UA 一律 false；藏书阁退回 `<input webkitdirectory>`；读码顶栏不再假开文件夹；现已改为「导入 zip」（见上节）。
+1. **点「打开文件夹」杀进程**。Android WebView 上 `typeof showDirectoryPicker === "function"`，调用却进 `RustWebChromeClient.showFilePicker`，`intent.type` 为 null 时 `intent.type!!` NPE。处理：`directoryPickerSupported` / `folderDirectoryImportSupported` 对 Android UA 一律 false；藏书阁与读码均改为 **导入 zip**（见上两节），不再依赖 webkitdirectory。
 2. **系统返回 SIGSEGV**。`TauriActivity.handleBackNavigation = false`，back 会 `finish()`，wry 拆 WebView 时 `pthread_mutex_lock` 打在已销毁 mutex 上。处理：`MainActivity` 用 `OnBackPressedCallback` → `moveTaskToBack(true)`。真退出走最近任务划掉。
 
 P0 代码 tip：**`f0d3d3a`**（`fix(android): keep the note shell from dying on folder pick or back`）。未做：缩 APK、updater、商店签名。
@@ -209,7 +210,7 @@ P0 代码 tip：**`f0d3d3a`**（`fix(android): keep the note shell from dying on
 | 本地库读写 | Next API → 仓库 `content/` | Rust → 便携/`app_data` | Rust → **应用私有目录** |
 | 首次 seed 示例 md | 有 | 有 | 有 |
 | HTML 项目导入 / CSS·JS 索引 | **唯一支持** | 明确不支持 | **同样不支持**（`desktopProjectsUnsupported`） |
-| 系统文件夹选择 / 双向同步 | File System Access | 不支持 | **不支持整目录**（WebView `showDirectoryPicker` 会 NPE；已按 UA 关掉） |
+| 系统文件夹选择 / 双向同步 | File System Access | 不支持 | **不支持整目录**（FSA NPE；webkitdirectory 也选不了）→ **笔记 zip / 工程 zip** |
 | 读码打开工程 | 选文件夹（FSA）或导入 zip | 选文件夹（FSA） | **导入 zip → IndexedDB 沙箱**（`sandbox:` 会话）；最近工程可恢复 |
 | 读码讲解 | Next `/api/ide/explain`，可读 `.env.local` | Rust `ide_explain`，只用设置里的 Key | 同桌面：Rust 管道；没填 Key 是本地示例 |
 | 自动更新 | 无 | Windows：设置里检查更新（见 [STATUS-updater.md](./STATUS-updater.md)） | **仅文档 / 未验**（设置只说明侧载重装，无 in-app 下载；Play 未验） |
@@ -233,6 +234,26 @@ P0 代码 tip：**`f0d3d3a`**（`fix(android): keep the note shell from dying on
 实现：`src/lib/ide/sandboxFs.ts`、`ideFs.ts`（backend 分支）、`store.importZipProject`、`IdeImportZipButton` / `IdeWelcome`。
 
 Yang 验收：本机 `npm run android:apk:release` → 装平板 → 读码 → 导入小工程 zip → 树可见 → 打开 `.java`/`.md` → 杀进程再开「最近工程」。
+
+
+## 藏书阁：安卓导入笔记 zip
+
+**路线**：与读码相同「先压缩再导入」，但产物进**笔记库**（`content/` / 应用私有库），不是 IndexedDB 工程沙箱。
+
+| 项 | 说明 |
+| --- | --- |
+| 入口 | 首页「导入笔记 zip」；侧栏 **导入 ▾ → 导入笔记 zip**（桌面也可） |
+| 安卓上的「导入文件夹」 | 会提示无法选文件夹，并打开 zip 选择器 |
+| 格式 | `.md` / `.html` / `.txt`(→`.md`) / `.svg` + 常见图片；保留 zip 内相对路径 |
+| 确认 | 仍走「导入到…」对话框，可选库根或子文件夹 |
+| 忽略 | `__MACOSX`、`node_modules`、`.git`、`.DS_Store` 等 |
+| 上限 | ≤2000 文件、单文件 ≤8MB、合计 ≤64MB |
+| 不写 | 不会把读码工程源码塞进库；工程请用读码「导入工程 zip」 |
+| 未做 | 原生 SAF 选目录；含 css/js 的「项目文件夹」导入在安卓仍请用桌面浏览器 |
+
+实现：`src/lib/importLibraryZip.ts`、`Sidebar` / `HomeView`。
+
+验收：把笔记目录打成 zip → 平板选 zip → 树里出现 md → 打开可读。真机未连则标未验。
 
 ## 已知限制
 

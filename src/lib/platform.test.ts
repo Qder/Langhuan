@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   directoryPickerSupported,
+  folderDirectoryImportSupported,
   isAndroidUserAgent,
 } from "./platform";
 
@@ -50,3 +51,23 @@ describe("isAndroidUserAgent", () => {
     expect(isAndroidUserAgent(undefined)).toBe(false);
   });
 });
+
+describe("folderDirectoryImportSupported", () => {
+  it("is false on Android (use zip instead)", () => {
+    expect(
+      folderDirectoryImportSupported({
+        userAgent:
+          "Mozilla/5.0 (Linux; Android 17; wv) AppleWebKit/537.36 Chrome/141.0 Mobile Safari/537.36",
+      })
+    ).toBe(false);
+  });
+
+  it("is true on desktop UA", () => {
+    expect(
+      folderDirectoryImportSupported({
+        userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/141.0",
+      })
+    ).toBe(true);
+  });
+});
+

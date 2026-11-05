@@ -50,3 +50,15 @@ export function directoryPickerSupported(input: {
   if (!input.hasShowDirectoryPicker) return false;
   return !isAndroidUserAgent(input.userAgent);
 }
+
+/**
+ * 能不能用「选整目录」导入笔记（FSA 或 webkitdirectory）。
+ * 安卓两者都不可靠：FSA 会 NPE；webkitdirectory 系统选择器选不了文件夹。
+ * 安卓请走「导入笔记 zip」。
+ */
+export function folderDirectoryImportSupported(input: {
+  userAgent?: string | null;
+}): boolean {
+  return !isAndroidUserAgent(input.userAgent);
+}
+

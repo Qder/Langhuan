@@ -66,6 +66,7 @@ import { isProjectTextPath, type ProjectPickedFile } from "@/lib/importProject";
 import { isIdeNoteRootFolder } from "@/lib/ide/captureNote";
 import { blobToBase64 } from "@/lib/storage/contentApi";
 import { isAndroidWebView } from "@/lib/platform";
+import { parseLibraryNotesZip } from "@/lib/importLibraryZip";
 
 type TreeNode = FolderTreeNode;
 
@@ -467,6 +468,7 @@ export function Sidebar() {
   const htmlSidebarPeek = useStore((s) => s.htmlSidebarPeek);
   const setHtmlSidebarPeek = useStore((s) => s.setHtmlSidebarPeek);
   const folderRef = React.useRef<HTMLInputElement>(null);
+  const zipNotesRef = React.useRef<HTMLInputElement>(null);
   const projectRef = React.useRef<HTMLInputElement>(null);
   const fileRef = React.useRef<HTMLInputElement>(null);
   const scrollRef = React.useRef<HTMLDivElement>(null);
@@ -846,6 +848,40 @@ export function Sidebar() {
     if (files.length || assets.length) setPendingImport({ docs: files, assets });
   };
 
+  /** Android-friendly: zip of a notes folder → ImportFolderDialog → content/. */
+  const handleLibraryNotesZip = async (file: File) => {
+    setStatus("正在解压笔记 zip…");
+    const res = await parseLibraryNotesZip(file);
+    if (!res.ok) {
+      setStatus(res.error);
+      return;
+    }
+    setPendingImport({ docs: res.docs, assets: res.assets });
+    const bits: string[] = [];
+    if (res.truncated) bits.push("已截断超大包");
+    if (res.skipped) bits.push(`跳过 ${res.skipped} 个`);
+    if (bits.length) setStatus(bits.join(" · "));
+  };
+
+  const onPickLibraryNotesZip = () => zipNotesRef.current?.click();
+
+  const onPickFolderImport = () => {
+    if (isAndroidWebView()) {
+      setStatus("平板无法选择整文件夹，请先压缩成 zip，再用「导入笔记 zip」");
+      onPickLibraryNotesZip();
+      return;
+    }
+    folderRef.current?.click();
+  };
+
+  const onPickProjectFolder = () => {
+    if (isAndroidWebView()) {
+      setStatus("平板暂不支持导入含 css/js 的项目文件夹（请用桌面浏览器）");
+      return;
+    }
+    projectRef.current?.click();
+  };
+
   /**
    * 整目录导入：css/js/图片也一起带走，保留相对路径，入口页在预览时内联加载。
    * 与「导入文件夹」的区别：这里不做文档拆分，多出来的文件不会被丢掉。
@@ -877,9 +913,13 @@ export function Sidebar() {
     const w = window as Window & {
       showDirectoryPicker?: () => Promise<FileSystemDirectoryHandle>;
     };
-    // Android WebView 也有 showDirectoryPicker，但调用会让 Tauri 的文件选择器 NPE。
-    // 走 <input webkitdirectory>：系统文件选择器能选整个目录。
-    if (!w.showDirectoryPicker || isAndroidWebView()) {
+    // Android：FSA 会 NPE；webkitdirectory 也选不了文件夹 → 走笔记 zip。
+    if (isAndroidWebView()) {
+      setStatus("平板无法打开本地文件夹，请用「导入笔记 zip」");
+      onPickLibraryNotesZip();
+      return;
+    }
+    if (!w.showDirectoryPicker) {
       folderRef.current?.click();
       return;
     }
@@ -1085,10 +1125,13 @@ export function Sidebar() {
               </Button>
             }
           >
-            <DropdownItem onClick={() => folderRef.current?.click()}>
+            <DropdownItem onClick={onPickLibraryNotesZip}>
+              <Archive className="h-3.5 w-3.5" /> 导入笔记 zip
+            </DropdownItem>
+            <DropdownItem onClick={onPickFolderImport}>
               <Upload className="h-3.5 w-3.5" /> 导入文件夹
             </DropdownItem>
-            <DropdownItem onClick={() => projectRef.current?.click()}>
+            <DropdownItem onClick={onPickProjectFolder}>
               <Boxes className="h-3.5 w-3.5" /> 导入项目文件夹（含 css/js）
             </DropdownItem>
             <DropdownItem onClick={() => fileRef.current?.click()}>
@@ -1131,6 +1174,17 @@ export function Sidebar() {
           accept={IMPORTABLE_ACCEPT}
           onChange={(e) => {
             if (e.target.files) void handleImportList(e.target.files, false);
+            e.target.value = "";
+          }}
+        />
+        <input
+          ref={zipNotesRef}
+          type="file"
+          className="hidden"
+          accept=".zip,application/zip,application/x-zip-compressed"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) void handleLibraryNotesZip(f);
             e.target.value = "";
           }}
         />

@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { BookOpenCheck, FileCode2, FilePlus2, FolderInput, Globe, Search, Star } from "lucide-react";
+import { Archive, BookOpenCheck, FileCode2, FilePlus2, FolderInput, Globe, Search, Star } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { collectTagCounts, getTags } from "@/lib/tags";
 import { countAllBacklinks } from "@/lib/search";
@@ -25,6 +25,8 @@ import {
   isImportableLibraryPath,
   mimeForImportableImage,
 } from "@/lib/importable";
+import { parseLibraryNotesZip } from "@/lib/importLibraryZip";
+import { isAndroidWebView } from "@/lib/platform";
 
 export function HomeView() {
   const documents = useStore((s) => s.documents);
@@ -39,6 +41,8 @@ export function HomeView() {
   const setSidebarPanel = useStore((s) => s.setSidebarPanel);
   const resetSeed = useStore((s) => s.resetSeed);
   const folderRef = React.useRef<HTMLInputElement>(null);
+  const zipNotesRef = React.useRef<HTMLInputElement>(null);
+  const android = typeof navigator !== "undefined" && isAndroidWebView();
   const [pendingImport, setPendingImport] = React.useState<{
     docs: PendingImportDoc[];
     assets: PendingImportAsset[];
@@ -76,7 +80,19 @@ export function HomeView() {
     { title: "新建页面", desc: "收藏 HTML", icon: Globe, onClick: () => openCreateDocDialog({ type: "html" }) },
     { title: "粘贴源码", desc: "快速收入片段", icon: FileCode2, onClick: onPaste },
     { title: "网页剪藏", desc: "剪贴板 → Markdown", icon: Globe, onClick: () => void onClipperMd() },
-    { title: "导入文件夹", desc: "保留目录结构", icon: FolderInput, onClick: () => folderRef.current?.click() },
+    android
+      ? {
+          title: "导入笔记 zip",
+          desc: "平板请压缩文件夹后再导入",
+          icon: Archive,
+          onClick: () => zipNotesRef.current?.click(),
+        }
+      : {
+          title: "导入文件夹",
+          desc: "保留目录结构",
+          icon: FolderInput,
+          onClick: () => folderRef.current?.click(),
+        },
     ...(quizBadge > 0
       ? [
           {
@@ -161,6 +177,30 @@ export function HomeView() {
             }
             if (files.length || assets.length) setPendingImport({ docs: files, assets });
             e.target.value = "";
+          }}
+        />
+        <input
+          ref={zipNotesRef}
+          type="file"
+          className="hidden"
+          accept=".zip,application/zip,application/x-zip-compressed"
+          onChange={async (e) => {
+            const file = e.target.files?.[0];
+            e.target.value = "";
+            if (!file) return;
+            setStatus("正在解压笔记 zip…");
+            const res = await parseLibraryNotesZip(file);
+            if (!res.ok) {
+              setStatus(res.error);
+              return;
+            }
+            setPendingImport({ docs: res.docs, assets: res.assets });
+            if (res.truncated || res.skipped) {
+              const bits: string[] = [];
+              if (res.truncated) bits.push("已截断超大包");
+              if (res.skipped) bits.push(`跳过 ${res.skipped} 个`);
+              setStatus(bits.join(" · "));
+            }
           }}
         />
 
