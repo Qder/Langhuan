@@ -21,6 +21,7 @@ const composerSrc = read("explain/ExplainComposer.tsx");
 const listSrc = read("explain/ExplainMessageList.tsx");
 const captureBarSrc = read("explain/ExplainCaptureBar.tsx");
 const jumpSrc = read("explain/useExplainJump.ts");
+const headerSrc = read("explain/ExplainHeader.tsx");
 const explorerSrc = read("IdeExplorer.tsx");
 
 describe("讲解面板：编排层够瘦", () => {
@@ -84,7 +85,7 @@ describe("讲解面板：输入区 Enter 发送", () => {
   it("走 composerKeys，不把裸 Enter 绑成只认 Ctrl/⌘", () => {
     expect(composerSrc).toContain("shouldSendOnExplainComposerKey");
     expect(composerSrc).toContain("Enter 发送 · Shift+Enter 换行");
-    expect(composerSrc).toContain("追问会带上本会话近期对话");
+    expect(composerSrc).toContain("追问会带上当前对话");
     expect(composerSrc).not.toMatch(
       /if \(e\.key === "Enter" && \(e\.metaKey \|\| e\.ctrlKey\)\)/
     );
@@ -117,6 +118,24 @@ describe("讲解面板：流式中可跳转、不无条件滚底", () => {
     expect(explorerSrc).not.toMatch(/\bbusy\b/);
     expect(listSrc).toContain("onCite");
     expect(sendSrc).toContain("getFlusher().schedule");
+  });
+});
+
+describe("讲解面板：同工程多 thread", () => {
+  it("Header 有历史、新对话，清空只针对当前对话", () => {
+    expect(headerSrc).toContain('aria-label="历史"');
+    expect(headerSrc).toContain('aria-label="新对话"');
+    expect(headerSrc).toContain('aria-label="清空当前对话"');
+    expect(headerSrc).toContain("startExplainThread");
+    expect(headerSrc).toContain("switchExplainThread");
+    expect(headerSrc).not.toMatch(/aria-label="清空"/);
+  });
+
+  it("发送 prior 仍来自当前 session 的活动 thread 消息", () => {
+    expect(sendSrc).toContain("explainBySession[session.id]");
+    expect(sendSrc.indexOf("selectExplainPriorMessages")).toBeLessThan(
+      sendSrc.indexOf("pushExplainMessage")
+    );
   });
 });
 

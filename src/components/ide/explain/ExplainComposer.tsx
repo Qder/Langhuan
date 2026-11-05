@@ -149,7 +149,7 @@ export function ExplainComposer({
       </div>
       {hasSession && !emptyHistory ? (
         <p className="px-1 text-[11px] font-ui text-[var(--muted)]">
-          追问会带上本会话近期对话（不清空就不会当全新提问）
+          追问会带上当前对话；「新对话」或「清空当前对话」才是全新提问
         </p>
       ) : null}
       {selectionRange && (

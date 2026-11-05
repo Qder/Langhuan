@@ -31,6 +31,8 @@ describe("migrateIdePersistedState", () => {
     expect(out.explorerOpen).toBe(false);
     expect(out.explainOpen).toBe(false);
     expect(out.explainBySession).toEqual({});
+    expect(out.explainThreadsBySession).toEqual({});
+    expect(out.explainActiveThreadIdBySession).toEqual({});
     expect(out.recentFiles).toEqual([]);
     expect(out.explainSettings).toEqual({
       apiKey: "",
@@ -65,6 +67,13 @@ describe("migrateIdePersistedState", () => {
     );
     expect(out.explainOpen).toBe(true);
     expect(out.explainBySession.sid?.[0]?.content).toBe("讲一下");
+    expect(out.explainThreadsBySession.sid).toHaveLength(1);
+    expect(out.explainThreadsBySession.sid?.[0]?.messages[0]?.content).toBe(
+      "讲一下"
+    );
+    expect(out.explainActiveThreadIdBySession.sid).toBe(
+      out.explainThreadsBySession.sid?.[0]?.id
+    );
     expect(out.explainSettings.apiKey).toBe("sk-test");
     expect(out.explainSettings.baseUrl).toContain("11434");
     expect(out.explainSettings.model).toBe("local");
@@ -95,6 +104,7 @@ describe("migrateIdePersistedState", () => {
       model: "",
     });
     expect(messy.explainBySession).toEqual({});
+    expect(messy.explainThreadsBySession).toEqual({});
   });
 
   it("keeps explain file snapshots used for fence locate", () => {    const out = migrateIdePersistedState(
@@ -126,6 +136,45 @@ describe("migrateIdePersistedState", () => {
     expect(out.explainBySession.sid?.[0]?.files).toEqual([
       { path: "src/A.java", content: "class A {}", startLine: 1 },
     ]);
+    expect(out.explainThreadsBySession.sid?.[0]?.messages[0]?.files).toEqual([
+      { path: "src/A.java", content: "class A {}", startLine: 1 },
+    ]);
+  });
+
+  it("v6 keeps multiple threads and does not flatten them", () => {
+    const out = migrateIdePersistedState(
+      {
+        recent: [],
+        explainThreadsBySession: {
+          sid: [
+            {
+              id: "t1",
+              title: "第一段",
+              updatedAt: 1,
+              messages: [
+                { id: "u1", role: "user", content: "第一段", createdAt: 1 },
+              ],
+            },
+            {
+              id: "t2",
+              title: "第二段",
+              updatedAt: 2,
+              messages: [
+                { id: "u2", role: "user", content: "第二段", createdAt: 2 },
+              ],
+            },
+          ],
+        },
+        explainActiveThreadIdBySession: { sid: "t2" },
+      },
+      5
+    );
+    expect(out.explainThreadsBySession.sid?.map((t) => t.id)).toEqual([
+      "t1",
+      "t2",
+    ]);
+    expect(out.explainActiveThreadIdBySession.sid).toBe("t2");
+    expect(out.explainBySession.sid?.[0]?.content).toBe("第二段");
   });
 
   it("keeps v3 recent files and drops garbage / duplicates", () => {    const out = migrateIdePersistedState(

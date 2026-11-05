@@ -27,7 +27,6 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
   const activePath = useIdeStore((s) => s.activePath);
   const selection = useIdeStore((s) => s.selection);
   const explainBySession = useIdeStore((s) => s.explainBySession);
-  const clearExplainHistory = useIdeStore((s) => s.clearExplainHistory);
 
   const messages: IdeExplainMessage[] = React.useMemo(
     () => (session ? explainBySession[session.id] || [] : []),
@@ -74,7 +73,7 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
       <ExplainHeader
         isMock={stream.isMock}
         onToggleSettings={() => setShowSettings((v) => !v)}
-        onClear={() => clearExplainHistory()}
+        onStop={stream.stop}
         onClose={onClose}
       />
       {showSettings && <ExplainDesktopHint />}

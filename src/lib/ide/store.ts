@@ -42,13 +42,23 @@ import {
   type IdeRecentFile,
 } from "./recentFiles";
 import {
-  appendExplainMessage,
-  citationsFromMarkdown,
-  IDE_EXPLAIN_HISTORY_MAX,
   planExplainSelectionRequest,
   type IdeExplainMessage,
   type IdeExplainSelection,
 } from "./explain";
+import {
+  applyClearActiveExplainThread,
+  applyPushExplainMessage,
+  applyStartExplainThread,
+  applySwitchExplainThread,
+  applyUpdateLastAssistant,
+  ensureActiveExplainThread,
+  messagesOfActiveExplainThread,
+  needsExplainThreadBackfill,
+  seedExplainThreads,
+  threadsFromExplainBySession,
+  type IdeExplainThread,
+} from "./explainThreads";
 import {
   IDE_STORE_PERSIST_VERSION,
   migrateIdePersistedState,
@@ -115,8 +125,10 @@ type IdeState = {
    */
   pendingIdeLink: IdeLinkTarget | null;
   explainOpen: boolean;
-  /** Explain chat keyed by project session.id */
+  /** Active thread messages keyed by project session.id (mirrors threads). */
   explainBySession: Record<string, IdeExplainMessage[]>;
+  explainThreadsBySession: Record<string, IdeExplainThread[]>;
+  explainActiveThreadIdBySession: Record<string, string>;
   explainSettings: IdeExplainSettings;
   /** One-shot: open panel + auto-send (e.g. right-click 讲解选区). */
   pendingExplainRequest: {
@@ -173,6 +185,10 @@ type IdeState = {
    */
   reconcilePanels: () => void;
   clearExplainHistory: () => void;
+  startExplainThread: () => void;
+  switchExplainThread: (threadId: string) => void;
+  /** Rehydrate / 打开工程: lift legacy single-list messages into threads if missing. */
+  backfillExplainThreads: () => void;
   pushExplainMessage: (msg: IdeExplainMessage) => void;
   updateLastAssistant: (content: string, extra?: { mock?: boolean }) => void;
   setExplainSettings: (patch: Partial<IdeExplainSettings>) => void;
@@ -215,6 +231,45 @@ function rememberSession(
   });
   // 换工程算一次「打开」：持久化里的双开状态在这里收一次，别留给渲染阶段。
   get().reconcilePanels();
+  // v5 遗留：只有消息、还没有 thread 的工程，打开时补一条，别让「历史」是空的。
+  get().backfillExplainThreads();
+}
+
+/** A v5 blob (or HMR state) can have messages but no threads yet. */
+function threadsForSession(
+  s: Pick<IdeState, "explainThreadsBySession" | "explainBySession">,
+  sessionId: string
+): IdeExplainThread[] {
+  return seedExplainThreads(
+    s.explainThreadsBySession[sessionId] || [],
+    s.explainBySession[sessionId] || []
+  );
+}
+
+function writeExplainPack(
+  s: Pick<
+    IdeState,
+    | "explainThreadsBySession"
+    | "explainActiveThreadIdBySession"
+    | "explainBySession"
+  >,
+  sessionId: string,
+  pack: { threads: IdeExplainThread[]; activeId: string }
+) {
+  return {
+    explainThreadsBySession: {
+      ...s.explainThreadsBySession,
+      [sessionId]: pack.threads,
+    },
+    explainActiveThreadIdBySession: {
+      ...s.explainActiveThreadIdBySession,
+      [sessionId]: pack.activeId,
+    },
+    explainBySession: {
+      ...s.explainBySession,
+      [sessionId]: messagesOfActiveExplainThread(pack.threads, pack.activeId),
+    },
+  };
 }
 
 export const useIdeStore = create<IdeState>()(
@@ -238,6 +293,8 @@ export const useIdeStore = create<IdeState>()(
       pendingIdeLink: null,
       explainOpen: false,
       explainBySession: {},
+      explainThreadsBySession: {},
+      explainActiveThreadIdBySession: {},
       explainSettings: {
         apiKey: "",
         baseUrl: "",
@@ -293,47 +350,109 @@ export const useIdeStore = create<IdeState>()(
       clearExplainHistory: () => {
         const id = get().session?.id;
         if (!id) return;
-        set((s) => {
-          const next = { ...s.explainBySession };
-          delete next[id];
-          return { explainBySession: next };
+        set((s) =>
+          writeExplainPack(
+            s,
+            id,
+            applyClearActiveExplainThread(
+              threadsForSession(s, id),
+              s.explainActiveThreadIdBySession[id]
+            )
+          )
+        );
+      },
+
+      startExplainThread: () => {
+        const id = get().session?.id;
+        if (!id) return;
+        set((s) =>
+          writeExplainPack(
+            s,
+            id,
+            applyStartExplainThread(
+              threadsForSession(s, id),
+              s.explainActiveThreadIdBySession[id]
+            )
+          )
+        );
+      },
+
+      switchExplainThread: (threadId) => {
+        const id = get().session?.id;
+        if (!id) return;
+        set((s) =>
+          writeExplainPack(
+            s,
+            id,
+            applySwitchExplainThread(
+              threadsForSession(s, id),
+              s.explainActiveThreadIdBySession[id],
+              threadId
+            )
+          )
+        );
+      },
+
+      backfillExplainThreads: () => {
+        const s = get();
+        if (
+          !needsExplainThreadBackfill(
+            s.explainBySession,
+            s.explainThreadsBySession
+          )
+        ) {
+          return;
+        }
+        set((prev) => {
+          const threads = threadsFromExplainBySession(
+            prev.explainBySession,
+            prev.explainThreadsBySession
+          );
+          const active = { ...prev.explainActiveThreadIdBySession };
+          for (const sid of Object.keys(threads)) {
+            active[sid] = ensureActiveExplainThread(
+              threads[sid] || [],
+              active[sid]
+            ).activeId;
+          }
+          return {
+            explainThreadsBySession: threads,
+            explainActiveThreadIdBySession: active,
+          };
         });
       },
 
       pushExplainMessage: (msg) => {
         const id = get().session?.id;
         if (!id) return;
-        set((s) => {
-          const prev = s.explainBySession[id] || [];
-          return {
-            explainBySession: {
-              ...s.explainBySession,
-              [id]: appendExplainMessage(prev, msg, IDE_EXPLAIN_HISTORY_MAX),
-            },
-          };
-        });
+        set((s) =>
+          writeExplainPack(
+            s,
+            id,
+            applyPushExplainMessage(
+              threadsForSession(s, id),
+              s.explainActiveThreadIdBySession[id],
+              msg
+            )
+          )
+        );
       },
 
       updateLastAssistant: (content, extra) => {
         const id = get().session?.id;
         if (!id) return;
-        set((s) => {
-          const prev = [...(s.explainBySession[id] || [])];
-          for (let i = prev.length - 1; i >= 0; i--) {
-            if (prev[i]!.role === "assistant") {
-              prev[i] = {
-                ...prev[i]!,
-                content,
-                citations: citationsFromMarkdown(content),
-                mock: extra?.mock ?? prev[i]!.mock,
-              };
-              break;
-            }
-          }
-          return {
-            explainBySession: { ...s.explainBySession, [id]: prev },
-          };
-        });
+        set((s) =>
+          writeExplainPack(
+            s,
+            id,
+            applyUpdateLastAssistant(
+              threadsForSession(s, id),
+              s.explainActiveThreadIdBySession[id],
+              content,
+              extra
+            )
+          )
+        );
       },
 
       openFolder: async () => {
@@ -803,6 +922,8 @@ export const useIdeStore = create<IdeState>()(
         outlineOpen: s.outlineOpen,
         explainOpen: s.explainOpen,
         explainBySession: s.explainBySession,
+        explainThreadsBySession: s.explainThreadsBySession,
+        explainActiveThreadIdBySession: s.explainActiveThreadIdBySession,
         explainSettings: {
           // Persist key in IDE store only (local tool); never mirror into notes store.
           apiKey: s.explainSettings.apiKey,
@@ -819,6 +940,9 @@ export const useIdeStore = create<IdeState>()(
       // 在这里按当前宽度纠正一次；不放在 effect 里跟着两个布尔值反复跑。
       onRehydrateStorage: () => (state) => {
         state?.reconcilePanels();
+        // 旧 blob / 热更写回的 v6 可能只有 explainBySession 没有 threads：
+        // 恢复时补一次线程，否则「历史」抽屉会空、点「新对话」还会丢旧消息。
+        state?.backfillExplainThreads();
       },
     }
   )
