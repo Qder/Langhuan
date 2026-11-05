@@ -4,6 +4,7 @@ import { Send, Square } from "lucide-react";
 import { Button } from "../../ui/button";
 import { cn } from "@/lib/utils";
 import { ExplainSnippetCapture } from "./ExplainCaptureBar";
+import { shouldSendOnExplainComposerKey } from "./composerKeys";
 import type { SendExplain } from "./types";
 
 /** B5 — three chips; each fires an explain request with the current context. */
@@ -49,7 +50,15 @@ export function ExplainComposer({
   onCaptureSelection: () => void;
 }) {
   return (
-    <div className="shrink-0 border-t border-[var(--chrome-border)] p-2 space-y-1.5">
+    <div
+      className={cn(
+        "shrink-0 p-2 space-y-1.5",
+        // 消息列表底边：浅色主题 --chrome-border 太淡，加粗顶边 + 一点上阴影 + 底色差
+        "border-t-2 border-[color-mix(in_srgb,var(--fg)_28%,var(--chrome-border))]",
+        "bg-[color-mix(in_srgb,var(--fg)_5%,var(--chrome))]",
+        "shadow-[0_-8px_16px_-10px_color-mix(in_srgb,var(--fg)_35%,transparent)]"
+      )}
+    >
       {hasSession && emptyHistory && !busy && (
         <div className="flex flex-wrap gap-1.5 px-1">
           {EXPLAIN_PRESETS.map((preset) => (
@@ -97,15 +106,17 @@ export function ExplainComposer({
             "flex-1 min-h-[64px] max-h-32 rounded-xl border border-[var(--border)] bg-[var(--card)]",
             "px-2.5 py-2 text-sm font-ui resize-y focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/35"
           )}
-          placeholder={hasSession ? "问这个文件 / 选区…" : "先打开文件夹"}
+          placeholder={
+            hasSession ? "问这个文件 / 选区…（Enter 发送 · Shift+Enter 换行）" : "先打开文件夹"
+          }
           value={question}
           disabled={!hasSession || busy}
           onChange={(e) => onQuestion(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-              e.preventDefault();
-              void onSend();
-            }
+            if (!shouldSendOnExplainComposerKey(e)) return;
+            e.preventDefault();
+            if (busy || !question.trim()) return;
+            void onSend();
           }}
         />
         {busy ? (

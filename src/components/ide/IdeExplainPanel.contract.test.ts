@@ -17,6 +17,7 @@ const panel = read("IdeExplainPanel.tsx");
 const sendSrc = read("explain/useExplainSend.ts");
 const pendingSrc = read("explain/usePendingExplain.ts");
 const hintSrc = read("explain/ExplainDesktopHint.tsx");
+const composerSrc = read("explain/ExplainComposer.tsx");
 
 describe("讲解面板：编排层够瘦", () => {
   it("主文件只编排，不内联 markdown / 流式 / pending", () => {
@@ -71,6 +72,27 @@ describe("讲解面板：React Compiler 规则", () => {
     expect(pendingSrc).toMatch(/setIncludeFile\(pendingExplainRequest\.includeFile\)/);
     expect(pendingSrc).toMatch(
       /setIncludeSelection\(pendingExplainRequest\.includeSelection\)/
+    );
+  });
+});
+
+describe("讲解面板：输入区 Enter 发送", () => {
+  it("走 composerKeys，不把裸 Enter 绑成只认 Ctrl/⌘", () => {
+    expect(composerSrc).toContain("shouldSendOnExplainComposerKey");
+    expect(composerSrc).toContain("Enter 发送 · Shift+Enter 换行");
+    expect(composerSrc).not.toMatch(
+      /if \(e\.key === "Enter" && \(e\.metaKey \|\| e\.ctrlKey\)\)/
+    );
+  });
+
+  it("busy 或空内容时不调用 onSend", () => {
+    expect(composerSrc).toMatch(/if \(busy \|\| !question\.trim\(\)\) return;/);
+  });
+
+  it("消息列表与 composer 有比 1px chrome-border 更明显的顶边", () => {
+    expect(composerSrc).toContain("border-t-2");
+    expect(composerSrc).not.toMatch(
+      /className="shrink-0 border-t border-\[var\(--chrome-border\)\]/
     );
   });
 });

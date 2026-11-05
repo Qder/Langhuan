@@ -1,0 +1,127 @@
+// @vitest-environment jsdom
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as React from "react";
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { ExplainComposer } from "./ExplainComposer";
+import type { SendExplain } from "./types";
+
+beforeEach(() => {
+  (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
+    true;
+});
+
+function mount(onSend: SendExplain, extra: Partial<React.ComponentProps<typeof ExplainComposer>> = {}) {
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  act(() => {
+    root.render(
+      <ExplainComposer
+        hasSession
+        emptyHistory={false}
+        busy={false}
+        question="讲一下"
+        includeFile
+        includeSelection={false}
+        includeNearby={false}
+        selectionActive={false}
+        selectionRange={null}
+        onQuestion={() => {}}
+        onIncludeFile={() => {}}
+        onIncludeSelection={() => {}}
+        onIncludeNearby={() => {}}
+        onSend={onSend}
+        onStop={() => {}}
+        onCaptureSelection={() => {}}
+        {...extra}
+      />
+    );
+  });
+  const ta = host.querySelector("textarea");
+  if (!ta) throw new Error("no textarea");
+  return { host, root, ta };
+}
+
+function unmount(root: Root, host: HTMLElement) {
+  act(() => root.unmount());
+  host.remove();
+}
+
+function keydown(ta: HTMLTextAreaElement, init: KeyboardEventInit & { isComposing?: boolean; keyCode?: number }) {
+  const { isComposing, keyCode, ...rest } = init;
+  const ev = new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...rest });
+  if (isComposing) {
+    Object.defineProperty(ev, "isComposing", { get: () => true });
+  }
+  if (keyCode != null) {
+    Object.defineProperty(ev, "keyCode", { get: () => keyCode });
+  }
+  ta.dispatchEvent(ev);
+  return ev;
+}
+
+describe("ExplainComposer 键盘", () => {
+  let root: Root;
+  let host: HTMLElement;
+
+  afterEach(() => {
+    if (root && host) unmount(root, host);
+  });
+
+  it("Enter 发送", () => {
+    const onSend = vi.fn<SendExplain>();
+    ({ host, root } = mount(onSend));
+    const ta = host.querySelector("textarea")!;
+    act(() => {
+      keydown(ta, { key: "Enter" });
+    });
+    expect(onSend).toHaveBeenCalledTimes(1);
+  });
+
+  it("Shift+Enter 不发送", () => {
+    const onSend = vi.fn<SendExplain>();
+    ({ host, root } = mount(onSend));
+    const ta = host.querySelector("textarea")!;
+    act(() => {
+      keydown(ta, { key: "Enter", shiftKey: true });
+    });
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it("IME composing / keyCode 229 不发送", () => {
+    const onSend = vi.fn<SendExplain>();
+    ({ host, root } = mount(onSend));
+    const ta = host.querySelector("textarea")!;
+    act(() => {
+      keydown(ta, { key: "Enter", isComposing: true });
+      keydown(ta, { key: "Enter", keyCode: 229 });
+    });
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it("空内容或 busy 时 Enter 不发送", () => {
+    const onSend = vi.fn<SendExplain>();
+    ({ host, root } = mount(onSend, { question: "   " }));
+    act(() => {
+      keydown(host.querySelector("textarea")!, { key: "Enter" });
+    });
+    expect(onSend).not.toHaveBeenCalled();
+    unmount(root, host);
+    ({ host, root } = mount(onSend, { busy: true, question: "讲一下" }));
+    const ta = host.querySelector("textarea");
+    // busy 时 textarea disabled，keydown 仍可能打到
+    if (ta) {
+      act(() => {
+        keydown(ta, { key: "Enter" });
+      });
+    }
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it("placeholder 写明 Enter 发送", () => {
+    const onSend = vi.fn<SendExplain>();
+    ({ host, root } = mount(onSend));
+    expect(host.querySelector("textarea")?.placeholder).toContain("Enter 发送 · Shift+Enter 换行");
+  });
+});
