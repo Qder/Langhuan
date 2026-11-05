@@ -97,3 +97,15 @@ describe("标题与分段小件", () => {
     expect(html).toContain("字号");
   });
 });
+
+describe("目录 TocPopover 叠层", () => {
+  it("源码用 fixed + z-[70]，不靠 header 内 absolute（会被 overflow-hidden 裁掉）", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { resolve } = await import("node:path");
+    const src = readFileSync(resolve(__dirname, "./TocPopover.tsx"), "utf8");
+    expect(src).toContain("fixed");
+    expect(src).toContain("z-[70]");
+    expect(src).toContain("data-toc-popover");
+    expect(src).not.toMatch(/className="absolute right-3 top-full/);
+  });
+});

@@ -1,6 +1,6 @@
 # Tauri 2 Android APK（debug + 可分发 release）
 
-上次更新：2026-11-05 · 读码/笔记 zip 导入 + **应用内更新（代码；真机未验）**
+上次更新：2026-11-05 · 读码/笔记 zip 导入 + 应用内更新 + **md 目录叠层修复**
 
 ## 一句话现状
 
@@ -11,6 +11,7 @@
 - **应用内更新**：设置 →「检查更新」拉 `android-latest.json` → 下载 APK → sha256 → 系统安装器（见 [STATUS-android-updater.md](./STATUS-android-updater.md)）。**真机未验**；仍可用 `adb install -r`。Windows updater **不复用**到 APK。
 - **藏书阁导入（安卓）**：不能选整文件夹 → 侧栏 / 首页用 **「导入笔记 zip」**（解压后进库 `content/`，可再选目标子目录）。「导入文件夹 / 打开本地文件夹」会诚实提示并改走 zip。
 - **读码（安卓）**：系统不能整目录授权 → 欢迎页主按钮是 **「导入工程 zip」**（解压进应用 IndexedDB 沙箱，**不写** `content/`）。桌面仍「打开文件夹」。杀进程后可从「最近工程」恢复沙箱工程（最多 6 个）。
+- **md「目录」叠层**：窄屏/平板顶栏点「目录」曾被 `<header overflow-hidden>` 裁切，看起来像压在正文下一层。`TocPopover` 已改为 `fixed` + `z-[70]`（与阅读设置弹层同思路）。重打 APK 后验收；桌面浏览器同修。
 - **未做**：Play 上架、原生选目录、终端、LSP、Cloud Agent。换包也可继续侧载；in-app 更新见 STATUS-android-updater（真机未验）。
 
 ## 本机前置（Windows 优先）
