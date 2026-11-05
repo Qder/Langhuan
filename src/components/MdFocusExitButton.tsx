@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 import { TocPopover } from "./topbar/TocPopover";
 import { useActiveHeading } from "./topbar/useActiveHeading";
 import { useDocAsideData } from "./topbar/useDocAsideData";
-import { onToggleTocRequest } from "@/lib/tocPanel";
+import { useTocPanel } from "@/lib/tocPanel";
 import { useReadingProgressPercent } from "@/lib/useReadingProgress";
 
 /** Floating strip while MD 专注 hides the top bar. */
@@ -20,9 +20,6 @@ export function MdFocusExitButton() {
   const annotations = useStore((s) => s.annotations);
   const assetsForDoc = useStore((s) => s.assetsForDoc);
 
-  const [tocOpen, setTocOpen] = React.useState(false);
-  const buttonRef = React.useRef<HTMLButtonElement>(null);
-  const panelRef = React.useRef<HTMLDivElement>(null);
   const progress = useReadingProgressPercent();
 
   const { outline, backlinks, asideAvailable } = useDocAsideData({
@@ -32,41 +29,19 @@ export function MdFocusExitButton() {
     annotations,
     assetsForDoc,
   });
+  const toc = useTocPanel({ docId: active?.id, available: asideAvailable });
+  const {
+    open: tocOpen,
+    setOpen: setTocOpen,
+    buttonRef,
+    panelRef,
+  } = toc;
   const [activeHeading, setActiveHeading] = useActiveHeading({
     enabled: tocOpen,
     // No rail in 专注: the popover is the one and only outline surface.
     wide: false,
     docId: active?.id,
   });
-
-  // Same dismissal contract as the TopBar popovers: outside click or Esc.
-  React.useEffect(() => {
-    if (!tocOpen) return;
-    const onDown = (e: MouseEvent) => {
-      const t = e.target as Node;
-      if (panelRef.current?.contains(t)) return;
-      if (buttonRef.current?.contains(t)) return;
-      setTocOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setTocOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [tocOpen]);
-
-  // mod+shift+o from AppShell: the panel owns its own open state, so it toggles
-  // itself instead of AppShell reaching into a private useState.
-  React.useEffect(() => onToggleTocRequest(() => setTocOpen((v) => !v)), []);
-
-  // A 专注 toggle or doc switch leaves a stale panel floating over the wrong doc.
-  React.useEffect(() => {
-    setTocOpen(false);
-  }, [active?.id]);
 
   const chip =
     "inline-flex h-8 items-center gap-1 rounded-full px-2.5 text-xs font-ui transition-colors hover:bg-[var(--hover)]";
@@ -85,7 +60,7 @@ export function MdFocusExitButton() {
               setStatus("这篇还没有大纲，加几个标题就能跳转");
               return;
             }
-            setTocOpen((v) => !v);
+            setTocOpen(!tocOpen);
           }}
           aria-label="目录"
           aria-expanded={tocOpen}

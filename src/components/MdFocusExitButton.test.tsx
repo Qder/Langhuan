@@ -4,7 +4,7 @@ import * as React from "react";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { MdFocusExitButton } from "./MdFocusExitButton";
-import { requestToggleToc } from "@/lib/tocPanel";
+import { requestToggleToc, isTocPanelOpen, setTocPanelOpen } from "@/lib/tocPanel";
 
 const setMdFocusMode = vi.fn();
 const setStatus = vi.fn();
@@ -19,12 +19,23 @@ const doc = {
   createdAt: 0,
 };
 
+const doc2 = {
+  ...doc,
+  id: "doc_2",
+  path: "笔记/离散数学/关系.md",
+  title: "关系",
+  content: "# 关系\n\n## 定义\n",
+};
+
+/** 可变：换文档那条用例要真的让宿主看到另一篇。 */
+let current: typeof doc = doc;
+
 const store = {
   setMdFocusMode,
   setStatus,
-  getActive: () => doc,
-  documents: [doc],
-  getContent: () => "# 集合\n\n## 定义\n\n## 运算\n",
+  getActive: () => current,
+  documents: [doc, doc2],
+  getContent: (id?: string) => (id === doc2.id ? doc2.content : doc.content),
   annotations: [],
   assetsForDoc: () => [],
   // DocAside（浮层内部）读到的其余 store 字段，测试里不需要真的动作。
@@ -46,6 +57,8 @@ beforeEach(() => {
     true;
   setMdFocusMode.mockReset();
   setStatus.mockReset();
+  current = doc;
+  setTocPanelOpen(false);
 });
 
 function mount() {
@@ -100,7 +113,7 @@ describe("MdFocusExitButton（专注浮动条）", () => {
     cleanup();
   });
 
-  it("「退出」关掉专注并收起浮层", () => {
+  it("「退出」关掉专注并收起浮层（不把浮层带到顶栏）", () => {
     const { host, cleanup } = mount();
     act(() => {
       byLabel(host, "目录")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -111,6 +124,23 @@ describe("MdFocusExitButton（专注浮动条）", () => {
     });
     expect(setMdFocusMode).toHaveBeenCalledWith(false);
     expect(setStatus).toHaveBeenCalledWith("已退出专注模式");
+    expect(document.querySelector("[data-toc-popover]")).toBeNull();
+    expect(isTocPanelOpen()).toBe(false);
+    cleanup();
+  });
+
+  it("换文档会收起浮层（共享状态不跟着跑到新文档）", () => {
+    const { host, root, cleanup } = mount();
+    act(() => {
+      byLabel(host, "目录")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(document.querySelector("[data-toc-popover]")).toBeTruthy();
+    // 换成另一篇文档：hook 的 docId effect 收起浮层，而不是把它留在屏幕上。
+    act(() => {
+      current = doc2;
+      root.render(<MdFocusExitButton />);
+    });
+    expect(document.querySelector("[data-toc-popover]")).toBeNull();
     cleanup();
   });
 

@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Tag, BookOpenCheck, Archive, HeartPulse, Replace, BookmarkPlus, CalendarDays, ClipboardPaste, Columns2, Download, FilePlus2, FileSearch, FileText, FolderOpen, FolderSync, Globe, History, Home, LayoutTemplate, Network, Search, Settings2, SlidersHorizontal, Sparkles, Trash2, Maximize2, Blend, Code2 } from "lucide-react";
+import { Tag, BookOpenCheck, Archive, HeartPulse, Replace, BookmarkPlus, CalendarDays, ClipboardPaste, Columns2, Download, FilePlus2, FileSearch, FileText, FolderOpen, FolderSync, Globe, History, Home, LayoutTemplate, ListTree, Network, Search, Settings2, SlidersHorizontal, Sparkles, Trash2, Maximize2, Blend, Code2 } from "lucide-react";
 import { Dialog } from "./ui/dialog";
 import { useStore } from "@/lib/store";
 import { useIdeStore } from "@/lib/ide/store";
@@ -10,6 +10,7 @@ import { renderSnippetMarks } from "@/lib/search/highlight";
 import { titleOf, cn } from "@/lib/utils";
 import { importClipboardAs } from "@/lib/clipboardImport";
 import { openCreateDocDialog } from "@/lib/createDocDialogBus";
+import { requestToggleToc } from "@/lib/tocPanel";
 import { SaveSearchDialog } from "./BatchOpsDialogs";
 
 /** Extra IDE-mode commands injected by IdeShell (kept out of the notes bundle). */
@@ -333,6 +334,24 @@ export function CommandPalette({
           }
           setViewMode("mixed");
           setStatus("已切换到混合模式");
+        }),
+      },
+      {
+        key: "cmd-toc",
+        label: "打开 / 关闭目录",
+        hint: "Markdown 大纲（⌘/Ctrl+Shift+O）",
+        icon: <ListTree className="h-4 w-4" />,
+        run: inNotes(() => {
+          const a = getActive();
+          if (!a) {
+            setStatus("请先打开一篇文档");
+            return;
+          }
+          if (a.type !== "md") {
+            setStatus("目录只支持 Markdown");
+            return;
+          }
+          requestToggleToc();
         }),
       },
       {

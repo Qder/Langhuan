@@ -21,7 +21,7 @@ import { RenameDialog, DeleteDialog } from "./topbar/DocDialogs";
 import { usePopover } from "./topbar/usePopover";
 import { useActiveHeading } from "./topbar/useActiveHeading";
 import { useDocAsideData } from "./topbar/useDocAsideData";
-import { onToggleTocRequest } from "@/lib/tocPanel";
+import { useTocPanel } from "@/lib/tocPanel";
 
 /**
  * 藏书阁 TopBar — orchestration only.
@@ -79,20 +79,12 @@ export function TopBar() {
   const [renameOpen, setRenameOpen] = React.useState(false);
   const [renameVal, setRenameVal] = React.useState("");
   const [deleteOpen, setDeleteOpen] = React.useState(false);
-  const toc = usePopover();
   const tags = usePopover();
   const reading = usePopover();
-  const setTocOpen = toc.setOpen;
   const [tagInput, setTagInput] = React.useState("");
 
   const wide = useMediaQuery("(min-width: 1280px)");
   const tabletUp = useMediaQuery("(min-width: 1024px)");
-
-  const [activeHeading, setActiveHeading] = useActiveHeading({
-    enabled: toc.open,
-    wide,
-    docId: active?.id,
-  });
 
   const dirty = active ? isDirty(active.id) : false;
   const isHtml = active?.type === "html";
@@ -105,22 +97,19 @@ export function TopBar() {
     assetsForDoc,
   });
 
+  // 目录开关与其他 popover 共用一套「点外部/Esc 收起」，但 open 状态是全局
+  // 共享的（专注浮动条读同一份），这样 mod+shift+o 不必去 DOM 里探测。
+  const toc = useTocPanel({ docId: active?.id, available: asideAvailable });
+  const setTocOpen = toc.setOpen;
+
+  const [activeHeading, setActiveHeading] = useActiveHeading({
+    enabled: toc.open,
+    wide,
+    docId: active?.id,
+  });
+
   const showTocButton = asideAvailable && (!wide || !outlineRailOpen);
   const showRailToggle = asideAvailable && wide;
-
-  // mod+shift+o works with or without 专注; each mounted panel toggles itself.
-  const tocToggle = toc.toggle;
-  React.useEffect(
-    () =>
-      onToggleTocRequest(() => {
-        if (!asideAvailable) {
-          setStatus("这篇还没有大纲，加几个标题就能跳转");
-          return;
-        }
-        tocToggle();
-      }),
-    [asideAvailable, setStatus, tocToggle]
-  );
 
   const exportDoc = () => {
     if (!active) return;

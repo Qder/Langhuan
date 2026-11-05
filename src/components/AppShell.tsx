@@ -35,7 +35,7 @@ import { IdeShell } from "./ide/IdeShell";
 import { MdFocusExitButton } from "./MdFocusExitButton";
 import { AUTOSAVE_DEBOUNCE_MS } from "@/lib/storage/constants";
 import { claimShortcut, matchShortcut, normalizeShortcuts } from "@/lib/shortcuts";
-import { tocPanelOpenInDom, requestToggleToc } from "@/lib/tocPanel";
+import { isTocPanelOpen, closeTocPanel, requestToggleToc } from "@/lib/tocPanel";
 import { shouldHandlePreviewUndoShortcut } from "@/lib/previewUndo";
 
 export function AppShell() {
@@ -208,6 +208,12 @@ export function AppShell() {
       }
       if (matchShortcut(e, shortcuts.toggleToc) && !typing) {
         claimShortcut(e);
+        if (!getActive()) {
+          setStatus("请先打开一篇文档");
+          return;
+        }
+        // The mounted 目录 host (TopBar or the 专注 strip) owns the availability
+        // check, so a doc without an outline still gets its own message.
         requestToggleToc();
         return;
       }
@@ -252,7 +258,7 @@ export function AppShell() {
         if (e.key === "Escape" && mdFocusMode) {
           // 分层 Esc：目录开着时先关目录。面板自己的 document 监听没有区分
           // 优先级，这里必须让出这一次按键，否则一次 Esc 两步跳。
-          if (tocPanelOpenInDom()) return;
+          if (isTocPanelOpen()) return;
           claimShortcut(e);
           setMdFocusMode(false);
           setStatus("已退出专注模式");
@@ -261,6 +267,9 @@ export function AppShell() {
         if (matchShortcut(e, shortcuts.focusMode)) {
           claimShortcut(e);
           const next = !mdFocusMode;
+          // 进/出专注会换目录的宿主（顶栏 ↔ 浮动条），浮层跟着换锚点会「跳」；
+          // 直接收起，由用户在新宿主里重新打开。
+          if (isTocPanelOpen()) closeTocPanel();
           setMdFocusMode(next);
           setStatus(next ? "已进入专注模式" : "已退出专注模式");
         }
