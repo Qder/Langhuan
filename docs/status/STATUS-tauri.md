@@ -121,7 +121,7 @@ Finished 2 bundles at:
 - 未接系统托盘 / 自动更新 / 代码签名。安装包未签名，Windows 会提示未知发布者。
 - 依赖 Rust 工具链和 WebView2 运行时，不是「双击即用」的单文件分发。
 - macOS / Linux 未验证；本仓库只在 Windows 上跑过。
-- Android `src-tauri/gen/android` 脚手架未参与本次改动；`.kotlin` 会话/日志已在 `src-tauri/.gitignore` 里忽略。
+- **Android debug APK**：见 [STATUS-android.md](./STATUS-android.md)。桌面包不含 APK；Android 包不含 NSIS/MSI。`.kotlin` 会话/日志已 ignore，不要提交。
 
 ## 排错
 

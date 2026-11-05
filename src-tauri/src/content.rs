@@ -171,9 +171,13 @@ fn mime_for_path(rel: &str) -> String {
 
 /// Resolve content root, in order:
 /// 1. `LANGHUAN_CONTENT` (explicit override, e.g. point the desktop app at a folder)
-/// 2. debug builds only: repo `content/` (`CARGO_MANIFEST_DIR/../content`)
+/// 2. desktop debug only: repo `content/` (`CARGO_MANIFEST_DIR/../content`)
 /// 3. `content/` next to the executable (portable install)
 /// 4. `{app_data_dir}/琅嬛/content` (fresh machine: seeded with examples on first run)
+///
+/// Android never uses (2): `CARGO_MANIFEST_DIR` is the *build machine* checkout,
+/// which is not on the device. Debug APKs therefore land in app-private storage
+/// the same way release desktop installs do.
 pub fn resolve_content_root(app: &AppHandle) -> Result<PathBuf, String> {
     if let Ok(p) = std::env::var("LANGHUAN_CONTENT") {
         let pb = PathBuf::from(p);
@@ -182,7 +186,8 @@ pub fn resolve_content_root(app: &AppHandle) -> Result<PathBuf, String> {
     }
 
     // A release binary must not remember the build machine's checkout path.
-    if cfg!(debug_assertions) {
+    // Android debug still embeds that Windows/macOS path; skip it on-device.
+    if cfg!(debug_assertions) && !cfg!(target_os = "android") {
         let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let repo_content = manifest_dir.join("../content");
         if repo_content.is_dir() {

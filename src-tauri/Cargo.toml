@@ -21,13 +21,24 @@ tauri = { version = "2", features = [] }
 tauri-plugin-log = "2"
 base64 = "0.22"
 rand = "0.8"
+
 # 桌面版讲解的 HTTP 通路：只连用户自己配置的 OpenAI 兼容端点。
-# `native-tls` 走系统 TLS（Windows = SChannel），不需要 cmake/Perl，也避免把
-# aws-lc-rs 这种要本地编译的加密栈拉进安装包。
+# Windows 用 `native-tls`（SChannel），避开 cmake/Perl 和 aws-lc-rs。
+# Android 没有可用的系统 TLS crate 组合，改 rustls。
+[target.'cfg(not(target_os = "android"))'.dependencies]
 reqwest = { version = "0.13", default-features = false, features = [
   "json",
   "stream",
   "native-tls",
+  "charset",
+  "http2",
+] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+reqwest = { version = "0.13", default-features = false, features = [
+  "json",
+  "stream",
+  "rustls",
   "charset",
   "http2",
 ] }

@@ -14,6 +14,7 @@
     "desktop:dev-server": "node scripts/tauri-dev-server.mjs",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
+    "android:apk": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-android-apk.ps1",
     "typecheck": "tsc --noEmit",
     "check": "npm run typecheck && npm run lint && npm run test",
     "gen:bridge": "node scripts/gen-bridge.mjs",

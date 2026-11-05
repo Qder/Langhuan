@@ -58,6 +58,7 @@ const eslintConfig = [
       ".next/**",
       "node_modules/**",
       "src-tauri/target/**",
+      "src-tauri/gen/android/**",
       "out/**",
       "content/**",
       "coverage/**",
