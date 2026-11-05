@@ -26,3 +26,4 @@
 | [STATUS-tier3.md](./STATUS-tier3.md) | Tier 3 | 写作与阅读体验已实现项与验收提示 |
 | [STATUS-tier4.md](./STATUS-tier4.md) | Tier 4 | 效率与多端核心能力已实现项与已知限制 |
 | [STATUS-ide-panel-layers.md](./STATUS-ide-panel-layers.md) | 读码 | 资源管理器与讲解的层规则：窄屏一次只留一层，宽屏左树 + 右讲解可同开 |
+| [STATUS-ide-explain.md](./STATUS-ide-explain.md) | 读码 | 讲解多轮：面板历史进模型 messages；上限 / 截断；浏览器与桌面同一套 TS 组装 |

@@ -135,6 +135,11 @@ export function ExplainComposer({
           </Button>
         )}
       </div>
+      {hasSession && !emptyHistory ? (
+        <p className="px-1 text-[11px] font-ui text-[var(--muted)]">
+          追问会带上本会话近期对话（不清空就不会当全新提问）
+        </p>
+      ) : null}
       {selectionRange && (
         <ExplainSnippetCapture
           path={selectionRange.path}

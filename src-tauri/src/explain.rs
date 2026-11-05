@@ -2,7 +2,7 @@
 //!
 //! The packaged app has no Next Route Handlers, so `/api/ide/explain` does not
 //! exist there. This module replaces *only the transport*: the WebView hands us
-//! an already-assembled system prompt + user content and we stream the
+//! an already-assembled `messages` table (or system + user fallback) and we stream the
 //! OpenAI-compatible `/chat/completions` reply back over a Tauri channel.
 //!
 //! Deliberate boundaries:
@@ -29,18 +29,57 @@ pub struct ExplainState {
     cancelled: Mutex<HashSet<String>>,
 }
 
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ExplainChatMessage {
+    pub role: String,
+    pub content: String,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExplainArgs {
     pub request_id: String,
     pub system_prompt: String,
     pub user_content: String,
+    /// TS `assembleExplainChatMessages` 整表；缺省或不够两条时退回 system+user。
+    #[serde(default)]
+    pub messages: Vec<ExplainChatMessage>,
     #[serde(default)]
     pub api_key: String,
     #[serde(default)]
     pub base_url: String,
     #[serde(default)]
     pub model: String,
+}
+
+fn openai_messages(args: &ExplainArgs) -> serde_json::Value {
+    let cleaned: Vec<&ExplainChatMessage> = args
+        .messages
+        .iter()
+        .filter(|m| {
+            matches!(m.role.as_str(), "system" | "user" | "assistant")
+                && !m.content.trim().is_empty()
+        })
+        .take(22)
+        .collect();
+    if cleaned.len() >= 2 {
+        return serde_json::Value::Array(
+            cleaned
+                .into_iter()
+                .map(|m| {
+                    serde_json::json!({
+                        "role": m.role,
+                        "content": m.content,
+                    })
+                })
+                .collect(),
+        );
+    }
+    serde_json::json!([
+        { "role": "system", "content": args.system_prompt },
+        { "role": "user", "content": args.user_content },
+    ])
 }
 
 /// Chunks pushed to the frontend. `done` closes the turn; `delta` appends text.
@@ -149,10 +188,7 @@ async fn stream_completion(
 
     let body = serde_json::json!({
         "model": model,
-        "messages": [
-            { "role": "system", "content": args.system_prompt },
-            { "role": "user", "content": args.user_content },
-        ],
+        "messages": openai_messages(&args),
         "stream": true,
         "temperature": 0.3,
     });
@@ -285,5 +321,58 @@ mod tests {
         // Only the base URL is interpolated; the key lives in a header.
         let msg = format!("连不上 {DEFAULT_BASE_URL}，检查 Base URL 或代理设置");
         assert!(!msg.to_lowercase().contains("sk-"));
+    }
+
+    fn sample_args(messages: Vec<ExplainChatMessage>) -> ExplainArgs {
+        ExplainArgs {
+            request_id: "t1".into(),
+            system_prompt: "sys".into(),
+            user_content: "问题：本轮".into(),
+            messages,
+            api_key: "sk-test".into(),
+            base_url: DEFAULT_BASE_URL.into(),
+            model: DEFAULT_MODEL.into(),
+        }
+    }
+
+    #[test]
+    fn openai_messages_forwards_prior_turns() {
+        let args = sample_args(vec![
+            ExplainChatMessage {
+                role: "system".into(),
+                content: "sys".into(),
+            },
+            ExplainChatMessage {
+                role: "user".into(),
+                content: "这个文件在干什么".into(),
+            },
+            ExplainChatMessage {
+                role: "assistant".into(),
+                content: "入口是注解".into(),
+            },
+            ExplainChatMessage {
+                role: "user".into(),
+                content: "问题：刚才说的注解是什么意思".into(),
+            },
+        ]);
+        let v = openai_messages(&args);
+        let blob = v.to_string();
+        assert!(blob.contains("这个文件在干什么"));
+        assert!(blob.contains("入口是注解"));
+        assert!(blob.contains("刚才说的注解是什么意思"));
+        assert_eq!(v.as_array().map(|a| a.len()), Some(4));
+    }
+
+    #[test]
+    fn openai_messages_falls_back_to_system_user() {
+        let args = sample_args(vec![]);
+        let v = openai_messages(&args);
+        assert_eq!(
+            v,
+            serde_json::json!([
+                { "role": "system", "content": "sys" },
+                { "role": "user", "content": "问题：本轮" },
+            ])
+        );
     }
 }

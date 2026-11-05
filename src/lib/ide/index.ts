@@ -39,9 +39,12 @@ export {
 } from "./snippetLocate";
 export { locateExplainFence, type ReadSnippetFile } from "./snippetJump";
 export {
+  assembleExplainChatMessages,
   assembleExplainUserContent,
   buildExplainFilePayloads,
   buildMockExplainMarkdown,
+  resolveExplainApiMessages,
+  selectExplainPriorMessages,
   collectScannedFileIndex,
   planExplainSelectionRequest,
   javaImportToSuffix,
@@ -50,6 +53,8 @@ export {
   planNearbyExplainFiles,
   truncateNeighborExplainContent,
   IDE_EXPLAIN_SYSTEM_PROMPT,
+  IDE_EXPLAIN_MODEL_PRIOR_MAX,
+  type ExplainChatMessage,
 } from "./explain";
 export {
   compactFolderChain,

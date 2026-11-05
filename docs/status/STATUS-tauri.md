@@ -116,7 +116,7 @@ Finished 2 bundles at:
 ## 已知限制
 
 - **HTML 项目导入 / CSS·JS 资源索引 / 元素定位：桌面版不支持**，请用浏览器。桌面版 `fetchLibrary()` 返回 `desktopProjectsUnsupported: true`，`putLibraryRawFile` 直接抛 `DESKTOP_UNSUPPORTED_PROJECTS`，不会假装成功。
-- **IDE 讲解（读码）**：打包版走 Rust `ide_explain`，不再依赖 Next `/api/ide/explain`。没配 Key 时是本地示例；配了 Key 就直连用户填的端点。浏览器 `npm run dev` 仍走原来的 Route Handler，两条通路共用 `explain.ts` 的 prompt / mock。
+- **IDE 讲解（读码）**：打包版走 Rust `ide_explain`，不再依赖 Next `/api/ide/explain`。没配 Key 时是本地示例；配了 Key 就直连用户填的端点。浏览器 `npm run dev` 仍走原来的 Route Handler。多轮追问由 TS `assembleExplainChatMessages` 拼好整表再交给 Route / Rust 转发，两条通路同一语义，详见 [STATUS-ide-explain.md](./STATUS-ide-explain.md)。
 - 图片预览走 base64 `data:` URL，极大附件会偏慢。
 - **自动更新**：Windows 已接 Tauri updater（设置 → 检查更新）。私钥不进仓库。详见 [STATUS-updater.md](./STATUS-updater.md)。安装包仍无 Authenticode，Windows 会提示未知发布者（与 updater 的 minisign 是两件事）。
 - 依赖 Rust 工具链和 WebView2 运行时，不是「双击即用」的单文件分发。

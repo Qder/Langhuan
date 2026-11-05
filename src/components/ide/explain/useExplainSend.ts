@@ -7,6 +7,7 @@ import {
   citationsFromMarkdown,
   collectFileIndexWithOptionalBfs,
   listNearbyImports,
+  selectExplainPriorMessages,
   truncateNeighborExplainContent,
   type IdeExplainMessage,
 } from "@/lib/ide/explain";
@@ -120,6 +121,11 @@ export function useExplainSend({
       }
     }
 
+    // 必须在 push 本轮气泡之前快照：否则会把空助手气泡和本轮 user 再塞进 prior。
+    const prior = selectExplainPriorMessages(
+      useIdeStore.getState().explainBySession[session.id] ?? []
+    );
+
     const userMsg: IdeExplainMessage = {
       id: newId(),
       role: "user",
@@ -153,6 +159,7 @@ export function useExplainSend({
           question: q,
           files,
           fileIndex,
+          prior,
           apiKey: explainSettings.apiKey,
           baseUrl: explainSettings.baseUrl,
           model: explainSettings.model,

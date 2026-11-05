@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  assembleExplainUserContent,
   buildMockExplainMarkdown,
-  IDE_EXPLAIN_SYSTEM_PROMPT,
+  resolveExplainApiMessages,
   type IdeExplainFilePayload,
 } from "@/lib/ide/explain";
 
@@ -14,6 +13,8 @@ type Body = {
   files?: IdeExplainFilePayload[];
   /** Path-only project file list (no bodies). */
   fileIndex?: string[];
+  /** TS 拼好的整表 [system, …prior, current user]；缺省时服务端再拼。 */
+  messages?: Array<{ role?: string; content?: string }>;
   locale?: string;
   /** Optional client-provided key (IDE settings); never logged. */
   apiKey?: string;
@@ -70,9 +71,16 @@ export async function POST(req: NextRequest) {
         .slice(0, 200)
     : [];
   const key = pickKey(body);
+  const messages = resolveExplainApiMessages({
+    question,
+    files,
+    fileIndex,
+    messages: body.messages,
+  });
+  const prior = messages.filter((m) => m.role !== "system").slice(0, -1);
 
   if (!key) {
-    const text = buildMockExplainMarkdown({ question, files, fileIndex });
+    const text = buildMockExplainMarkdown({ question, files, fileIndex, prior });
     return new Response(mockStream(text), {
       status: 200,
       headers: {
@@ -85,13 +93,6 @@ export async function POST(req: NextRequest) {
 
   const base = pickBase(body);
   const model = pickModel(body);
-  const messages = [
-    { role: "system", content: IDE_EXPLAIN_SYSTEM_PROMPT },
-    {
-      role: "user",
-      content: assembleExplainUserContent(question, files, fileIndex),
-    },
-  ];
 
   try {
     const upstream = await fetch(`${base}/chat/completions`, {

@@ -80,6 +80,7 @@ describe("讲解面板：输入区 Enter 发送", () => {
   it("走 composerKeys，不把裸 Enter 绑成只认 Ctrl/⌘", () => {
     expect(composerSrc).toContain("shouldSendOnExplainComposerKey");
     expect(composerSrc).toContain("Enter 发送 · Shift+Enter 换行");
+    expect(composerSrc).toContain("追问会带上本会话近期对话");
     expect(composerSrc).not.toMatch(
       /if \(e\.key === "Enter" && \(e\.metaKey \|\| e\.ctrlKey\)\)/
     );
@@ -98,6 +99,15 @@ describe("讲解面板：输入区 Enter 发送", () => {
 });
 
 describe("讲解面板：桌面通路", () => {
+  it("发送前快照 prior，清空后的历史不会进下一请求", () => {
+    expect(sendSrc).toContain("selectExplainPriorMessages");
+    expect(sendSrc).toContain("prior");
+    const snapAt = sendSrc.indexOf("selectExplainPriorMessages");
+    const pushAt = sendSrc.indexOf("pushExplainMessage");
+    expect(snapAt).toBeGreaterThan(0);
+    expect(snapAt).toBeLessThan(pushAt);
+  });
+
   it("走 streamExplain，设置里才出现桌面说明", () => {
     expect(sendSrc).toContain('from "@/lib/ide/explainClient"');
     expect(sendSrc).toContain("streamExplain(");

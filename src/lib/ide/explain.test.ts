@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  assembleExplainChatMessages,
   assembleExplainUserContent,
   buildExplainFilePayloads,
   buildMockExplainMarkdown,
@@ -10,7 +11,12 @@ import {
   javaImportToSuffix,
   listNearbyImports,
   planNearbyExplainFiles,
+  resolveExplainApiMessages,
+  selectExplainPriorMessages,
   IDE_EXPLAIN_MAX_FULL_LINES,
+  IDE_EXPLAIN_MODEL_PRIOR_MAX,
+  IDE_EXPLAIN_PRIOR_CHARS_MAX,
+  IDE_EXPLAIN_SYSTEM_PROMPT,
 } from "./explain";
 import { parseIdeCitations } from "./citations";
 import type { IdeFsEntry } from "./ideFs";
@@ -278,6 +284,91 @@ describe("listNearbyImports / planNearbyExplainFiles", () => {
     });
     expect(files.map((f) => f.path)).toEqual(["src/main/java/com/demo/Foo.java"]);
     expect(skipped).toEqual([]);
+  });
+});
+
+describe("assembleExplainChatMessages · 多轮", () => {
+  const files = [{ path: "src/A.java", content: "class A { /* 注解 */ }", startLine: 1 }];
+
+  it("第二问 messages 含第一问与第一答，且 prior 不含 files 正文", () => {
+    const history = [
+      { role: "user" as const, content: "这个文件在干什么" },
+      { role: "assistant" as const, content: "入口是注解 @Foo" },
+    ];
+    const messages = assembleExplainChatMessages({
+      question: "刚才说的注解是什么意思",
+      files,
+      prior: history,
+    });
+    expect(messages[0]).toEqual({
+      role: "system",
+      content: IDE_EXPLAIN_SYSTEM_PROMPT,
+    });
+    expect(messages[1]).toEqual(history[0]);
+    expect(messages[2]).toEqual(history[1]);
+    expect(messages[3]?.role).toBe("user");
+    expect(messages[3]?.content).toContain("刚才说的注解是什么意思");
+    expect(messages[3]?.content).toContain("class A { /* 注解 */ }");
+    const priorBlob = JSON.stringify(messages.slice(1, -1));
+    expect(priorBlob).toContain("这个文件在干什么");
+    expect(priorBlob).not.toContain("class A { /* 注解 */ }");
+  });
+
+  it("清空后 prior 为空，请求不再带旧 turn", () => {
+    expect(selectExplainPriorMessages([])).toEqual([]);
+    const messages = assembleExplainChatMessages({
+      question: "这个文件在干什么",
+      files,
+      prior: [],
+    });
+    expect(messages).toHaveLength(2);
+    expect(JSON.stringify(messages)).not.toContain("入口是注解");
+  });
+
+  it("跳过空助手气泡，截到 MODEL_PRIOR_MAX，过长对话截断", () => {
+    const many = Array.from({ length: 20 }, (_, i) => ({
+      role: (i % 2 === 0 ? "user" : "assistant") as "user" | "assistant",
+      content: `turn-${i} ${"x".repeat(IDE_EXPLAIN_PRIOR_CHARS_MAX + 10)}`,
+    }));
+    const selected = selectExplainPriorMessages([
+      ...many,
+      { role: "assistant", content: "   " },
+    ]);
+    expect(selected.length).toBeLessThanOrEqual(IDE_EXPLAIN_MODEL_PRIOR_MAX);
+    expect(selected[0]?.role).toBe("user");
+    expect(selected.every((m) => m.content.includes("…"))).toBe(true);
+    expect(selected.every((m) => m.content.length <= IDE_EXPLAIN_PRIOR_CHARS_MAX + 2)).toBe(
+      true
+    );
+  });
+
+  it("resolveExplainApiMessages 优先用客户端整表", () => {
+    const fromClient = resolveExplainApiMessages({
+      question: "忽略我",
+      files,
+      messages: [
+        { role: "system", content: "sys" },
+        { role: "user", content: "这个文件在干什么" },
+        { role: "assistant", content: "第一答" },
+        { role: "user", content: "刚才说的注解是什么意思" },
+      ],
+    });
+    expect(JSON.stringify(fromClient)).toContain("这个文件在干什么");
+    expect(JSON.stringify(fromClient)).toContain("刚才说的注解是什么意思");
+    expect(fromClient[0]?.content).toBe("sys");
+  });
+
+  it("mock 第二问仍可读并提到上一问", () => {
+    const text = buildMockExplainMarkdown({
+      question: "刚才说的注解是什么意思",
+      files,
+      prior: [
+        { role: "user", content: "这个文件在干什么" },
+        { role: "assistant", content: "入口是注解" },
+      ],
+    });
+    expect(text).toContain("刚才说的注解是什么意思");
+    expect(text).toContain("这个文件在干什么");
   });
 });
 

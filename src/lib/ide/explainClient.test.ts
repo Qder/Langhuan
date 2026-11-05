@@ -84,6 +84,47 @@ describe("streamExplain · 浏览器", () => {
     expect(bag.done()).toEqual({ mock: true });
   });
 
+  it("第二问请求 messages 含第一问内容，prior 不重复 files 正文", async () => {
+    const fetchMock = vi.fn(async () => {
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream<Uint8Array>({
+        start(c) {
+          c.enqueue(encoder.encode("ok"));
+          c.close();
+        },
+      });
+      return new Response(stream, { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    await streamExplain(
+      {
+        question: "刚才说的注解是什么意思",
+        files,
+        prior: [
+          { role: "user", content: "这个文件在干什么" },
+          { role: "assistant", content: "入口是注解 @Foo" },
+        ],
+        apiKey: "sk-test",
+        baseUrl: "https://example.invalid/v1",
+        model: "m",
+        signal: new AbortController().signal,
+      },
+      collect().handlers
+    );
+    expect(fetchMock).toHaveBeenCalled();
+    const call = fetchMock.mock.calls.at(0) as [string, RequestInit] | undefined;
+    const body = JSON.parse(String(call?.[1]?.body ?? "")) as {
+      messages: Array<{ role: string; content: string }>;
+    };
+    const blob = JSON.stringify(body.messages);
+    expect(blob).toContain("这个文件在干什么");
+    expect(blob).toContain("入口是注解 @Foo");
+    expect(blob).toContain("刚才说的注解是什么意思");
+    const priorBlob = JSON.stringify(body.messages.slice(1, -1));
+    expect(priorBlob).not.toContain("class A {}");
+    expect(body.messages[0]?.role).toBe("system");
+  });
+
   it("上游 401 变成可读错误", async () => {
     vi.stubGlobal(
       "fetch",
@@ -164,11 +205,47 @@ describe("streamExplain · 桌面", () => {
     expect(bag.deltas).toEqual(["你好", "世界"]);
     expect(bag.done()).toEqual({ mock: false });
     const payload = invokeMock.mock.calls[0]![1] as {
-      args: { apiKey: string; systemPrompt: string; userContent: string };
+      args: {
+        apiKey: string;
+        systemPrompt: string;
+        userContent: string;
+        messages: Array<{ role: string; content: string }>;
+      };
     };
     expect(payload.args.apiKey).toBe("sk-live");
     expect(payload.args.systemPrompt.length).toBeGreaterThan(10);
     expect(payload.args.userContent).toContain("问题：q");
+    expect(payload.args.messages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ role: "system" }),
+        expect.objectContaining({ role: "user", content: expect.stringContaining("问题：q") }),
+      ])
+    );
+  });
+
+  it("桌面第二问 IPC messages 含第一问", async () => {
+    invokeMock.mockResolvedValue(undefined);
+    await streamExplain(
+      {
+        question: "刚才说的注解是什么意思",
+        files,
+        prior: [
+          { role: "user", content: "这个文件在干什么" },
+          { role: "assistant", content: "入口是注解" },
+        ],
+        apiKey: "sk-live",
+        baseUrl: "https://api.openai.com/v1",
+        model: "gpt-4o-mini",
+        signal: new AbortController().signal,
+      },
+      collect().handlers
+    );
+    const payload = invokeMock.mock.calls[0]![1] as {
+      args: { messages: Array<{ role: string; content: string }> };
+    };
+    const blob = JSON.stringify(payload.args.messages);
+    expect(blob).toContain("这个文件在干什么");
+    expect(blob).toContain("刚才说的注解是什么意思");
   });
 
   it("旧安装包没有 ide_explain 时给出桥接错误，不把内部异常原文甩给用户", async () => {

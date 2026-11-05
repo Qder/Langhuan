@@ -18,6 +18,10 @@ export const IDE_EXPLAIN_CONTEXT_PAD = 80;
 export const TAURI_EXPLAIN_HINT =
   "桌面版讲解直连你填的 Base URL（不需要 Next 服务）；留空 Key 时只有本地示例讲解。";
 export const IDE_EXPLAIN_HISTORY_MAX = 20;
+/** 送给模型的近期对话条数（user+assistant 合计，约 4 轮）。UI persist 仍是 HISTORY_MAX。 */
+export const IDE_EXPLAIN_MODEL_PRIOR_MAX = 8;
+/** 历史每条只留对话文本，截到这个字数；本轮 files 正文不进历史。 */
+export const IDE_EXPLAIN_PRIOR_CHARS_MAX = 2500;
 export const IDE_EXPLAIN_FILE_INDEX_MAX = 200;
 /** When scanned files are below this, optionally BFS from root (still capped). */
 export const IDE_EXPLAIN_FILE_INDEX_BFS_THRESHOLD = 30;
@@ -38,6 +42,13 @@ export type IdeExplainSelection = {
   fromLine: number;
   toLine: number;
   text?: string;
+};
+
+export type ExplainChatRole = "system" | "user" | "assistant";
+
+export type ExplainChatMessage = {
+  role: ExplainChatRole;
+  content: string;
 };
 
 export type IdeExplainMessage = {
@@ -231,12 +242,83 @@ export function assembleExplainUserContent(
     .join("\n\n");
 }
 
+function clipExplainPriorContent(text: string, max = IDE_EXPLAIN_PRIOR_CHARS_MAX): string {
+  const t = String(text ?? "").trim();
+  if (t.length <= max) return t;
+  return `${t.slice(0, max)}\n…`;
+}
+
+/**
+ * 从面板历史抽出要给模型的 prior（只要对话文本，不要 files 正文）。
+ * 跳过空助手气泡（本轮刚 push、还在流式）。截到 MODEL_PRIOR_MAX 条。
+ */
+export function selectExplainPriorMessages(
+  history: Array<{ role?: string; content?: string } | IdeExplainMessage>,
+  max = IDE_EXPLAIN_MODEL_PRIOR_MAX
+): ExplainChatMessage[] {
+  const cleaned: ExplainChatMessage[] = [];
+  for (const item of history) {
+    const role = item?.role;
+    if (role !== "user" && role !== "assistant") continue;
+    const content = clipExplainPriorContent(String(item?.content ?? ""));
+    if (!content) continue;
+    cleaned.push({ role, content });
+  }
+  let slice = cleaned.slice(-Math.max(0, max));
+  if (slice[0]?.role === "assistant") slice = slice.slice(1);
+  return slice;
+}
+
+/** messages = [system, …prior 文本对…, 本轮 user(assembleExplainUserContent)] */
+export function assembleExplainChatMessages(opts: {
+  question: string;
+  files: IdeExplainFilePayload[];
+  fileIndex?: string[];
+  prior?: Array<{ role?: string; content?: string } | IdeExplainMessage>;
+}): ExplainChatMessage[] {
+  const prior = selectExplainPriorMessages(opts.prior ?? []);
+  return [
+    { role: "system", content: IDE_EXPLAIN_SYSTEM_PROMPT },
+    ...prior,
+    {
+      role: "user",
+      content: assembleExplainUserContent(opts.question, opts.files, opts.fileIndex),
+    },
+  ];
+}
+
+/** Route / 兜底：客户端已拼好则用，否则本地再拼（与桌面同一份函数）。 */
+export function resolveExplainApiMessages(input: {
+  question: string;
+  files: IdeExplainFilePayload[];
+  fileIndex?: string[];
+  messages?: Array<{ role?: string; content?: unknown }>;
+}): ExplainChatMessage[] {
+  const fromClient: ExplainChatMessage[] = [];
+  for (const row of input.messages ?? []) {
+    const role = row?.role;
+    if (role !== "system" && role !== "user" && role !== "assistant") continue;
+    const content = typeof row.content === "string" ? row.content : "";
+    if (!content.trim()) continue;
+    fromClient.push({ role, content });
+    if (fromClient.length >= 22) break;
+  }
+  if (fromClient.length >= 2) return fromClient;
+  return assembleExplainChatMessages({
+    question: input.question,
+    files: input.files,
+    fileIndex: input.fileIndex,
+  });
+}
+
 /** Deterministic mock explain that always cites the given path with a line. */
 export function buildMockExplainMarkdown(opts: {
   question: string;
   files: IdeExplainFilePayload[];
   /** Path-only index; when a second file exists, mock also cites it at line 1. */
   fileIndex?: string[];
+  /** Prior dialogue text (no file bodies). Mock echoes the last user line so 追问可读。 */
+  prior?: Array<{ role?: string; content?: string }>;
 }): string {
   const primary = opts.files[0];
   const path = primary?.path || "src/Main.java";
@@ -255,6 +337,8 @@ export function buildMockExplainMarkdown(opts: {
   const endLine = Math.min(line + 2, startLine + Math.max(0, lines.length - 1));
   const leaf = path.split("/").pop() || path;
   const q = (opts.question || "").trim() || "这个文件在讲什么";
+  const prior = selectExplainPriorMessages(opts.prior ?? []);
+  const lastPriorUser = [...prior].reverse().find((m) => m.role === "user")?.content;
   const primaryNorm = normalizeIdeRelPath(path);
   const second = (opts.fileIndex || [])
     .map((p) => normalizeIdeRelPath(p))
@@ -270,6 +354,9 @@ export function buildMockExplainMarkdown(opts: {
       : "",
     `点上面的路径芯片或代码块会打开工程里的真实文件并滚到对应行；编造路径不会静默乱开。`,
     `配置 \`OPENAI_API_KEY\`（或 IDE 设置里的 Key）后，这里会换成模型流式答复，引用格式不变。`,
+    lastPriorUser
+      ? `（示例讲解看到本会话近期对话 ${prior.length} 条。上一问是：${clipExplainPriorContent(lastPriorUser, 200)}）`
+      : "",
   ];
   if (second) {
     parts.push(

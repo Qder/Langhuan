@@ -14,9 +14,11 @@
 
 import { isTauriRuntime } from "@/lib/storage/contentApi";
 import {
+  assembleExplainChatMessages,
   assembleExplainUserContent,
   buildMockExplainMarkdown,
   IDE_EXPLAIN_SYSTEM_PROMPT,
+  type ExplainChatMessage,
   type IdeExplainFilePayload,
 } from "@/lib/ide/explain";
 
@@ -29,6 +31,8 @@ export type ExplainStreamRequest = {
   question: string;
   files: IdeExplainFilePayload[];
   fileIndex?: string[];
+  /** 本轮之前的对话文本（不含 files 正文）。 */
+  prior?: ExplainChatMessage[];
   apiKey: string;
   baseUrl: string;
   model: string;
@@ -45,6 +49,15 @@ type DesktopEvent = { type: "delta"; text: string } | { type: "done" };
 
 function requestId(): string {
   return `ex_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function chatMessagesFor(req: ExplainStreamRequest): ExplainChatMessage[] {
+  return assembleExplainChatMessages({
+    question: req.question,
+    files: req.files,
+    fileIndex: req.fileIndex,
+    prior: req.prior,
+  });
 }
 
 function normalizeBridgeError(e: unknown): string {
@@ -83,6 +96,7 @@ async function streamViaTauri(
       question: req.question,
       files: req.files,
       fileIndex: req.fileIndex,
+      prior: req.prior,
     });
     handlers.onDelta(text);
     handlers.onDone({ mock: true });
@@ -111,15 +125,15 @@ async function streamViaTauri(
   };
 
   try {
+    const messages = chatMessagesFor(req);
+    const lastUser = [...messages].reverse().find((m) => m.role === "user");
     await invoke("ide_explain", {
       args: {
         requestId: id,
         systemPrompt: IDE_EXPLAIN_SYSTEM_PROMPT,
-        userContent: assembleExplainUserContent(
-          req.question,
-          req.files,
-          req.fileIndex
-        ),
+        userContent: lastUser?.content
+          || assembleExplainUserContent(req.question, req.files, req.fileIndex),
+        messages,
         apiKey: key,
         baseUrl: req.baseUrl.trim(),
         model: req.model.trim(),
@@ -148,6 +162,7 @@ async function streamViaNextRoute(
     question: req.question,
     files: req.files,
     fileIndex: req.fileIndex,
+    messages: chatMessagesFor(req),
     locale: "zh",
   };
   if (req.apiKey.trim()) body.apiKey = req.apiKey.trim();
