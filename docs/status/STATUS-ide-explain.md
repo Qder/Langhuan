@@ -55,6 +55,15 @@ Composer 旁提示：「追问会带上本会话近期对话（不清空就不�
 
 验收：单测已钉「状态文案含完整 path、同日同文件追加不建 -2.md」。浏览器点「收入」再在阁里打开同一篇：**未验**（本机 Cursor 浏览器页空白 / Next overlay）。
 
+## 流式中打开文件
+
+生成中 **busy 只锁 Composer 发送**（以及停止按钮）。`openFile` / 资源树 / Tab / `useExplainJump` 没有 busy 门闩，点引用不会 abort 当前流。
+
+- **粘性滚动**：仅当钉在底部时跟随新 token；列表 `pointerdown` 或上滚则暂停；滚回底部后恢复。本轮结束若人还在看早段，不强制拽回底部。
+- **重渲**：助手气泡 `memo`；delta 约 80ms 合并一次 `updateLastAssistant`；引用芯片用 `cite.index` 当 key。
+- **窄屏开讲解时背后仍遮挡**：抽屉 `inset-0` 遮罩挡住编辑器/树。本切片未改 `panelLayers` 互斥语义。**已知 / 未验**（优先修流式点击）。
+- 浏览器生成中途点芯片 / 宽屏点树 / 切 Tab / 上滚不拽底：**未验**（本机 Cursor 浏览器页空白，dev server 仍因缺失 `FontSizeStepper.tsx` 的 Tailwind 追踪报错）。单测与契约已钉粘性 pin 与「busy 不锁 openFile」。
+
 ## 验收
 
 - [x] 单测：第二问请求 messages 含第一问；prior 不含 `class A {}` 正文；清空后不再带旧 turn；mock 第二问可读。

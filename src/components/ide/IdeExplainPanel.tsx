@@ -44,6 +44,18 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
     setIncludeSelection: stream.setIncludeSelection,
   });
   const capture = useExplainCapture(messages);
+  const onCite = React.useCallback(
+    (c: Parameters<typeof jump.jumpCitation>[0]) => {
+      void jump.jumpCitation(c);
+    },
+    [jump.jumpCitation]
+  );
+  const onFence = React.useCallback(
+    (f: Parameters<typeof jump.jumpFence>[0], msgId?: string) => {
+      void jump.jumpFence(f, msgId);
+    },
+    [jump.jumpFence]
+  );
 
   const [showSettings, setShowSettings] = React.useState(false);
   const selectionActive = !!selection && selection.path === activePath;
@@ -74,9 +86,9 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
         candidates={jump.candidates}
         savedNotes={capture.savedNotes}
         onSend={stream.send}
-        onCite={(c) => void jump.jumpCitation(c)}
-        onFence={(f, msgId) => void jump.jumpFence(f, msgId)}
-        onCapture={(m) => void capture.captureExplain(m)}
+        onCite={onCite}
+        onFence={onFence}
+        onCapture={capture.captureExplain}
         onOpenSaved={capture.openSavedNote}
         onPickCandidate={(p) => {
           jump.setCandidates([]);

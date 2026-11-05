@@ -20,6 +20,8 @@ const hintSrc = read("explain/ExplainDesktopHint.tsx");
 const composerSrc = read("explain/ExplainComposer.tsx");
 const listSrc = read("explain/ExplainMessageList.tsx");
 const captureBarSrc = read("explain/ExplainCaptureBar.tsx");
+const jumpSrc = read("explain/useExplainJump.ts");
+const explorerSrc = read("IdeExplorer.tsx");
 
 describe("讲解面板：编排层够瘦", () => {
   it("主文件只编排，不内联 markdown / 流式 / pending", () => {
@@ -97,6 +99,24 @@ describe("讲解面板：输入区 Enter 发送", () => {
     expect(composerSrc).not.toMatch(
       /className="shrink-0 border-t border-\[var\(--chrome-border\)\]/
     );
+  });
+});
+
+describe("讲解面板：流式中可跳转、不无条件滚底", () => {
+  it("列表跟滚走粘性 pin，不再 [messages, busy] 无条件 scrollTop", () => {
+    expect(listSrc).toContain("shouldFollowExplainScroll");
+    expect(listSrc).toContain("pointerdown");
+    expect(listSrc).not.toMatch(
+      /el\.scrollTop = el\.scrollHeight;\s*\}, \[messages, busy\]/
+    );
+  });
+
+  it("busy 不锁 openFile / 引用跳转", () => {
+    expect(jumpSrc).toContain("openFile");
+    expect(jumpSrc).not.toMatch(/\bbusy\b/);
+    expect(explorerSrc).not.toMatch(/\bbusy\b/);
+    expect(listSrc).toContain("onCite");
+    expect(sendSrc).toContain("getFlusher().schedule");
   });
 });
 

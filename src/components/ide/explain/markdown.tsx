@@ -66,7 +66,7 @@ function fenceHint(f: ExplainFence): string {
   return "点击定位源码";
 }
 
-function ExplainFenceCard({
+const ExplainFenceCard = React.memo(function ExplainFenceCard({
   text,
   fence,
   onFence,
@@ -104,9 +104,9 @@ function ExplainFenceCard({
       </pre>
     </div>
   );
-}
+});
 
-export function ExplainBody({
+export const ExplainBody = React.memo(function ExplainBody({
   content,
   onCite,
   onFence,
@@ -134,7 +134,7 @@ export function ExplainBody({
           if (!p.value.trim()) return null;
           return (
             <ReactMarkdown
-              key={i}
+              key={`t-${p.value.length}:${i}`}
               remarkPlugins={[remarkGfm]}
               components={{
                 p: ({ children }: { children?: React.ReactNode }) => (
@@ -191,7 +191,7 @@ export function ExplainBody({
         const c = p.citation;
         return (
           <button
-            key={i}
+            key={`c-${c.index}:${c.path}:${c.line ?? ""}`}
             type="button"
             title={c.path + (c.line != null ? `:${c.line}` : "")}
             onClick={() => onCite(c)}
@@ -207,9 +207,9 @@ export function ExplainBody({
       })}
     </div>
   );
-}
+});
 
-export function ExplainFooterCitations({
+export const ExplainFooterCitations = React.memo(function ExplainFooterCitations({
   content,
   onCite,
   onFence,
@@ -225,9 +225,9 @@ export function ExplainFooterCitations({
     <div className="mt-2 pt-2 border-t border-[var(--border)]">
       <div className="text-[10px] text-[var(--muted)] mb-1 font-ui">本次引用</div>
       <div className="flex flex-wrap gap-1">
-        {list.map((c, i) => (
+        {list.map((c) => (
           <button
-            key={`${c.path}:${c.line ?? ""}:${c.endLine ?? ""}:${i}`}
+            key={`foot-${c.index}:${c.path}:${c.line ?? ""}:${c.endLine ?? ""}`}
             type="button"
             title={c.path + (c.line != null ? `:${c.line}` : "")}
             onClick={() => onCite(c)}
@@ -247,7 +247,7 @@ export function ExplainFooterCitations({
         ))}
         {extraFences.map((f, i) => (
           <button
-            key={`fence-${i}`}
+            key={`fence-${f.index}:${f.path ?? ""}:${i}`}
             type="button"
             title="按代码块正文定位"
             onClick={() => onFence?.(f)}
@@ -263,4 +263,4 @@ export function ExplainFooterCitations({
       </div>
     </div>
   );
-}
+});

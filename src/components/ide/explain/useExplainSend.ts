@@ -11,6 +11,7 @@ import {
   truncateNeighborExplainContent,
   type IdeExplainMessage,
 } from "@/lib/ide/explain";
+import { createExplainDeltaFlusher } from "@/lib/ide/explainFlush";
 import { streamExplain } from "@/lib/ide/explainClient";
 import { listIdeDir, readIdeFile } from "@/lib/ide/ideFs";
 import type { SendExplain } from "./types";
@@ -41,10 +42,22 @@ export function useExplainSend({
   const [isMock, setIsMock] = React.useState(false);
   const abortRef = React.useRef<AbortController | null>(null);
   const sendRef = React.useRef<SendExplain>(async () => {});
+  const flusherRef = React.useRef<ReturnType<typeof createExplainDeltaFlusher> | null>(
+    null
+  );
+  const getFlusher = () => {
+    if (!flusherRef.current) {
+      flusherRef.current = createExplainDeltaFlusher((text, extra) => {
+        useIdeStore.getState().updateLastAssistant(text, extra);
+      });
+    }
+    return flusherRef.current;
+  };
 
   const activeTab = tabs.find((t) => t.path === activePath) || null;
 
   const stop = () => {
+    getFlusher().flushPending();
     abortRef.current?.abort();
     abortRef.current = null;
     setBusy(false);
@@ -168,11 +181,11 @@ export function useExplainSend({
         {
           onDelta: (text) => {
             acc += text;
-            updateLastAssistant(acc, { mock: false });
+            getFlusher().schedule(acc);
           },
           onDone: ({ mock }) => {
             setIsMock(mock);
-            updateLastAssistant(acc, { mock });
+            getFlusher().now(acc, { mock });
             // Citations snapshot so chips survive a reload.
             void citationsFromMarkdown(acc);
           },
@@ -180,8 +193,10 @@ export function useExplainSend({
       );
     } catch (e) {
       if (ac.signal.aborted) {
+        getFlusher().flushPending();
         setStatus("已停止生成");
       } else {
+        getFlusher().cancel();
         const msg = e instanceof Error ? e.message : String(e);
         updateLastAssistant(`（${msg}）`);
         setStatus(msg);
