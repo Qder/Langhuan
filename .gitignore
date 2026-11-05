@@ -54,6 +54,11 @@ yarn-error.log*
 TAURI_SIGNING_PRIVATE_KEY
 .env.updater
 
+# Android release signing — never commit
+*.jks
+*.keystore
+keystore.properties
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

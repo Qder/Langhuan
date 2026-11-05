@@ -34,6 +34,12 @@ npm start
 
 日常功能全走浏览器 `npm run dev`；桌面版是「离线带着走」的补充形态。详见 [STATUS-tauri.md](./docs/status/STATUS-tauri.md)。
 
+## Android（侧载）
+
+- `npm run android:apk`：debug APK（未 strip，体积大，给本机/模拟器开发）。
+- `npm run android:apk:release`：release + strip `.so`，用本机 keystore 签名（keystore 不进 git）。
+- **没有应用内自动更新**。换包：升 `versionCode` 后覆盖安装（`adb install -r`），库仍在应用私有目录。真机平板 / 体积与签名见 [STATUS-android.md](./docs/status/STATUS-android.md)。
+
 ## 主题
 
 九套阅读主题（青灯竹影 / 宣纸靛青 / 松烟月白 / 绛帐缃帙 / 赛博藏经 / 绯猫樱华 / 绯猫薄荷 / 绯猫晴空 / 绯猫深渊），与 `src/lib/theme.ts` 的 `THEME_IDS` 一致；侧栏或 ⌘K 切换，选择写入偏好存储。

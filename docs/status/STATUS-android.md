@@ -1,13 +1,14 @@
-# Tauri 2 Android debug APK
+# Tauri 2 Android APK（debug + 可分发 release）
 
-上次更新：2026-11-05 晚 · 实体平板仍阻塞（adb 无设备）；P0 修了目录选择 NPE 与返回键 SIGSEGV
+上次更新：2026-11-05 19:12 · release + strip 把 arm64 从 386 MB 收到 25.4 MB；模拟器换包升级库仍在；自动更新仍未做
 
 ## 一句话现状
 
 - **浏览器 `npm run dev` 仍是完整产品**（HTML 项目导入 / CSS·JS 索引只在这里）。
 - **Windows `npm run tauri:build`**：可安装桌面壳，见 [STATUS-tauri.md](./STATUS-tauri.md)。
-- **Android**：`src-tauri/gen/android` 已 init（`applicationId` `com.qder.langhuan`）。`npm run android:apk` 打 **debug APK**，打开就是琅嬛壳（藏书阁 + 读码），库落在应用私有目录，首次 hydrate 会 seed 示例 md。
-- **未做**：Play 商店、正式签名、in-app 自动更新、终端、LSP、Cloud Agent。当前更新方式：下载新 APK 覆盖安装（侧载）。设置里有这段说明，没有假的下载进度。
+- **Android**：`src-tauri/gen/android` 已 init（`applicationId` `com.qder.langhuan`）。打开就是琅嬛壳（藏书阁 + 读码），库落在应用私有目录，首次 hydrate 会 seed 示例 md。
+- **分发**：`npm run android:apk:release` 打 **release + strip `.so` + 本机 keystore 签名**。不要走 Play 商店；**没有应用内自动更新**（Windows updater 不复用到 APK）。
+- **未做**：Play 上架、in-app 下载安装、终端、LSP、Cloud Agent。换包 = 升 `versionCode` 后侧载覆盖安装。
 
 ## 本机前置（Windows 优先）
 
@@ -43,7 +44,7 @@ Windows 路径含中文（本机 `E:\桌面\…\琅嬛`）时：
 2. **`tauri android build` 会尝试 symlink `.so` → `jniLibs`**，未开 Developer Mode 会失败。脚本改为 **Copy-Item**。
 3. 不要用 `subst` 映射仓库：Tauri 会报 `AssetDirOutsideOfAppRoot`。
 
-`npm run android:apk` 走 `scripts/build-android-apk.ps1`（含上述绕过）。裸 `npx tauri android build --debug --apk` 在本机中文路径下**链不过去**。
+`npm run android:apk` / `npm run android:apk:release` 走 `scripts/build-android-apk.ps1`（含上述绕过）。裸 `npx tauri android build --apk` 在本机中文路径下**链不过去**。
 
 ## 怎么打 APK
 
@@ -58,25 +59,65 @@ $env:ANDROID_NDK_HOME = $env:NDK_HOME
 $env:CARGO_TARGET_DIR = "E:\tmp\langhuan-android-target"
 $env:Path = "$env:JAVA_HOME\bin;$env:ANDROID_HOME\platform-tools;$env:Path"
 
-npm run android:apk
+npm run android:apk            # debug（未 strip，体积大）
+npm run android:apk:release    # release + llvm-strip + 本机 keystore
 ```
 
-脚本会：`desktop:ui` → cargo `aarch64`/`x86_64` debug lib → 复制 `libapp_lib.so` → 把 `out/` 拷进 APK assets → Gradle `assembleArm64Debug` / `assembleX86_64Debug`（跳过会再调 Tauri symlink 的 rust 任务）。
+脚本会：`desktop:ui` → cargo `aarch64`/`x86_64`（debug 或 `--release`）→ 复制 `libapp_lib.so`（release 再 `llvm-strip --strip-all`）→ 把 `out/` 拷进 APK assets → Gradle `assembleArm64*` / `assembleX86_64*`（跳过会再调 Tauri symlink 的 rust 任务）。
 
-### 产物路径
+升 version 只打 Gradle（`.so` 已在）时加 `-GradleOnly -VersionCode <n>`。
 
-`--split-per-abi` + `--debug` 时 Gradle 输出（versionName 跟 `tauri.conf.json` 的 `0.1.0`）：
+### 产物路径与体积（2026-11-05 本机）
 
-- 平板 / 真机（arm64）：`src-tauri/gen/android/app/build/outputs/apk/arm64/debug/app-arm64-debug.apk`
-- 模拟器（x86_64）：`src-tauri/gen/android/app/build/outputs/apk/x86_64/debug/app-x86_64-debug.apk`
+versionName 跟桌面一样是 **0.1.0**（`tauri.conf.json`）。`versionCode` 是 Android 整数，换包必须递增。
 
-安装：
+| 包 | 路径 | 体积 | `.so` |
+| --- | --- | --- | --- |
+| arm64 **debug** | `src-tauri/gen/android/app/build/outputs/apk/arm64/debug/app-arm64-debug.apk` | **386.1 MB** | 189.6 MB 未 strip |
+| arm64 **release** | `src-tauri/gen/android/app/build/outputs/apk/arm64/release/app-arm64-release.apk` | **25.4 MB** | 23.8 MB 已 strip |
+| x86_64 debug | `…/apk/x86_64/debug/app-x86_64-debug.apk` | 388.8 MB | 190.9 MB |
+| x86_64 release | `…/apk/x86_64/release/app-x86_64-release.apk` | **27.0 MB** | 25.4 MB |
+
+安装（平板用 arm64，模拟器用 x86_64）：
 
 ```bat
-adb install -r src-tauri\gen\android\app\build\outputs\apk\arm64\debug\app-arm64-debug.apk
+adb install -r src-tauri\gen\android\app\build\outputs\apk\arm64\release\app-arm64-release.apk
 ```
 
-debug 包用 Android 默认 debug 密钥，**未做正式签名**，不能上架。versionName **0.1.0**（`versionCode` 1）。debug `.so` 未 strip、按 4KB 页对齐存放，本机 `app-arm64-debug.apk` 约 **386 MB**（不是重复打进两份 payload）。
+### 为什么不能再瘦很多
+
+APK 几乎等于 **未压缩、页对齐的 `libapp_lib.so`**（AGP 为 Android 15 的 16 KB 页把 JNI 库按对齐方式塞进 zip，不能当普通文件 deflate）。debug 的 386 MB 不是打了两份 payload，是 198 MB 符号表 + 对齐空洞。release `strip = true` + `llvm-strip --strip-all` 之后，硬限制大约就是 **stripped `.so` ≈ 24 MB + dex/assets ≈ 1–2 MB**。未做 LTO/`opt-level=s`（编译更慢，再削大概只有几 MB）。不要把 `.so` 改成压缩打包：在 16 KB 设备上可能装不上或启动崩。
+
+### 签名（本机 keystore，不进 git）
+
+- debug：Android 默认 debug 密钥。
+- release：`src-tauri/gen/android/keystore.properties`（已 gitignore）指向本机 `E:\tmp\langhuan-android\langhuan-release.jks`。密码只写在 properties 里，**不要提交、不要贴进 Issue**。
+- 根 `.gitignore` 已忽略 `*.jks` / `*.keystore` / `keystore.properties`。
+- **debug 包和 release 包证书不同**，不能对已装的 debug 做 `install -r`（`INSTALL_FAILED_UPDATE_INCOMPATIBLE`）。要从 debug 换成 release：先卸载（**库会丢**），或一开始就只用同一把 release 钥匙换包。
+- 未买 Play / 厂商正式证书。自签足够侧载。
+
+生成（只做一次）：
+
+```powershell
+# 产出 gitignore 的 keystore.properties + 仓库外 .jks；不要把密码回写进文档
+keytool -genkeypair -keystore E:\tmp\langhuan-android\langhuan-release.jks -storetype PKCS12 -keyalg RSA -keysize 2048 -validity 10000 -alias langhuan
+```
+
+### 换包升级剧本（手动，无 in-app 更新）
+
+自动更新 **仍未做**。用户怎么换包：
+
+1. `versionName` 与桌面叙事对齐（现在 `0.1.0`）；**每次新 APK 把 `versionCode` +1**。
+2. `powershell -File scripts/build-android-apk.ps1 -Release -VersionName 0.1.0 -VersionCode 2`
+3. 把 `app-arm64-release.apk` 拷到设备（USB / 网盘），或 `adb install -r …`。
+4. 同一证书覆盖安装后，库仍在应用私有目录 `{app_data}/琅嬛/content`，不会重新 seed。
+5. 已是最新：没有检查更新按钮可用；看设置里的侧载说明即可。
+
+只改号、不重编 Rust：
+
+```powershell
+powershell -File scripts/build-android-apk.ps1 -Release -GradleOnly -VersionCode 3
+```
 
 ## 本机实测（2026-11-05）
 
@@ -108,6 +149,16 @@ Yang 下次把平板 USB 调试或无线调试打开后，本机应出现 `devic
 ```bat
 adb install -r src-tauri\gen\android\app\build\outputs\apk\arm64\debug\app-arm64-debug.apk
 ```
+
+### 换包升级（x86_64 模拟器 Medium_Phone_API_37.0，2026-11-05 19:12）：已验
+
+同一把本机 release keystore：
+
+1. `adb install` `app-x86_64-release` **versionCode=1** → 首页 **文档 7**，状态栏「已初始化示例文档到 content/」。
+2. `adb install -r` 同包 **versionCode=2** → Success；`dumpsys` `versionCode=2` / `versionName=0.1.0`。
+3. 再开：仍是 **文档 7**，状态栏改成「已从 content/ 载入 7 篇」（没有重新 seed）。
+
+**自动更新仍未做。** 用户手动换包：下载新 release APK → `adb install -r` 或文件管理器覆盖安装。实体平板换包 **未验**。
 
 ### x86_64 模拟器（非真机）：已验
 
@@ -159,7 +210,7 @@ P0 代码 tip：**`f0d3d3a`**（`fix(android): keep the note shell from dying on
 | 系统文件夹选择 / 双向同步 | File System Access | 不支持 | **不支持**（WebView 声称有 `showDirectoryPicker`，真调会 NPE；已按 UA 关掉） |
 | 读码讲解 | Next `/api/ide/explain`，可读 `.env.local` | Rust `ide_explain`，只用设置里的 Key | 同桌面：Rust 管道；没填 Key 是本地示例 |
 | 自动更新 | 无 | Windows：设置里检查更新（见 [STATUS-updater.md](./STATUS-updater.md)） | **仅文档 / 未验**（设置只说明侧载重装，无 in-app 下载；Play 未验） |
-| 商店 / 正式签名 | — | 未签名 NSIS/MSI | **仅 debug 签名** |
+| 商店 / 正式签名 | — | 未签名 NSIS/MSI | debug：调试密钥；**release：本机 keystore 侧载签名（非 Play）** |
 | 终端 / LSP / 插件市场 | 产品不做 | 不做 | 不做 |
 
 ## 已知限制
@@ -167,7 +218,7 @@ P0 代码 tip：**`f0d3d3a`**（`fix(android): keep the note shell from dying on
 - 讲解 Key：只来自 IDE 设置（IndexedDB）。Android 包**不读**开发机 `.env.local`。没填就是本地示例讲解，不是联网失败。
 - 系统返回：`MainActivity` 把 back 改成进后台，避免 wry 拆 WebView SIGSEGV。划掉任务才是退出。
 - 图片预览仍是 base64 `data:` URL。
-- `tauri android dev`（连电脑 Next HMR）本文件不保证；验收对象是 **debug APK**。
+- `tauri android dev`（连电脑 Next HMR）本文件不保证；可分发验收对象是 **release APK**。
 - iOS 未做。
 - `.kotlin/`、Gradle 会话日志已 ignore，不要提交。
 
@@ -182,4 +233,6 @@ P0 代码 tip：**`f0d3d3a`**（`fix(android): keep the note shell from dying on
 | `Creation symbolic link is not allowed` | 用 `scripts/build-android-apk.ps1` 复制 `.so`，不要依赖 Tauri symlink |
 | 白屏 | 确认 `out/` 已拷进 `app/src/main/assets`；debug APK 不访问 localhost:3000 |
 | 库是空的 | `library_content_root` 应在 app files；杀进程再开应仍在。不要去仓库 `content/` 找 Android 上的笔记 |
-| 模拟器 `INSTALL_FAILED_NO_MATCHING_ABIS` | 装 `app-x86_64-debug.apk`，不要把 arm64 包丢给 x86 模拟器 |
+| 模拟器 `INSTALL_FAILED_NO_MATCHING_ABIS` | 装 x86_64 APK，不要把 arm64 包丢给 x86 模拟器 |
+| `INSTALL_FAILED_UPDATE_INCOMPATIBLE` | debug 与 release 证书不同，或换过 keystore。卸载会丢库；换包必须同一把钥匙且 `versionCode` 更大 |
+| release 构建说缺少 keystore.properties | 按上文生成本机 jks；不要把文件加进 git |

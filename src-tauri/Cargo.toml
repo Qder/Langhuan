@@ -10,6 +10,10 @@ rust-version = "1.77"
 name = "app_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+# Desktop + Android release .so: drop symbols. Debug APK stays huge on purpose.
+[profile.release]
+strip = true
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

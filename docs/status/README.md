@@ -17,7 +17,7 @@
 | [STATUS-preview-source-sync.md](./STATUS-preview-source-sync.md) | 定位 | 预览 ⇄ 源码双向联动实现摘要与验收状态 |
 | [STATUS-project-import.md](./STATUS-project-import.md) | 项目 | 把 `index.html + css/ + js/` 的文件夹整目录导入，预览前内联样式/脚本 |
 | [STATUS-tauri.md](./STATUS-tauri.md) | 桌面 | Tauri 2 桌面壳 MVP：开发联调与生产构建现状 |
-| [STATUS-android.md](./STATUS-android.md) | Android | debug APK 构建、应用私有 content、与桌面/浏览器能力差 |
+| [STATUS-android.md](./STATUS-android.md) | Android | debug / release APK、strip 体积、侧载换包、应用私有 content |
 | [STATUS-tier1.md](./STATUS-tier1.md) | Tier 1 | 数据安全：备份/恢复、版本历史、回收站、未保存保护 |
 | [STATUS-tier2-fs-sync.md](./STATUS-tier2-fs-sync.md) | Tier 2 | 本地文件夹双向同步（File System Access）设计要点 |
 | [STATUS-tier2-kb.md](./STATUS-tier2-kb.md) | Tier 2 | 知识库能力：双链、图谱、嵌入、每日笔记、搜索语法等 |
