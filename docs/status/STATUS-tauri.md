@@ -1,6 +1,6 @@
 # Tauri 2 桌面壳（MVP）
 
-上次更新：2026-11-05 · 桌面讲解走 Rust `ide_explain`
+上次更新：2026-11-05 · 桌面讲解 + Windows updater
 
 ## 一句话现状
 
@@ -118,7 +118,7 @@ Finished 2 bundles at:
 - **HTML 项目导入 / CSS·JS 资源索引 / 元素定位：桌面版不支持**，请用浏览器。桌面版 `fetchLibrary()` 返回 `desktopProjectsUnsupported: true`，`putLibraryRawFile` 直接抛 `DESKTOP_UNSUPPORTED_PROJECTS`，不会假装成功。
 - **IDE 讲解（读码）**：打包版走 Rust `ide_explain`，不再依赖 Next `/api/ide/explain`。没配 Key 时是本地示例；配了 Key 就直连用户填的端点。浏览器 `npm run dev` 仍走原来的 Route Handler，两条通路共用 `explain.ts` 的 prompt / mock。
 - 图片预览走 base64 `data:` URL，极大附件会偏慢。
-- 未接系统托盘 / 自动更新 / 代码签名。安装包未签名，Windows 会提示未知发布者。
+- **自动更新**：Windows 已接 Tauri updater（设置 → 检查更新）。私钥不进仓库。详见 [STATUS-updater.md](./STATUS-updater.md)。安装包仍无 Authenticode，Windows 会提示未知发布者（与 updater 的 minisign 是两件事）。
 - 依赖 Rust 工具链和 WebView2 运行时，不是「双击即用」的单文件分发。
 - macOS / Linux 未验证；本仓库只在 Windows 上跑过。
 - **Android debug APK**：见 [STATUS-android.md](./STATUS-android.md)。桌面包不含 APK；Android 包不含 NSIS/MSI。`.kotlin` 会话/日志已 ignore，不要提交。

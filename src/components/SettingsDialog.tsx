@@ -14,6 +14,7 @@ import {
   themeLabel,
 } from "@/lib/theme";
 import { cn } from "@/lib/utils";
+import { UpdateSettings } from "./UpdateSettings";
 
 const FONT_SIZES = [15, 17, 19, 21] as const;
 const LINE_WIDTHS: [number, string][] = [
@@ -52,7 +53,7 @@ export function SettingsDialog() {
               设置
             </h2>
             <p className="text-sm text-[var(--muted)] mt-1">
-              主题、阅读与自动保存。命令与导航仍在 ⌘K。
+              主题、阅读、自动保存与桌面检查更新。命令与导航仍在 ⌘K。
             </p>
           </div>
         </div>
@@ -182,6 +183,8 @@ export function SettingsDialog() {
             </button>
           </label>
         </section>
+
+        <UpdateSettings />
 
         <section className="space-y-2">
           <h3 className="text-xs font-ui uppercase tracking-wider text-[var(--muted)]">

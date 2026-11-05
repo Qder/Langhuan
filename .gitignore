@@ -47,6 +47,13 @@ yarn-error.log*
 # env
 .env*.local
 
+# Updater / Authenticode private material — never commit
+*.key
+!*.key.pub
+/src-tauri/*.key
+TAURI_SIGNING_PRIVATE_KEY
+.env.updater
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

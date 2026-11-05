@@ -1,0 +1,12 @@
+{
+  "version": "0.0.9",
+  "bundle": {
+    "targets": ["nsis"]
+  },
+  "plugins": {
+    "updater": {
+      "dangerousInsecureTransportProtocol": true,
+      "endpoints": ["http://127.0.0.1:17861/latest.json"]
+    }
+  }
+}

@@ -7,7 +7,7 @@
 - **浏览器 `npm run dev` 仍是完整产品**（HTML 项目导入 / CSS·JS 索引只在这里）。
 - **Windows `npm run tauri:build`**：可安装桌面壳，见 [STATUS-tauri.md](./STATUS-tauri.md)。
 - **Android**：`src-tauri/gen/android` 已 init（`applicationId` `com.qder.langhuan`）。`npm run android:apk` 打 **debug APK**，打开就是琅嬛壳（藏书阁 + 读码），库落在应用私有目录，首次 hydrate 会 seed 示例 md。
-- **未做**：Play 商店、正式签名、自动更新、终端、LSP、Cloud Agent。
+- **未做**：Play 商店、正式签名、in-app 自动更新、终端、LSP、Cloud Agent。当前更新方式：下载新 APK 覆盖安装（侧载）。设置里有这段说明，没有假的下载进度。
 
 ## 本机前置（Windows 优先）
 
@@ -117,7 +117,7 @@ debug 包用 Android 默认 debug 密钥，**未做正式签名**，不能上架
 | HTML 项目导入 / CSS·JS 索引 | **唯一支持** | 明确不支持 | **同样不支持**（`desktopProjectsUnsupported`） |
 | 系统文件夹选择 / 双向同步 | File System Access | 不支持 | **不支持**（WebView 无该 API） |
 | 读码讲解 | Next `/api/ide/explain`，可读 `.env.local` | Rust `ide_explain`，只用设置里的 Key | 同桌面：Rust 管道；没填 Key 是本地示例 |
-| 自动更新 | 无 | 无 | **无** |
+| 自动更新 | 无 | Windows：设置里检查更新（见 [STATUS-updater.md](./STATUS-updater.md)） | **仅文档 / 侧载 APK**（无 in-app 下载；Play 未验） |
 | 商店 / 正式签名 | — | 未签名 NSIS/MSI | **仅 debug 签名** |
 | 终端 / LSP / 插件市场 | 产品不做 | 不做 | 不做 |
 

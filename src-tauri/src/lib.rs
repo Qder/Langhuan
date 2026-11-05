@@ -187,6 +187,12 @@ pub fn run() {
                         .build(),
                 )?;
             }
+            #[cfg(not(target_os = "android"))]
+            {
+                app.handle()
+                    .plugin(tauri_plugin_updater::Builder::new().build())?;
+                app.handle().plugin(tauri_plugin_process::init())?;
+            }
             // Ensure content tree exists on launch
             let _ = content::resolve_content_root(app.handle());
             Ok(())
