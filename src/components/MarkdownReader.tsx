@@ -16,9 +16,9 @@ import { CALLOUT_LABELS, calloutKindOf, type CalloutKind } from "@/lib/callout";
 import { mdSanitizeSchema } from "@/lib/mdSanitizeSchema";
 import { resolveLibraryHref, resolveMediaSrc } from "@/lib/resolveLibraryPath";
 import { soleImageCaption } from "@/lib/mdFigure";
+import { useReaderScrollMemory } from "@/lib/useReaderScrollMemory";
 import { MermaidBlock } from "./MermaidBlock";
-import { WikiLink } from "./WikiLink";
-import { WikiEmbed } from "./WikiEmbed";
+import { WikiLink } from "./WikiLink";import { WikiEmbed } from "./WikiEmbed";
 import { findUnlinkedMentions, parseWikiInner, wikiDisplayLabel } from "@/lib/wikilink";
 import { DocAside, hasDocAsideContent } from "./DocAside";
 import { PreviewHoverStrip } from "./PreviewHoverStrip";
@@ -2296,6 +2296,19 @@ export function MarkdownReader({ doc }: { doc: Document }) {
     }
     clearPendingPreviewLocate();
   }, [pendingPreviewLocate, clearPendingPreviewLocate, body]);
+
+  // ---- 跨会话阅读位置 ----
+  // 只在阅读预览里记：split 是编辑场景，mixed 另有分块滚容器，源码模式更是两份
+  // 不同坐标。存储与还原细节见 `useReaderScrollMemory`。
+  const scrollMemoryPath = useStore(
+    (s) => s.documents.find((d) => d.id === doc.id)?.path ?? doc.path
+  );
+  useReaderScrollMemory({
+    path: scrollMemoryPath,
+    enabled: viewMode === "preview",
+    // 「定位到源码」是一次明确跳转，别让恢复把它顶回上次的进度。
+    yieldTo: !!pendingPreviewLocate,
+  });
 
   const summary = body.replace(/^#.+$/m, "").replace(/\s+/g, " ").trim().slice(0, 80);
 
