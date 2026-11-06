@@ -21,6 +21,13 @@ import {
   type ExplainChatMessage,
   type IdeExplainFilePayload,
 } from "@/lib/ide/explain";
+import {
+  EXPLAIN_REQUEST_TIMEOUT_MS,
+  explainTimeoutMessage,
+  explainTransportFailure,
+  mergeExplainAbort,
+  raceWithDeadline,
+} from "@/lib/ide/explainTimeout";
 
 export type ExplainStreamHandlers = {
   onDelta: (text: string) => void;
@@ -114,11 +121,12 @@ async function streamViaTauri(
 
   const channel = new Channel<DesktopEvent>();
   channel.onmessage = (ev) => {
+    if (finished) return;
     if (ev.type === "delta") {
       handlers.onDelta(ev.text);
       return;
     }
-    if (ev.type === "done" && !finished) {
+    if (ev.type === "done") {
       finished = true;
       handlers.onDone({ mock: false });
     }
@@ -127,19 +135,27 @@ async function streamViaTauri(
   try {
     const messages = chatMessagesFor(req);
     const lastUser = [...messages].reverse().find((m) => m.role === "user");
-    await invoke("ide_explain", {
-      args: {
-        requestId: id,
-        systemPrompt: IDE_EXPLAIN_SYSTEM_PROMPT,
-        userContent: lastUser?.content
-          || assembleExplainUserContent(req.question, req.files, req.fileIndex),
-        messages,
-        apiKey: key,
-        baseUrl: req.baseUrl.trim(),
-        model: req.model.trim(),
+    await raceWithDeadline(
+      invoke("ide_explain", {
+        args: {
+          requestId: id,
+          systemPrompt: IDE_EXPLAIN_SYSTEM_PROMPT,
+          userContent: lastUser?.content
+            || assembleExplainUserContent(req.question, req.files, req.fileIndex),
+          messages,
+          apiKey: key,
+          baseUrl: req.baseUrl.trim(),
+          model: req.model.trim(),
+        },
+        onEvent: channel,
+      }),
+      EXPLAIN_REQUEST_TIMEOUT_MS,
+      () => {
+        void invoke("ide_explain_cancel", { requestId: id }).catch(() => {});
+        return new Error(explainTimeoutMessage(req.baseUrl));
       },
-      onEvent: channel,
-    });
+      req.signal
+    );
     // A cancelled turn returns Ok without a done event; the caller already
     // knows it aborted, so don't fake completion.
     if (!finished && !req.signal.aborted) {
@@ -150,6 +166,7 @@ async function streamViaTauri(
     if (req.signal.aborted) return;
     throw new Error(normalizeBridgeError(e));
   } finally {
+    finished = true;
     req.signal.removeEventListener("abort", onAbort);
   }
 }
@@ -169,46 +186,61 @@ async function streamViaNextRoute(
   if (req.baseUrl.trim()) body.baseUrl = req.baseUrl.trim();
   if (req.model.trim()) body.model = req.model.trim();
 
-  const res = await fetch("/api/ide/explain", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    signal: req.signal,
-  });
-
-  if (!res.ok) {
-    let err = `讲解失败（${res.status}）`;
+  const merged = mergeExplainAbort(req.signal, EXPLAIN_REQUEST_TIMEOUT_MS);
+  try {
+    let res: Response;
     try {
-      const j = (await res.json()) as { error?: string };
-      if (j.error) err = j.error;
-    } catch {
-      /* ignore */
+      res = await fetch("/api/ide/explain", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: merged.signal,
+      });
+    } catch (e) {
+      if (req.signal.aborted) throw e;
+      const fail = explainTransportFailure(e, {
+        userAborted: false,
+        baseUrl: req.baseUrl,
+      });
+      throw new Error(fail.kind === "error" ? fail.message : explainTimeoutMessage(req.baseUrl));
     }
-    throw new Error(err);
-  }
 
-  const mock = res.headers.get("X-Langhuan-Explain") === "mock";
-  const reader = res.body?.getReader();
-  if (!reader) throw new Error("无响应流");
-
-  const decoder = new TextDecoder();
-  let seen = "";
-  let lastSent = "";
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    seen += decoder.decode(value, { stream: true });
-    // Same contract as the desktop bridge: hand over only the new text.
-    if (seen.startsWith(lastSent)) {
-      const fresh = seen.slice(lastSent.length);
-      if (fresh) {
-        lastSent = seen;
-        handlers.onDelta(fresh);
+    if (!res.ok) {
+      let err = `讲解失败（${res.status}）`;
+      try {
+        const j = (await res.json()) as { error?: string };
+        if (j.error) err = j.error;
+      } catch {
+        /* ignore */
       }
-    } else {
-      lastSent = seen;
-      handlers.onDelta(seen);
+      throw new Error(err);
     }
+
+    const mock = res.headers.get("X-Langhuan-Explain") === "mock";
+    const reader = res.body?.getReader();
+    if (!reader) throw new Error("无响应流");
+
+    const decoder = new TextDecoder();
+    let seen = "";
+    let lastSent = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      seen += decoder.decode(value, { stream: true });
+      // Same contract as the desktop bridge: hand over only the new text.
+      if (seen.startsWith(lastSent)) {
+        const fresh = seen.slice(lastSent.length);
+        if (fresh) {
+          lastSent = seen;
+          handlers.onDelta(fresh);
+        }
+      } else {
+        lastSent = seen;
+        handlers.onDelta(seen);
+      }
+    }
+    handlers.onDone({ mock });
+  } finally {
+    merged.dispose();
   }
-  handlers.onDone({ mock });
 }

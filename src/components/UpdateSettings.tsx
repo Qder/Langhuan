@@ -169,11 +169,21 @@ export function UpdateSettings() {
   const [progress, setProgress] = React.useState<Progress | null>(null);
 
   React.useEffect(() => {
-    if (!isTauriRuntime()) return;
     void currentAppVersion().then(setVersion);
   }, []);
 
-  if (!isTauriRuntime()) return null;
+  if (!isTauriRuntime()) {
+    return (
+      <section className="space-y-2">
+        <h3 className="text-xs font-ui uppercase tracking-wider text-[var(--muted)]">
+          更新
+        </h3>
+        <p className="text-sm text-[var(--muted)] leading-relaxed">
+          当前是浏览器。应用内「检查更新」只在桌面安装包和安卓 APK 里；这里刷新页面即可拿到最新前端。
+        </p>
+      </section>
+    );
+  }
 
   if (isTauriAndroid()) {
     return <AndroidUpdateSettings versionLabel={version} />;

@@ -13,6 +13,8 @@ use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, Runtime};
 use tauri::plugin::{Builder as PluginBuilder, TauriPlugin};
 
+use crate::http_client::outbound_http_client;
+
 const MAX_APK_BYTES: u64 = 200 * 1024 * 1024; // 200 MB hard cap
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -67,6 +69,14 @@ fn normalize_sha256(hex: &str) -> Result<String, String> {
         return Err("清单里的 sha256 格式不对（需要 64 位十六进制）。".into());
     }
     Ok(s)
+}
+
+fn explain_manifest_http_status(status: u16) -> Option<String> {
+    match status {
+        401 | 403 | 404 => Some("找不到更新清单。可能还没有发布过安装包。".into()),
+        s if !(200..300).contains(&s) => Some(format!("检查更新失败：HTTP {s}")),
+        _ => None,
+    }
 }
 
 #[tauri::command]
@@ -159,30 +169,24 @@ fn parse_latest_manifest(raw: &str) -> Result<AndroidLatestManifest, String> {
 #[tauri::command]
 pub async fn android_fetch_latest_manifest(url: String) -> Result<AndroidLatestManifest, String> {
     require_https(&url)?;
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(30))
-        .connect_timeout(Duration::from_secs(15))
-        .build()
-        .map_err(|e| format!("创建下载客户端失败：{e}"))?;
+    let client = outbound_http_client(Duration::from_secs(20), Duration::from_secs(45))?;
     let response = client
         .get(&url)
         .header("Cache-Control", "no-cache")
+        .header("Accept", "application/json, text/plain, */*")
         .send()
         .await
-        .map_err(|e| format!("连不上更新服务器：{e}"))?;
-    if response.status().as_u16() == 404 {
-        return Err("找不到更新清单。可能还没有发布过安装包。".into());
-    }
-    if !response.status().is_success() {
-        return Err(format!(
-            "连不上更新服务器：HTTP {}",
-            response.status().as_u16()
-        ));
+        .map_err(|_| "连不上更新服务器。检查网络后重试。".to_string())?;
+    if let Some(msg) = explain_manifest_http_status(response.status().as_u16()) {
+        return Err(msg);
     }
     let body = response
         .text()
         .await
-        .map_err(|e| format!("读取更新清单失败：{e}"))?;
+        .map_err(|_| "读取更新清单失败。".to_string())?;
+    if body.trim_start().starts_with('<') {
+        return Err("找不到更新清单。可能还没有发布过安装包。".into());
+    }
     parse_latest_manifest(&body)
 }
 
@@ -206,17 +210,14 @@ pub async fn android_download_update(
     let _ = std::fs::remove_file(&tmp);
     let _ = std::fs::remove_file(&dest);
 
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(600))
-        .connect_timeout(Duration::from_secs(20))
-        .build()
-        .map_err(|e| format!("创建下载客户端失败：{e}"))?;
+    let client = outbound_http_client(Duration::from_secs(20), Duration::from_secs(600))?;
 
     let response = client
         .get(&url)
+        .header("Accept", "application/octet-stream, */*")
         .send()
         .await
-        .map_err(|e| format!("连不上更新服务器：{e}"))?;
+        .map_err(|_| "连不上更新服务器。检查网络后重试。".to_string())?;
 
     if !response.status().is_success() {
         let code = response.status().as_u16();
@@ -339,6 +340,20 @@ mod tests {
         let m = parse_latest_manifest(raw).unwrap();
         assert_eq!(m.version_code, 3);
         assert_eq!(m.apk_url, "https://example.com/a.apk");
+    }
+
+    #[test]
+    fn manifest_http_status_is_not_a_generic_connect_error() {
+        assert!(explain_manifest_http_status(404)
+            .unwrap()
+            .contains("找不到更新清单"));
+        assert!(explain_manifest_http_status(403)
+            .unwrap()
+            .contains("找不到更新清单"));
+        assert!(explain_manifest_http_status(502)
+            .unwrap()
+            .contains("HTTP 502"));
+        assert!(explain_manifest_http_status(200).is_none());
     }
 
     #[test]

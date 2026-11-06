@@ -9,6 +9,7 @@ import type { SendExplain } from "./types";
 
 /** B5 — three chips; each fires an explain request with the current context. */
 const EXPLAIN_PRESETS = [
+  "这个工程在干什么",
   "这个文件在干什么",
   "它依赖谁、谁依赖它",
   "从哪读起",
@@ -22,12 +23,14 @@ export function ExplainComposer({
   includeFile,
   includeSelection,
   includeNearby,
+  includeFolder,
   selectionActive,
   selectionRange,
   onQuestion,
   onIncludeFile,
   onIncludeSelection,
   onIncludeNearby,
+  onIncludeFolder,
   onSend,
   onStop,
   onCaptureSelection,
@@ -39,12 +42,14 @@ export function ExplainComposer({
   includeFile: boolean;
   includeSelection: boolean;
   includeNearby: boolean;
+  includeFolder: boolean;
   selectionActive: boolean;
   selectionRange: { path: string; fromLine: number; toLine: number } | null;
   onQuestion: (v: string) => void;
   onIncludeFile: (v: boolean) => void;
   onIncludeSelection: (v: boolean) => void;
   onIncludeNearby: (v: boolean) => void;
+  onIncludeFolder: (v: boolean) => void;
   onSend: SendExplain;
   onStop: () => void;
   onCaptureSelection: () => void;
@@ -111,6 +116,14 @@ export function ExplainComposer({
           />
           带上相关文件
         </label>
+        <label className="inline-flex items-center gap-1.5">
+          <input
+            type="checkbox"
+            checked={includeFolder}
+            onChange={(e) => onIncludeFolder(e.target.checked)}
+          />
+          带上工程文件
+        </label>
       </div>
       <div className="flex gap-1.5 items-end">
         <textarea
@@ -119,7 +132,9 @@ export function ExplainComposer({
             "px-2.5 py-2 text-sm font-ui resize-y focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/35"
           )}
           placeholder={
-            hasSession ? "问这个文件 / 选区…（Enter 发送 · Shift+Enter 换行）" : "先打开文件夹"
+            hasSession
+              ? "问这个工程 / 文件 / 选区…（Enter 发送 · Shift+Enter 换行）"
+              : "先打开文件夹"
           }
           value={question}
           disabled={!hasSession || busy}

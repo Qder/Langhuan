@@ -4,6 +4,11 @@ import {
   resolveExplainApiMessages,
   type IdeExplainFilePayload,
 } from "@/lib/ide/explain";
+import {
+  EXPLAIN_REQUEST_TIMEOUT_MS,
+  explainTimeoutMessage,
+  isAbortLike,
+} from "@/lib/ide/explainTimeout";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -109,6 +114,8 @@ export async function POST(req: NextRequest) {
         stream: true,
         temperature: 0.3,
       }),
+      // 连上后不吐数据也不能把 Route Handler 挂死；客户端还有同等上限。
+      signal: AbortSignal.timeout(EXPLAIN_REQUEST_TIMEOUT_MS),
     });
 
     if (!upstream.ok) {
@@ -179,6 +186,12 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (e) {
+    if (isAbortLike(e)) {
+      return NextResponse.json(
+        { ok: false, error: explainTimeoutMessage(base) },
+        { status: 504 }
+      );
+    }
     const message = e instanceof Error ? e.message : String(e);
     return NextResponse.json(
       { ok: false, error: `网络失败：${message}` },

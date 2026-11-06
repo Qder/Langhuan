@@ -20,6 +20,7 @@ import {
 import { collectTocEntries, isTocMarkerLine, type TocEntry } from "@/lib/tocMarker";
 import { buildTocTree, type TocNode } from "@/lib/rehypeToc";
 import { proseWidthForZoom } from "@/lib/readingPrefs";
+import { continueLinePrefix } from "@/lib/mdLinePrefix";
 import {
   effectiveZoom,
   scrollTopForViewportDelta,
@@ -156,6 +157,43 @@ const MixedMdBlock = React.memo(function MixedMdBlock({
             if (e.key === "Escape") {
               (e.target as HTMLTextAreaElement).blur();
               return;
+            }
+            // 行首轻量语法：列表 / 引用里回车自动续上标记。
+            // 只在「光标在行尾且没有选区」时接管，免得破坏中间插入的行为。
+            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+              const ta = e.currentTarget;
+              if (ta.selectionStart === ta.selectionEnd) {
+                const caret = ta.selectionStart;
+                const lineStart = ta.value.lastIndexOf("\n", caret - 1) + 1;
+                let lineEnd = ta.value.indexOf("\n", caret);
+                if (lineEnd < 0) lineEnd = ta.value.length;
+                // 光标不在行尾就交还给默认换行（那是「拆开一行」，不是续项）。
+                if (caret === lineEnd) {
+                  const cont = continueLinePrefix(ta.value.slice(lineStart, lineEnd));
+                  if (cont) {
+                    e.preventDefault();
+                    if (cont.kind === "clear") {
+                      // 空项再回车 → 清掉整行标记，退出列表 / 引用
+                      onChange(index, `${ta.value.slice(0, lineStart)}${ta.value.slice(lineEnd)}`);
+                    } else {
+                      onChange(
+                        index,
+                        `${ta.value.slice(0, caret)}${cont.insert}${ta.value.slice(caret)}`
+                      );
+                    }
+                    const pos =
+                      cont.kind === "clear" ? lineStart : caret + cont.insert.length;
+                    // 值由父级回流，光标要等 DOM 更新后再落。
+                    requestAnimationFrame(() => {
+                      const el = taRef.current;
+                      if (!el) return;
+                      el.focus();
+                      el.setSelectionRange(pos, pos);
+                    });
+                    return;
+                  }
+                }
+              }
             }
             // 光标行变化后再量，否则读到的是按键前的滚动位置。
             recenter();

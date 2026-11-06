@@ -130,6 +130,7 @@ export function IdeExplorer() {
   const clearPendingExplorerReveal = useIdeStore(
     (s) => s.clearPendingExplorerReveal
   );
+  const explorerWidth = useIdeStore((s) => s.explorerWidth);
   const [flashPath, setFlashPath] = React.useState<string | null>(null);
 
   React.useEffect(() => {
@@ -185,7 +186,8 @@ export function IdeExplorer() {
 
   return (
     <aside
-      className="w-[260px] shrink-0 flex flex-col border-r border-[var(--chrome-border)] bg-[var(--chrome)] lg:shadow-[var(--chrome-shadow)]"
+      className="shrink-0 flex flex-col bg-[var(--chrome)] lg:shadow-[var(--chrome-shadow)]"
+      style={{ width: explorerWidth }}
       aria-label="文件"
     >
       <div className="h-10 px-3 flex items-center text-xs font-ui uppercase tracking-wide text-[var(--muted)] border-b border-[var(--chrome-border)] shrink-0">

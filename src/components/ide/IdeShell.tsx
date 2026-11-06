@@ -31,14 +31,30 @@ import {
   toggleExplorerLayers,
 } from "@/lib/ide/panelLayers";
 import { cn } from "@/lib/utils";
+import { ResizeGutter } from "../ui/ResizeGutter";
+import {
+  IDE_EXPLAIN_WIDTH_DEFAULT,
+  IDE_EXPLAIN_WIDTH_MAX,
+  IDE_EXPLAIN_WIDTH_MIN,
+  IDE_EXPLORER_WIDTH_DEFAULT,
+  IDE_EXPLORER_WIDTH_MAX,
+  IDE_EXPLORER_WIDTH_MIN,
+  clampIdeExplainWidth,
+  clampIdeExplorerWidth,
+} from "@/lib/ide/ideSplit";
 
 export function IdeShell() {
   const session = useIdeStore((s) => s.session);
   const activePath = useIdeStore((s) => s.activePath);
   const explorerOpen = useIdeStore((s) => s.explorerOpen);
   const setExplorerOpen = useIdeStore((s) => s.setExplorerOpen);
+  const explorerWidth = useIdeStore((s) => s.explorerWidth);
+  const setExplorerWidth = useIdeStore((s) => s.setExplorerWidth);
   const explainOpen = useIdeStore((s) => s.explainOpen);
   const setExplainOpen = useIdeStore((s) => s.setExplainOpen);
+  const explainWidth = useIdeStore((s) => s.explainWidth);
+  const setExplainWidth = useIdeStore((s) => s.setExplainWidth);
+  const splitRef = React.useRef<HTMLDivElement>(null);
   const anyDirty = useIdeStore((s) => s.anyDirty);
   const status = useIdeStore((s) => s.status);
   const tabs = useIdeStore((s) => s.tabs);
@@ -252,6 +268,48 @@ export function IdeShell() {
   const showDocked = !!session && explorerOpen && isLg;
   const activeTab = tabs.find((t) => t.path === activePath) ?? null;
 
+  const onExplorerDelta = React.useCallback(
+    (deltaPx: number) => {
+      const container = splitRef.current?.getBoundingClientRect().width ?? 0;
+      const s = useIdeStore.getState();
+      setExplorerWidth(
+        clampIdeExplorerWidth(s.explorerWidth + deltaPx, {
+          containerWidth: container,
+          explainOpen: isLg && s.explainOpen,
+          explainWidth: s.explainWidth,
+        })
+      );
+    },
+    [isLg, setExplorerWidth]
+  );
+
+  const onExplainDelta = React.useCallback(
+    (deltaPx: number) => {
+      const container = splitRef.current?.getBoundingClientRect().width ?? 0;
+      const s = useIdeStore.getState();
+      setExplainWidth(
+        clampIdeExplainWidth(s.explainWidth - deltaPx, {
+          containerWidth: container,
+          explorerOpen: isLg && s.explorerOpen,
+          explorerWidth: s.explorerWidth,
+        })
+      );
+    },
+    [isLg, setExplainWidth]
+  );
+
+  const explorerGutter = (
+    <ResizeGutter
+      axis="horizontal"
+      label="调整文件树宽度"
+      value={explorerWidth}
+      min={IDE_EXPLORER_WIDTH_MIN}
+      max={IDE_EXPLORER_WIDTH_MAX}
+      onDelta={onExplorerDelta}
+      onReset={() => setExplorerWidth(IDE_EXPLORER_WIDTH_DEFAULT)}
+    />
+  );
+
   return (
     <div className="h-dvh flex flex-col overflow-hidden text-[var(--fg)] relative">
       <IdeTopBar
@@ -263,8 +321,13 @@ export function IdeShell() {
         onToggleOutline={() => toggleOutlineOpen()}
         canToggleOutline={!!activePath}
       />
-      <div className="flex-1 min-h-0 flex relative">
-        {showDocked && <IdeExplorer />}
+      <div ref={splitRef} className="flex-1 min-h-0 flex relative">
+        {showDocked && (
+          <>
+            <IdeExplorer />
+            {explorerGutter}
+          </>
+        )}
 
         {/* Tablet drawer explorer */}
         {showDrawer && (
@@ -275,8 +338,9 @@ export function IdeShell() {
               aria-label="关闭文件面板"
               onClick={() => setExplorerOpen(false)}
             />
-            <div className="absolute inset-y-0 left-0 z-40 shadow-2xl animate-enter">
+            <div className="absolute inset-y-0 left-0 z-40 shadow-2xl animate-enter flex">
               <IdeExplorer />
+              {explorerGutter}
             </div>
           </>
         )}
@@ -329,6 +393,17 @@ export function IdeShell() {
           )}
         </div>
 
+        {explainOpen && isLg && (
+          <ResizeGutter
+            axis="horizontal"
+            label="调整讲解面板宽度"
+            value={explainWidth}
+            min={IDE_EXPLAIN_WIDTH_MIN}
+            max={IDE_EXPLAIN_WIDTH_MAX}
+            onDelta={onExplainDelta}
+            onReset={() => setExplainWidth(IDE_EXPLAIN_WIDTH_DEFAULT)}
+          />
+        )}
         {explainOpen && (
           <IdeExplainPanel onClose={() => setExplainOpen(false)} />
         )}

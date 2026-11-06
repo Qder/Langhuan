@@ -34,6 +34,7 @@ import { safeCoordsAtPos, createRafScrollToOffset } from "./safeCoords";
 import { subscribeScrollSync } from "@/lib/locate/scrollBus";
 import { applyExternalDoc } from "@/lib/editorExternalSync";
 import { typewriterBottomPad } from "@/lib/typewriter";
+import { continueLinePrefix } from "@/lib/mdLinePrefix";
 
 function offsetToLineCol(text: string, offset: number): { line: number; col: number } {
   const o = Math.max(0, Math.min(offset, text.length));
@@ -440,41 +441,23 @@ export function MdCodeMirror({
             applyWiki(view, wiki.items[wiki.index], wiki.start);
             return true;
           }
-          // list continuation
+          // 列表 / 引用续行：判断逻辑在 mdLinePrefix，混合模式用的是同一份，
+          // 免得两套手感漂移。这里只负责把它翻译成 CM6 的 dispatch。
           const { state } = view;
           const line = state.doc.lineAt(state.selection.main.head);
-          const m =
-            line.text.match(/^(\s*)([-*+]|\d+\.)\s+(\[[ xX]\]\s+)?(.*)$/) ||
-            line.text.match(/^(\s*)>\s?(.*)$/);
-          if (m) {
-            const indent = m[1];
-            if (line.text.match(/^(\s*)([-*+]|\d+\.)\s+(\[[ xX]\]\s+)?$/)) {
-              // empty list item → outdent / clear
+          const cont = continueLinePrefix(line.text);
+          if (cont) {
+            if (cont.kind === "clear") {
+              // 空项再回车 → 清掉这一行的标记，退出列表 / 引用
               view.dispatch({
                 changes: { from: line.from, to: line.to, insert: "" },
               });
               return true;
             }
-            if (line.text.startsWith(indent + ">")) {
-              const insert = `\n${indent}> `;
-              const pos = state.selection.main.head;
-              view.dispatch({
-                changes: { from: pos, to: pos, insert },
-                selection: { anchor: pos + insert.length },
-              });
-              return true;
-            }
-            const bullet = m[2];
-            const check = m[3] || "";
-            let nextBullet = bullet;
-            if (/^\d+\.$/.test(bullet)) {
-              nextBullet = `${parseInt(bullet, 10) + 1}.`;
-            }
-            const insert = `\n${indent}${nextBullet} ${check}`;
             const pos = state.selection.main.head;
             view.dispatch({
-              changes: { from: pos, to: pos, insert },
-              selection: { anchor: pos + insert.length },
+              changes: { from: pos, to: pos, insert: cont.insert },
+              selection: { anchor: pos + cont.insert.length },
             });
             return true;
           }

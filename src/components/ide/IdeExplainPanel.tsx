@@ -69,15 +69,17 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
 
   const [showSettings, setShowSettings] = React.useState(false);
   const selectionActive = !!selection && selection.path === activePath;
+  const explainWidth = useIdeStore((s) => s.explainWidth);
 
   const panel = (
     <div
       className={cn(
         "flex flex-col bg-[var(--chrome)] border-[var(--chrome-border)]",
         isLg
-          ? "w-[min(380px,38vw)] h-full border-l"
+          ? "h-full shrink-0"
           : "w-full flex-1 min-h-0 rounded-t-2xl border-t shadow-2xl"
       )}
+      style={isLg ? { width: explainWidth } : undefined}
       role={isLg ? "dialog" : undefined}
       aria-label={isLg ? "讲解" : undefined}
     >
@@ -117,6 +119,7 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
         includeFile={stream.includeFile}
         includeSelection={stream.includeSelection}
         includeNearby={stream.includeNearby}
+        includeFolder={stream.includeFolder}
         selectionActive={selectionActive}
         selectionRange={
           selectionActive && selection
@@ -131,6 +134,7 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
         onIncludeFile={stream.setIncludeFile}
         onIncludeSelection={stream.setIncludeSelection}
         onIncludeNearby={stream.setIncludeNearby}
+        onIncludeFolder={stream.setIncludeFolder}
         onSend={stream.send}
         onStop={stream.stop}
         onCaptureSelection={() => void capture.captureSelection()}

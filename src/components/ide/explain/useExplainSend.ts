@@ -6,14 +6,22 @@ import {
   buildExplainFilePayloads,
   citationsFromMarkdown,
   collectFileIndexWithOptionalBfs,
+  IDE_EXPLAIN_FOLDER_MAX_CHARS,
+  IDE_EXPLAIN_FOLDER_MAX_CHARS_ANDROID,
+  IDE_EXPLAIN_FOLDER_MAX_FILES,
+  IDE_EXPLAIN_FOLDER_MAX_FILES_ANDROID,
   listNearbyImports,
+  planExplainFolderFiles,
+  rankExplainFolderPaths,
   selectExplainPriorMessages,
   truncateNeighborExplainContent,
   type IdeExplainMessage,
 } from "@/lib/ide/explain";
 import { createExplainDeltaFlusher } from "@/lib/ide/explainFlush";
 import { streamExplain } from "@/lib/ide/explainClient";
+import { finalizeExplainReply } from "@/lib/ide/explainTimeout";
 import { listIdeDir, readIdeFile } from "@/lib/ide/ideFs";
+import { isTauriAndroidRuntime } from "@/lib/platform";
 import type { SendExplain } from "./types";
 
 function newId(): string {
@@ -38,6 +46,7 @@ export function useExplainSend({
   const [includeFile, setIncludeFile] = React.useState(true);
   const [includeSelection, setIncludeSelection] = React.useState(false);
   const [includeNearby, setIncludeNearby] = React.useState(true);
+  const [includeFolder, setIncludeFolder] = React.useState(true);
   const [busy, setBusy] = React.useState(false);
   const [isMock, setIsMock] = React.useState(false);
   const abortRef = React.useRef<AbortController | null>(null);
@@ -76,6 +85,11 @@ export function useExplainSend({
 
     const useFile = opts?.includeFile ?? includeFile;
     const useSel = opts?.includeSelection ?? includeSelection;
+
+    if (useFile && !activeTab && !includeFolder) {
+      // 勾了带上当前文件但没打开文件：不阻断，files 仍是 []，状态栏说一句。
+      setStatus("未打开文件，本轮不带正文");
+    }
 
     let files =
       activeTab && (useFile || useSel)
@@ -134,6 +148,60 @@ export function useExplainSend({
       }
     }
 
+    if (includeFolder) {
+      const folderMaxFiles = isTauriAndroidRuntime()
+        ? IDE_EXPLAIN_FOLDER_MAX_FILES_ANDROID
+        : IDE_EXPLAIN_FOLDER_MAX_FILES;
+      const folderMaxChars = isTauriAndroidRuntime()
+        ? IDE_EXPLAIN_FOLDER_MAX_CHARS_ANDROID
+        : IDE_EXPLAIN_FOLDER_MAX_CHARS;
+      const already = new Set(files.map((f) => f.path));
+      const ranked = rankExplainFolderPaths(
+        fileIndex,
+        activeTab?.path ?? activePath
+      );
+      const cache = new Map<string, string>();
+      const skipped: string[] = [];
+      for (const rel of ranked) {
+        if (already.has(rel)) continue;
+        if (cache.size >= folderMaxFiles) break;
+        const open = tabs.find((t) => t.path === rel);
+        if (open) {
+          cache.set(rel, open.draft);
+          continue;
+        }
+        try {
+          cache.set(rel, await readIdeFile(session, rel));
+        } catch {
+          skipped.push(rel);
+        }
+      }
+      const folder = planExplainFolderFiles({
+        enabled: true,
+        fileIndex,
+        alreadyPaths: [...already],
+        activePath: activeTab?.path ?? activePath,
+        maxFiles: folderMaxFiles,
+        maxChars: folderMaxChars,
+        readContent: (rel) => cache.get(rel) ?? null,
+      });
+      files = [...files, ...folder.files];
+      if (folder.files.length > 0) {
+        const extra =
+          folder.omitted > 0
+            ? `（另有 ${folder.omitted} 个未纳入）`
+            : "";
+        setStatus(`本轮带上工程内 ${folder.files.length} 个文件正文${extra}`);
+      } else if (files.length === 0) {
+        setStatus("未读到可带的工程文件正文");
+      }
+      if (skipped.length > 0 && folder.files.length === 0) {
+        setStatus(
+          `未读到 ${skipped.slice(0, 3).join("、")}${skipped.length > 3 ? "…" : ""}`
+        );
+      }
+    }
+
     // 必须在 push 本轮气泡之前快照：否则会把空助手气泡和本轮 user 再塞进 prior。
     const prior = selectExplainPriorMessages(
       useIdeStore.getState().explainBySession[session.id] ?? []
@@ -185,9 +253,10 @@ export function useExplainSend({
           },
           onDone: ({ mock }) => {
             setIsMock(mock);
-            getFlusher().now(acc, { mock });
+            const text = finalizeExplainReply(acc);
+            getFlusher().now(text, { mock });
             // Citations snapshot so chips survive a reload.
-            void citationsFromMarkdown(acc);
+            void citationsFromMarkdown(text);
           },
         }
       );
@@ -222,6 +291,8 @@ export function useExplainSend({
     setIncludeSelection,
     includeNearby,
     setIncludeNearby,
+    includeFolder,
+    setIncludeFolder,
     busy,
     isMock,
     send,

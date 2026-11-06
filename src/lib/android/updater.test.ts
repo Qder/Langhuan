@@ -58,4 +58,15 @@ describe("explainAndroidUpdaterError", () => {
       /连不上更新服务器/
     );
   });
+
+  it("maps missing GitHub asset, not as a generic connect error", () => {
+    expect(
+      explainAndroidUpdaterError(
+        new Error("找不到更新清单。可能还没有发布过安装包。")
+      )
+    ).toMatch(/找不到更新清单/);
+    expect(
+      explainAndroidUpdaterError(new Error("连不上更新服务器：HTTP 404"))
+    ).toMatch(/找不到更新清单/);
+  });
 });

@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Keyboard, Settings2 } from "lucide-react";
+import { Keyboard, Settings2, X } from "lucide-react";
 import { Dialog } from "./ui/dialog";
 import { Button } from "./ui/button";
 import { useStore } from "@/lib/store";
@@ -46,22 +46,31 @@ export function SettingsDialog() {
       open={open}
       onClose={() => setOpen(false)}
       labelledBy="settings-title"
-      className="max-w-lg"
+      className="max-w-lg scroll-thin"
     >
-      <div className="p-5 space-y-5">
-        <div className="flex items-start gap-3">
-          <span className="mt-0.5 rounded-xl border border-[var(--border)] bg-[var(--hover)] p-2">
-            <Settings2 className="h-4 w-4 text-[var(--accent)]" />
-          </span>
-          <div className="min-w-0">
-            <h2 id="settings-title" className="text-lg font-semibold font-ui">
-              设置
-            </h2>
-            <p className="text-sm text-[var(--muted)] mt-1">
-              主题、阅读、自动保存与桌面检查更新。命令与导航仍在 ⌘K。
-            </p>
-          </div>
+      <div className="sticky top-0 z-10 flex items-start gap-3 border-b border-[var(--border)] bg-[var(--card)] px-5 py-3">
+        <span className="mt-0.5 rounded-xl border border-[var(--border)] bg-[var(--hover)] p-2">
+          <Settings2 className="h-4 w-4 text-[var(--accent)]" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <h2 id="settings-title" className="text-lg font-semibold font-ui">
+            设置
+          </h2>
+          <p className="text-sm text-[var(--muted)] mt-1">
+            主题、阅读、自动保存与检查更新。命令与导航仍在 ⌘K。
+          </p>
         </div>
+        <button
+          type="button"
+          onClick={() => setOpen(false)}
+          aria-label="关闭设置"
+          title="关闭"
+          className="shrink-0 rounded-lg p-1.5 hover:bg-[var(--hover)]"
+        >
+          <X className="h-4 w-4 text-[var(--muted)]" />
+        </button>
+      </div>
+      <div className="p-5 space-y-5">
 
         <section className="space-y-2">
           <h3 className="text-xs font-ui uppercase tracking-wider text-[var(--muted)]">

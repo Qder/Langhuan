@@ -125,6 +125,41 @@ describe("streamExplain · 浏览器", () => {
     expect(body.messages[0]?.role).toBe("system");
   });
 
+  it("fetch 一直不返回时在上限内变成中文超时，不含 Key", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (_url: string, init?: RequestInit) =>
+          new Promise((_, reject) => {
+            const s = init?.signal;
+            if (!s) return;
+            const fail = () =>
+              reject(Object.assign(new Error("aborted"), { name: "AbortError" }));
+            if (s.aborted) fail();
+            else s.addEventListener("abort", fail, { once: true });
+          })
+      )
+    );
+    const p = streamExplain(
+      {
+        question: "q",
+        files,
+        apiKey: "sk-test-should-not-leak",
+        baseUrl: "https://bad.example/v1",
+        model: "",
+        signal: new AbortController().signal,
+      },
+      collect().handlers
+    );
+    const flushed = expect(p).rejects.toThrow(/超时/);
+    await vi.advanceTimersByTimeAsync(75_000);
+    await flushed;
+    await expect(p).rejects.toThrow(/检查网络或 Base URL/);
+    await expect(p).rejects.not.toThrow(/sk-test/);
+    vi.useRealTimers();
+  });
+
   it("上游 401 变成可读错误", async () => {
     vi.stubGlobal(
       "fetch",
@@ -246,6 +281,27 @@ describe("streamExplain · 桌面", () => {
     const blob = JSON.stringify(payload.args.messages);
     expect(blob).toContain("这个文件在干什么");
     expect(blob).toContain("刚才说的注解是什么意思");
+  });
+
+  it("invoke 永不返回时 JS 上限拆掉，中文超时不含 Key", async () => {
+    vi.useFakeTimers();
+    invokeMock.mockImplementation(() => new Promise(() => {}));
+    const p = streamExplain(
+      {
+        question: "q",
+        files,
+        apiKey: "sk-live-secret",
+        baseUrl: "https://api.openai.com/v1",
+        model: "gpt-4o-mini",
+        signal: new AbortController().signal,
+      },
+      collect().handlers
+    );
+    const flushed = expect(p).rejects.toThrow(/超时/);
+    await vi.advanceTimersByTimeAsync(75_000);
+    await flushed;
+    expect(String(invokeMock.mock.calls.map((c) => c[0]))).toContain("ide_explain_cancel");
+    vi.useRealTimers();
   });
 
   it("旧安装包没有 ide_explain 时给出桥接错误，不把内部异常原文甩给用户", async () => {

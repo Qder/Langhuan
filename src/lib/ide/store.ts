@@ -71,6 +71,12 @@ import {
   migrateIdePersistedState,
 } from "./idePersist";
 import {
+  IDE_EXPLAIN_WIDTH_DEFAULT,
+  IDE_EXPLORER_WIDTH_DEFAULT,
+  clampIdeExplainWidth,
+  clampIdeExplorerWidth,
+} from "./ideSplit";
+import {
   isCompactIdeLayout,
   openLayer,
   reconcilePanelLayers,
@@ -109,6 +115,7 @@ type IdeState = {
   status: string | null;
   pendingClose: IdePendingClose | null;
   explorerOpen: boolean;
+  explorerWidth: number;
   /**
    * 当前文件大纲 rail. Persisted so a reload keeps the reading layout the user
    * chose; it only has an effect while a file is open.
@@ -132,6 +139,7 @@ type IdeState = {
    */
   pendingIdeLink: IdeLinkTarget | null;
   explainOpen: boolean;
+  explainWidth: number;
   /** Active thread messages keyed by project session.id (mirrors threads). */
   explainBySession: Record<string, IdeExplainMessage[]>;
   explainThreadsBySession: Record<string, IdeExplainThread[]>;
@@ -146,6 +154,8 @@ type IdeState = {
   } | null;
 
   setExplorerOpen: (v: boolean) => void;
+  setExplorerWidth: (px: number) => void;
+  setExplainWidth: (px: number) => void;
   setStatus: (msg: string | null) => void;
   openFolder: () => Promise<boolean>;
   /**
@@ -296,6 +306,7 @@ export const useIdeStore = create<IdeState>()(
       status: null,
       pendingClose: null,
       explorerOpen: true,
+      explorerWidth: IDE_EXPLORER_WIDTH_DEFAULT,
       outlineOpen: false,
       loadingTree: false,
       pendingReveal: null,
@@ -304,6 +315,7 @@ export const useIdeStore = create<IdeState>()(
       recentFiles: [],
       pendingIdeLink: null,
       explainOpen: false,
+      explainWidth: IDE_EXPLAIN_WIDTH_DEFAULT,
       explainBySession: {},
       explainThreadsBySession: {},
       explainActiveThreadIdBySession: {},
@@ -316,6 +328,8 @@ export const useIdeStore = create<IdeState>()(
 
       setExplorerOpen: (v) =>
         set((s) => (v ? openLayer(s, "explorer", isCompactIdeLayout()) : { explorerOpen: false })),
+      setExplorerWidth: (px) => set({ explorerWidth: clampIdeExplorerWidth(px) }),
+      setExplainWidth: (px) => set({ explainWidth: clampIdeExplainWidth(px) }),
       setOutlineOpen: (v) => set({ outlineOpen: v }),
       toggleOutlineOpen: () => set((s) => ({ outlineOpen: !s.outlineOpen })),
       setStatus: (msg) => set({ status: msg }),
@@ -1003,8 +1017,10 @@ export const useIdeStore = create<IdeState>()(
         recent: s.recent.slice(0, IDE_RECENT_MAX),
         recentFiles: s.recentFiles.slice(0, IDE_RECENT_FILES_MAX),
         explorerOpen: s.explorerOpen,
+        explorerWidth: s.explorerWidth,
         outlineOpen: s.outlineOpen,
         explainOpen: s.explainOpen,
+        explainWidth: s.explainWidth,
         explainBySession: s.explainBySession,
         explainThreadsBySession: s.explainThreadsBySession,
         explainActiveThreadIdBySession: s.explainActiveThreadIdBySession,

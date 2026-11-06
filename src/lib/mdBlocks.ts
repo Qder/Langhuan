@@ -32,6 +32,18 @@ function eolOf(source: string, from: number): number {
   return i < 0 ? source.length : i;
 }
 
+/**
+ * 一行的文本，去掉行尾的 `\r`。
+ *
+ * CRLF 源里如果让 `\r` 留在行内，以 `$` 收尾的正则（闭合围栏）会全部失配，
+ * 表现就是「代码块被空行切开」。所有按行判断的地方都要走这里。
+ */
+function lineAt(source: string, from: number, eol: number): string {
+  return eol > from && source.charCodeAt(eol - 1) === 13
+    ? source.slice(from, eol - 1)
+    : source.slice(from, eol);
+}
+
 /** 下一行起点；到文件末尾就返回 length。 */
 function nextLine(source: string, eol: number): number {
   return eol < source.length ? eol + 1 : eol;
@@ -50,7 +62,7 @@ function endOfFence(
   let i = afterOpeningLine;
   while (i < source.length) {
     const eol = eolOf(source, i);
-    const m = CLOSE_FENCE_RE.exec(source.slice(i, eol));
+    const m = CLOSE_FENCE_RE.exec(lineAt(source, i, eol));
     if (m && m[1]![0] === char && m[1]!.length >= len) return nextLine(source, eol);
     i = nextLine(source, eol);
   }
@@ -60,7 +72,7 @@ function endOfFence(
 /** `$$` 公式块：单行 `$$ … $$` 自成一块，否则扫到下一个以 `$$` 收尾的行。 */
 function endOfMath(source: string, start: number): number {
   const firstEol = eolOf(source, start);
-  const firstLine = source.slice(start, firstEol).trim();
+  const firstLine = lineAt(source, start, firstEol).trim();
   // `$$a+b$$`：同一行既有开头又有收尾
   if (firstLine.length > 4 && firstLine.endsWith("$$")) {
     return nextLine(source, firstEol);
@@ -68,7 +80,7 @@ function endOfMath(source: string, start: number): number {
   let i = nextLine(source, firstEol);
   while (i < source.length) {
     const eol = eolOf(source, i);
-    const line = source.slice(i, eol).trim();
+    const line = lineAt(source, i, eol).trim();
     if (line.endsWith("$$")) return nextLine(source, eol);
     i = nextLine(source, eol);
   }
@@ -81,7 +93,7 @@ function endOfTable(source: string, start: number): number {
   let end = start;
   while (i < source.length) {
     const eol = eolOf(source, i);
-    const line = source.slice(i, eol);
+    const line = lineAt(source, i, eol);
     if (line.trim() && !TABLE_RE.test(line)) break;
     if (!line.trim()) break;
     end = nextLine(source, eol);
@@ -108,14 +120,18 @@ export function splitMarkdownBlocks(source: string): MdBlock[] {
   let index = 0;
 
   while (i < n) {
-    // 跳过块之间的空行
+    // 跳过块之间的空行（CRLF 源里空行是 `\r\n`，两个字符都要跳）
     if (source[i] === "\n") {
+      i += 1;
+      continue;
+    }
+    if (source[i] === "\r") {
       i += 1;
       continue;
     }
     const start = i;
     const eol = eolOf(source, start);
-    const firstLine = source.slice(start, eol);
+    const firstLine = lineAt(source, start, eol);
 
     const fence = FENCE_RE.exec(firstLine);
     if (fence) {
@@ -135,7 +151,7 @@ export function splitMarkdownBlocks(source: string): MdBlock[] {
       i = nextLine(source, eol);
       while (i < n) {
         const lineEol = eolOf(source, i);
-        const line = source.slice(i, lineEol);
+        const line = lineAt(source, i, lineEol);
         if (!line.trim()) break;
         if (startsSpecial(line)) break;
         i = nextLine(source, lineEol);
@@ -143,7 +159,8 @@ export function splitMarkdownBlocks(source: string): MdBlock[] {
     }
 
     const end = i;
-    const text = source.slice(start, end).replace(/\n$/, "");
+    // 去掉围栏块尾部的换行与 `\r`（CRLF 源里 delete 前要先剥掉回车）
+    const text = source.slice(start, end).replace(/\r?\n$/, "");
     blocks.push({ index, start, end: start + text.length, text });
     index += 1;
     // 消费块后的一个换行（空行会在下一轮被跳过）

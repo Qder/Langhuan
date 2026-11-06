@@ -25,12 +25,14 @@ function mount(onSend: SendExplain, extra: Partial<React.ComponentProps<typeof E
         includeFile
         includeSelection={false}
         includeNearby={false}
+        includeFolder
         selectionActive={false}
         selectionRange={null}
         onQuestion={() => {}}
         onIncludeFile={() => {}}
         onIncludeSelection={() => {}}
         onIncludeNearby={() => {}}
+        onIncludeFolder={() => {}}
         onSend={onSend}
         onStop={() => {}}
         onCaptureSelection={() => {}}
@@ -165,5 +167,26 @@ describe("ExplainComposer 当前选区", () => {
     expect(sel!.disabled).toBe(false);
     expect(sel!.checked).toBe(true);
     expect(host.textContent).not.toContain("先在编辑器划词");
+  });
+});
+
+describe("ExplainComposer 工程文件", () => {
+  let root: Root;
+  let host: HTMLElement;
+
+  afterEach(() => {
+    if (root && host) unmount(root, host);
+  });
+
+  it("有带上工程文件勾选项，默认勾上", () => {
+    const onSend = vi.fn<SendExplain>();
+    ({ host, root } = mount(onSend));
+    const boxes = Array.from(host.querySelectorAll('input[type="checkbox"]'));
+    const folder = boxes.find((el) =>
+      el.closest("label")?.textContent?.includes("带上工程文件")
+    ) as HTMLInputElement | undefined;
+    expect(folder).toBeTruthy();
+    expect(folder!.checked).toBe(true);
+    expect(host.querySelector("textarea")?.placeholder).toContain("问这个工程");
   });
 });

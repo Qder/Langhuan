@@ -25,6 +25,12 @@ import {
   titleFromExplainMessages,
   type IdeExplainThread,
 } from "./explainThreads";
+import {
+  IDE_EXPLAIN_WIDTH_DEFAULT,
+  IDE_EXPLORER_WIDTH_DEFAULT,
+  clampIdeExplainWidth,
+  clampIdeExplorerWidth,
+} from "./ideSplit";
 
 export const IDE_STORE_PERSIST_VERSION = 6;
 
@@ -40,9 +46,13 @@ export type IdePersistedSlice = {
   /** v3: recently opened files (cross-project). */
   recentFiles: IdeRecentFile[];
   explorerOpen: boolean;
+  /** Docked explorer width in px (gutter). */
+  explorerWidth: number;
   /** v5: 当前文件大纲 rail. */
   outlineOpen: boolean;
   explainOpen: boolean;
+  /** Docked explain panel width in px (gutter). */
+  explainWidth: number;
   /** Active thread messages (derived; kept so jump/send keep reading one map). */
   explainBySession: Record<string, IdeExplainMessage[]>;
   /** v6: all conversations for a project. */
@@ -251,8 +261,18 @@ export function migrateIdePersistedState(
     recent: normalizeRecentList(p.recent),
     recentFiles: normalizeRecentFiles(p.recentFiles, IDE_RECENT_FILES_MAX),
     explorerOpen: typeof p.explorerOpen === "boolean" ? p.explorerOpen : true,
+    explorerWidth: clampIdeExplorerWidth(
+      typeof p.explorerWidth === "number"
+        ? p.explorerWidth
+        : IDE_EXPLORER_WIDTH_DEFAULT
+    ),
     outlineOpen: typeof p.outlineOpen === "boolean" ? p.outlineOpen : false,
     explainOpen: typeof p.explainOpen === "boolean" ? p.explainOpen : false,
+    explainWidth: clampIdeExplainWidth(
+      typeof p.explainWidth === "number"
+        ? p.explainWidth
+        : IDE_EXPLAIN_WIDTH_DEFAULT
+    ),
     explainThreadsBySession: threads,
     explainActiveThreadIdBySession: active,
     explainBySession: deriveExplainBySession(threads, active),

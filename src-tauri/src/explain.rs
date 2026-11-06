@@ -20,8 +20,17 @@ use std::time::Duration;
 use tauri::ipc::Channel;
 use tauri::State;
 
+use crate::http_client::outbound_http_client;
+
 pub const DEFAULT_BASE_URL: &str = "https://api.openai.com/v1";
 pub const DEFAULT_MODEL: &str = "gpt-4o-mini";
+
+/// TCP 连接上限。连上之后若上游不吐数据，不能只靠这个。
+pub const CONNECT_TIMEOUT_SECS: u64 = 15;
+/// 整轮上限（含等首包 / 读完），60–90s。挂死后 invoke 必须返回。
+pub const REQUEST_TIMEOUT_SECS: u64 = 75;
+/// 两次读之间的空闲。连上但一直不发 chunk 时比整轮更早失败。
+pub const READ_IDLE_TIMEOUT_SECS: u64 = 45;
 
 /// Live cancellation flags, keyed by the frontend's request id.
 #[derive(Default)]
@@ -105,9 +114,13 @@ fn clear_cancel(state: &State<'_, ExplainState>, request_id: &str) {
 }
 
 /// Readable message for a failed HTTP call. Never embeds the key.
+fn timeout_error(base: &str) -> String {
+    format!("连接 {base} 超时，检查网络或 Base URL")
+}
+
 fn connect_error(base: &str, err: &reqwest::Error) -> String {
     if err.is_timeout() {
-        format!("连接 {base} 超时，检查网络或 Base URL")
+        timeout_error(base)
     } else if err.is_connect() {
         format!("连不上 {base}，检查 Base URL 或代理设置")
     } else {
@@ -181,10 +194,11 @@ async fn stream_completion(
 
     clear_cancel(&state, &args.request_id);
 
-    let client = reqwest::Client::builder()
-        .connect_timeout(Duration::from_secs(15))
-        .build()
-        .map_err(|e| format!("HTTP 客户端初始化失败：{e}"))?;
+    // 不要设 read_timeout：等响应头 / 第一个 SSE 也算一次 read。
+    let client = outbound_http_client(
+        Duration::from_secs(CONNECT_TIMEOUT_SECS),
+        Duration::from_secs(REQUEST_TIMEOUT_SECS),
+    )?;
 
     let body = serde_json::json!({
         "model": model,
@@ -224,7 +238,7 @@ async fn stream_completion(
             Ok(None) => break,
             Err(e) => {
                 clear_cancel(&state, &args.request_id);
-                return Err(format!("读取响应流失败：{e}"));
+                return Err(connect_error(base, &e));
             }
         };
         pending.extend_from_slice(&chunk);
@@ -321,6 +335,20 @@ mod tests {
         // Only the base URL is interpolated; the key lives in a header.
         let msg = format!("连不上 {DEFAULT_BASE_URL}，检查 Base URL 或代理设置");
         assert!(!msg.to_lowercase().contains("sk-"));
+    }
+
+    #[test]
+    fn timeouts_are_in_the_agreed_window_and_copy_is_chinese() {
+        assert_eq!(CONNECT_TIMEOUT_SECS, 15);
+        assert!(REQUEST_TIMEOUT_SECS >= 60 && REQUEST_TIMEOUT_SECS <= 90);
+        // READ_IDLE 只作文档对齐；客户端不再设 read_timeout，避免等首包误杀。
+        assert!(READ_IDLE_TIMEOUT_SECS > CONNECT_TIMEOUT_SECS);
+        assert!(READ_IDLE_TIMEOUT_SECS < REQUEST_TIMEOUT_SECS);
+        let msg = timeout_error("https://example.invalid/v1");
+        assert!(msg.contains("超时"));
+        assert!(msg.contains("检查网络或 Base URL"));
+        assert!(!msg.to_lowercase().contains("sk-"));
+        assert!(!msg.contains("Authorization"));
     }
 
     fn sample_args(messages: Vec<ExplainChatMessage>) -> ExplainArgs {

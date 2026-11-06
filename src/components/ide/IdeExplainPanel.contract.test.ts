@@ -254,6 +254,61 @@ describe("讲解面板：收入本段对话", () => {
   });
 });
 
+describe("讲解面板：生成中不再空转", () => {
+  const timeoutSrc = readFileSync(
+    join(process.cwd(), "src/lib/ide/explainTimeout.ts"),
+    "utf8"
+  );
+  const clientSrc = readFileSync(
+    join(process.cwd(), "src/lib/ide/explainClient.ts"),
+    "utf8"
+  );
+  const routeSrc = readFileSync(
+    join(process.cwd(), "src/app/api/ide/explain/route.ts"),
+    "utf8"
+  );
+
+  it("气泡只在 busy 且末条空助手时转圈，否则未生成内容可重试", () => {
+    expect(listSrc).toContain("assistantBubbleKind");
+    expect(listSrc).toContain("未生成内容");
+    expect(listSrc).toContain("重试");
+    expect(listSrc).not.toMatch(/msg\.content \? \(/);
+  });
+
+  it("onDone 空 acc 写成未生成内容，不留空串", () => {
+    expect(sendSrc).toContain("finalizeExplainReply");
+    expect(timeoutSrc).toContain("EMPTY_EXPLAIN_REPLY");
+    expect(timeoutSrc).toContain("（未生成内容）");
+  });
+
+  it("勾了带上当前文件但没打开文件时状态栏提示，不阻断", () => {
+    expect(sendSrc).toContain("未打开文件，本轮不带正文");
+    expect(sendSrc).toMatch(/if \(useFile && !activeTab && !includeFolder\)/);
+  });
+
+  it("可带上工程内限额文件正文，没有打开文件也能发", () => {
+    expect(sendSrc).toContain("planExplainFolderFiles");
+    expect(sendSrc).toContain("IDE_EXPLAIN_FOLDER_MAX_FILES_ANDROID");
+    expect(sendSrc).toContain("isTauriAndroidRuntime");
+    expect(sendSrc).toContain(
+      "const [includeFolder, setIncludeFolder] = React.useState(true)"
+    );
+    expect(sendSrc).toContain("本轮带上工程内");
+    expect(composerSrc).toContain("带上工程文件");
+    expect(composerSrc).toContain("这个工程在干什么");
+    expect(panelSrc).toContain("includeFolder={stream.includeFolder}");
+  });
+
+  it("桌面与浏览器通路都有整轮超时，文案不含 Key", () => {
+    expect(clientSrc).toContain("raceWithDeadline");
+    expect(clientSrc).toContain("EXPLAIN_REQUEST_TIMEOUT_MS");
+    expect(clientSrc).toContain("explainTimeoutMessage");
+    expect(routeSrc).toContain("AbortSignal.timeout");
+    expect(timeoutSrc).toContain("检查网络或 Base URL");
+    expect(timeoutSrc).not.toMatch(/sk-/);
+  });
+});
+
 describe("讲解面板：桌面通路", () => {
   it("发送前快照 prior，清空后的历史不会进下一请求", () => {
     expect(sendSrc).toContain("selectExplainPriorMessages");

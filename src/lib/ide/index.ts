@@ -51,6 +51,8 @@ export {
   listNearbyImports,
   matchUniqueJavaImportPath,
   planNearbyExplainFiles,
+  planExplainFolderFiles,
+  rankExplainFolderPaths,
   truncateNeighborExplainContent,
   IDE_EXPLAIN_SYSTEM_PROMPT,
   IDE_EXPLAIN_MODEL_PRIOR_MAX,
@@ -61,6 +63,12 @@ export {
   childrenLookupFromMap,
   type CompactFolderChain,
 } from "./compactFolders";
+export {
+  IDE_EXPLORER_WIDTH_DEFAULT,
+  IDE_EXPLAIN_WIDTH_DEFAULT,
+  clampIdeExplorerWidth,
+  clampIdeExplainWidth,
+} from "./ideSplit";
 export {
   filterQuickOpenPaths,
   planQuickOpenCandidates,

@@ -113,8 +113,9 @@ React Compiler 会报 `react-hooks/set-state-in-effect`，而且它在渲染阶�
   `MerchantMapper.java` 打开，状态栏 `已打开 …MerchantMapper.java:7`，编辑器在抽屉上方露出约 264px。
 - 窄屏互斥（2026-11-06 复测）：讲解半高时点顶栏「文件」→ 讲解关闭、只剩目录抽屉一层，
   `.absolute.inset-0.z-40` 与 `bg-black` 遮罩各 1 个，没有两层叠加。
-- 宽屏不回归（2026-11-06 复测，1440×900）：讲解是右侧停靠宽 380px（`left=1060`、`top=56`），
-  **无内联 height、无抓手、无遮罩**；点「切换文件树」后讲解仍开着。
+- 宽屏不回归（2026-11-06 复测，1440×900）：讲解是右侧停靠默认约 380px（`left=1060`、`top=56`），
+  **无内联 height、无半高抓手、无遮罩**；点「切换文件树」后讲解仍开着。
+  文件树右侧、讲解左侧各有一条 `ResizeGutter`（角色 separator），拖动改宽度、双击复位；宽度写入 `explorerWidth` / `explainWidth`。
 - 高度不是 Tailwind 任意值类名：首版写 `h-[min(62dvh,100dvh)]`，JIT 未扫到，实测仍是 394px 内容高；
   改内联 `style={{ height }}` 后按视口百分比生效。
 - 模拟器平板几何（2026-11-05，`1536×2048 @ 320dpi` ≈ 768×1024 dp，x86_64 debug APK）：

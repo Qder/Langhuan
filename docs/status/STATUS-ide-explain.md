@@ -1,6 +1,6 @@
 # 读码讲解 · 多 thread 会话
 
-上次更新：2026-11-05
+上次更新：2026-11-06
 
 产品定位不变：本地读码助教，不引入云同步账号，不做 Cloud Agent。prompt 单一来源仍是 `src/lib/ide/explain.ts`。
 
@@ -14,7 +14,7 @@ messages = [system, …prior user/assistant 文本对…, 本轮 user(assembleEx
 
 - **system**：`IDE_EXPLAIN_SYSTEM_PROMPT`
 - **prior**：当前 thread 里已经完成的对话（`explainBySession` 是活动 thread 的镜像）。**只要 `role` + `content` 文本**，不把历史气泡上的 `files[]` 正文再塞一遍。本轮勾选的 `files` / `fileIndex` 只出现在最后一条 user 里。
-- **本轮 user**：仍走 `assembleExplainUserContent`（问题 + 勾选文件正文 + 路径清单）。
+- **本轮 user**：仍走 `assembleExplainUserContent`（问题 + 勾选文件正文 + 路径清单）。勾「带上工程文件」（默认开）时，在当前文件 / 选区 / 相关文件之后，再按排名附上工程内最多 **16** 份正文、合计约 **48k** 字符（README / 构建清单 / 源码优先，跳过二进制与 ignore）。没有打开文件也可以发问。这不是整仓无上限 RAG。
 - **组装时机**：`useExplainSend` 在 `pushExplainMessage` **之前** `getState()` 快照。否则会把本轮空助手气泡和当前问句再带进 prior。
 - **清空**：只清**当前 thread** 的 messages（条目仍在「历史」里，标题回到「新对话」）。其它 thread 不动。下一请求 `prior = []`。
 - **新对话 / 历史**：同工程多 thread（`id/title/updatedAt/messages`）。「新对话」在当前非空时另开一条；空 thread 不堆第二条。「历史」抽屉切换。关闭面板 / 刷新后经「最近工程」再开，活动 thread 仍在（`langhuan-ide-store` v6）。
@@ -90,6 +90,22 @@ Composer「当前选区」无划词时 `disabled`，title 与旁注都是「先�
 - 点 `MerchantMapper.java:2`（工程里 `mapper/` 与 `other/` 各有一个同名文件）→ 状态栏写的是解析后的完整路径，不是裸文件名。
 - 无选区：`当前选区` `disabled=true`、`checked=false`、label 含「（先在编辑器划词）」、title 同名。点进编辑器产生选区后：`disabled=false`，点一下即 `checked=true`，旁注消失。
 - 讲解源：本机 IDE 设置里的 Key 是占位的 `sk-fake`（Base URL `127.0.0.1:4010`，服务没起）→ 直接 `fetch failed`，一个芯片都出不来。为验芯片，临时在 `127.0.0.1:4010` 起了个一次性 OpenAI 兼容 SSE stub（不在仓库里），用它固定回复 4 条引用。**这可作为「本机芯片手测」的标准做法**：清 Key 走 mock 只引用当前文件，验不到「找不到 / 同名候选」两种分支。
+
+## 「生成中…」空转（2026-11-06）
+
+安卓上连上上游但不吐数据时，`reqwest` 只有 `connect_timeout(15s)`，invoke 永不返回；UI 见 `assistant.content === ""` 就转圈，busy 是本地的、消息 persist，重开面板会留下多轮假忙。
+
+| 层 | 行为 |
+| --- | --- |
+| Rust `explain.rs` | 15s 连接超时；整轮 75s。**不再设 read_timeout**：等首包也算 read，带工程正文时 DeepSeek 常 >45s 才吐 token，平板会误报超时。Android：HTTP/1.1 + IPv4 优先 DNS + 不复用连接。 |
+| TS `explainClient` | 桌面 `raceWithDeadline(75s)`；浏览器 fetch 带同等 Abort；Next Route 上游 `AbortSignal.timeout(75s)` |
+| 气泡 | 仅 `busy && 末条空助手` 显示「生成中…」；否则「未生成内容」+ 重试 |
+| `onDone` 空 acc | `finalizeExplainReply` 写成 `（未生成内容）`，不留空串 |
+| 勾了带文件但没打开 | 状态栏「未打开文件，本轮不带正文」，不阻断（勾了「带上工程文件」时改走工程正文，不说这句） |
+
+单测：`explainTimeout.test.ts`、`explainClient.test.ts` 挂死超时、`IdeExplainPanel.contract.test.ts`。
+
+电脑浏览器通、APK 超时：浏览器走 Next `fetch`（可吃系统代理），APK 走 Rust `reqwest`。Android：HTTP/1.1、IPv4 优先、去掉读空闲误杀；工程正文安卓上限 8 份 / 24k。**必须重打并安装 APK**（旧包仍是 45s 空闲超时）。
 
 ## 流式中打开文件
 
@@ -174,6 +190,7 @@ prior 回显。要复现本轮：起一个 OpenAI 兼容 SSE 端点，把请求 
 - [x] 请求侧：清空后追问 `prior=(none)`，旧轮次一条不带。**模型行为仍未验**（Key 401，见上表第 3 条）。
 - [ ] 有 Key：第二答须指涉第一答 / 同一文件。**未验**：本机 `OPENAI_API_KEY` 对 OpenAI / DeepSeek / DashScope 均返回 401，拿不到模型第二答。
 - [ ] 清空后再问，**模型**不应引用已清空上一答。**未验**（同上，请求侧已钉住）。
+- [x] 带上工程文件：默认勾选；无打开文件也可发。浏览器 qa-goto：点「这个工程在干什么」发出请求，本轮 `files` 10 份工程正文（page / Sidebar / format / Mapper xml / Java…），状态栏随后被本机 `fetch failed` 盖掉（Key/上游环境，不是组装失败）。
 - [ ] 打包桌面 WebView 点两轮。**未验**（以浏览器发问 + 单测 / Rust `openai_messages` 为准）。
 
 浏览器 / 桌面差异：组装在 TS，转发语义一致，**应无差异**。

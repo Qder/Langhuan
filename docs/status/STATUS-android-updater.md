@@ -1,6 +1,6 @@
 # Android 应用内更新（侧载 APK）
 
-上次更新：2026-11-05 · 路线 A：自建 `android-latest.json` + HTTPS 下载 + sha256 + FileProvider 安装
+上次更新：2026-11-06 · 路线 A：自建 `android-latest.json` + HTTPS 下载 + sha256 + FileProvider 安装
 
 ## 一句话现状
 
@@ -8,7 +8,7 @@
 | --- | --- |
 | 设置 →「检查更新」（Android） | **已做**（代码合入；**真机未验**） |
 | 清单 `android-latest.json` | **格式与脚本已做**；GitHub Releases 上是否已有资产取决于 Yang 是否发过 |
-| 拉清单 | **已做**（Rust `android_fetch_latest_manifest`，避开 WebView CORS） |
+| 拉清单 | **已做**（Rust `android_fetch_latest_manifest`，避开 WebView CORS）。Android HTTP 与讲解共用 `http_client`（HTTP/1.1、IPv4 优先、UA、跟随 GitHub 跳转）。仓库 **还没有** `android-latest.json` 时成功连上应显示「找不到更新清单」，不是「连不上」。 |
 | 下载 APK + sha256 | **已做**（Rust `android_download_update`） |
 | 调起系统安装器 | **已做**（Kotlin `UpdaterPlugin.installApk` + `REQUEST_INSTALL_PACKAGES`） |
 | 同一 keystore 覆盖装后库仍在 | **设计如此**（私有目录）；**真机未验** |

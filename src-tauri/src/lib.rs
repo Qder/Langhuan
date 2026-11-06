@@ -1,6 +1,7 @@
 mod android_updater;
 mod content;
 mod explain;
+mod http_client;
 
 use content::{AssetMeta, Document, LibrarySnapshot, TrashItem};
 use serde::Deserialize;

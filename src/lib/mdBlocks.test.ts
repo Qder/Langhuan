@@ -64,6 +64,38 @@ describe("splitMarkdownBlocks — 块内空行不打断", () => {
     expect(blocks[0]!.text).toBe(src);
   });
 
+  it("CRLF 的围栏也整体成块（行尾 \\r 不能把闭合围栏挡在正则外）", () => {
+    // 这是「含空行代码块碎了」的真凶：`\r` 留在行内，`$` 锚点失配，
+    // 闭合围栏认不出来，于是一路扫到文件末尾 / 被空行切断。
+    const src = ["```js", "const a = 1;", "", "const b = 2;", "```", "", "尾注"].join(
+      "\r\n"
+    );
+    const blocks = splitMarkdownBlocks(src);
+    expect(blocks).toHaveLength(2);
+    expect(blocks[0]!.text).toBe("```js\r\nconst a = 1;\r\n\r\nconst b = 2;\r\n```");
+    expect(blocks[1]!.text).toBe("尾注");
+    // 范围必须和块文本自洽，否则定位 / 回写会错位
+    for (const b of blocks) expect(src.slice(b.start, b.end)).toBe(b.text);
+  });
+
+  it("CRLF 的表格与 $$ 公式同样不被空行拆开", () => {
+    const table = ["| a |", "|---|", "| 1 |", "", "x"].join("\r\n");
+    expect(splitMarkdownBlocks(table).map((b) => b.text)).toEqual([
+      "| a |\r\n|---|\r\n| 1 |",
+      "x",
+    ]);
+    const math = ["$$", "", "a", "", "$$", "", "z"].join("\r\n");
+    expect(splitMarkdownBlocks(math).map((b) => b.text)).toEqual([
+      "$$\r\n\r\na\r\n\r\n$$",
+      "z",
+    ]);
+  });
+
+  it("CRLF 的块间空行不会留下空块", () => {
+    const src = ["# H", "", "para", ""].join("\r\n");
+    expect(splitMarkdownBlocks(src).map((b) => b.text)).toEqual(["# H", "para"]);
+  });
+
   it("$$ 公式块内部的空行不切块（fixture）", () => {
     const src = ["$$", "", "a + b", "", "= c", "", "$$", "", "正文"].join("\n");
     const blocks = splitMarkdownBlocks(src);

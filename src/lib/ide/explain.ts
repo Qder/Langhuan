@@ -29,6 +29,13 @@ export const IDE_EXPLAIN_FILE_INDEX_BFS_THRESHOLD = 30;
 export const IDE_EXPLAIN_NEIGHBOR_MAX = 3;
 /** Neighbor bodies over 400 lines: send only this many head lines. */
 export const IDE_EXPLAIN_NEIGHBOR_HEAD_LINES = 160;
+/** 带上工程文件：最多几份正文（不是整仓无上限）。 */
+export const IDE_EXPLAIN_FOLDER_MAX_FILES = 16;
+/** 工程正文合计字符上限，避免一次打爆上下文。 */
+export const IDE_EXPLAIN_FOLDER_MAX_CHARS = 48_000;
+/** 安卓直连上游更慢，少带一点正文，避免等首包就被整轮超时杀掉。 */
+export const IDE_EXPLAIN_FOLDER_MAX_FILES_ANDROID = 8;
+export const IDE_EXPLAIN_FOLDER_MAX_CHARS_ANDROID = 24_000;
 
 export type IdeExplainFilePayload = {
   path: string;
@@ -91,6 +98,7 @@ export const IDE_EXPLAIN_SYSTEM_PROMPT = `你是本工程的讲解助教，只�
 每个关键结论请用 [[相对路径:行号]] 或 [[相对路径:起始行-结束行]] 标出源码位置（路径用工程相对路径，含目录）。
 代码围栏请写成 \`\`\`语言 相对路径:起始行-结束行 ，围栏正文必须是源码原文（可被点选定位）。
 引用必须来自用户消息里的「工程已扫描文件路径」清单，或当前附带的 files 正文；禁止编造清单与 files 之外的路径。
+若附带多份文件正文，按问题综观工程结构，仍只引用这些路径。
 用简洁中文回答。`;
 
 /**
@@ -524,6 +532,107 @@ export function listNearbyImports(
   }
 
   return out;
+}
+
+const FOLDER_BOOST_LEAFS = new Set([
+  "readme",
+  "readme.md",
+  "package.json",
+  "pom.xml",
+  "build.gradle",
+  "build.gradle.kts",
+  "settings.gradle",
+  "cargo.toml",
+  "go.mod",
+  "makefile",
+  "dockerfile",
+  "application.yml",
+  "application.yaml",
+  "application.properties",
+]);
+
+/** Higher first. Non-text paths get -1 and are dropped. */
+export function scoreExplainFolderPath(
+  path: string,
+  activePath?: string | null
+): number {
+  const p = normalizeIdeRelPath(path);
+  if (!p || !isLikelyTextPath(p)) return -1;
+  const leaf = (p.split("/").pop() || p).toLowerCase();
+  let score = 10;
+  if (leaf === "readme" || leaf.startsWith("readme.")) score += 90;
+  if (FOLDER_BOOST_LEAFS.has(leaf)) score += 70;
+  else if (/^index\.(ts|tsx|js|jsx|java)$/i.test(leaf)) score += 50;
+  else if (/\.(java|kt|ts|tsx|js|jsx|py|go|rs|c|h|xml)$/i.test(leaf)) score += 25;
+  else if (/\.md$/i.test(leaf)) score += 8;
+  const active = activePath ? normalizeIdeRelPath(activePath) : "";
+  if (active) {
+    const dir = active.includes("/") ? active.slice(0, active.lastIndexOf("/")) : "";
+    if (p === active) score += 60;
+    else if (dir && p.startsWith(`${dir}/`)) score += 35;
+  }
+  score -= p.split("/").length * 3;
+  return score;
+}
+
+/** Project files to try attaching, ranked. Pure. */
+export function rankExplainFolderPaths(
+  fileIndex: string[],
+  activePath?: string | null
+): string[] {
+  return [...new Set(fileIndex.map((p) => normalizeIdeRelPath(p)).filter(Boolean))]
+    .filter((p) => scoreExplainFolderPath(p, activePath) >= 0)
+    .sort((a, b) => {
+      const d = scoreExplainFolderPath(b, activePath) - scoreExplainFolderPath(a, activePath);
+      return d !== 0 ? d : a.localeCompare(b, "en");
+    });
+}
+
+/**
+ * Attach a capped set of project file bodies. Pure: `readContent` returns null on miss.
+ * Does not dump the whole tree — max files + max chars.
+ */
+export function planExplainFolderFiles(opts: {
+  enabled: boolean;
+  fileIndex: string[];
+  alreadyPaths?: string[];
+  activePath?: string | null;
+  maxFiles?: number;
+  maxChars?: number;
+  readContent: (relPath: string) => string | null;
+}): { files: IdeExplainFilePayload[]; skipped: string[]; omitted: number } {
+  if (!opts.enabled) return { files: [], skipped: [], omitted: 0 };
+  const maxFiles = opts.maxFiles ?? IDE_EXPLAIN_FOLDER_MAX_FILES;
+  const maxChars = opts.maxChars ?? IDE_EXPLAIN_FOLDER_MAX_CHARS;
+  const already = new Set(
+    (opts.alreadyPaths || []).map((p) => normalizeIdeRelPath(p))
+  );
+  const ranked = rankExplainFolderPaths(opts.fileIndex, opts.activePath);
+  const files: IdeExplainFilePayload[] = [];
+  const skipped: string[] = [];
+  let chars = 0;
+  for (const rel of ranked) {
+    if (already.has(rel)) continue;
+    if (files.length >= maxFiles || chars >= maxChars) break;
+    const body = opts.readContent(rel);
+    if (body == null) {
+      skipped.push(rel);
+      continue;
+    }
+    const trimmed = truncateNeighborExplainContent(body);
+    const room = maxChars - chars;
+    if (room <= 0) break;
+    let content = trimmed.content;
+    if (content.length > room) {
+      if (files.length > 0 && room < 400) break;
+      content = `${content.slice(0, Math.max(0, room - 24))}\n/* … 工程正文已达上限 … */`;
+    }
+    files.push({ path: rel, content, startLine: trimmed.startLine });
+    already.add(rel);
+    chars += content.length;
+  }
+  const leftover = ranked.filter((p) => !already.has(p)).length;
+  return { files, skipped, omitted: leftover };
 }
 
 /** Truncate a neighbor file body for explain (choice: head 160 when >400 lines). */

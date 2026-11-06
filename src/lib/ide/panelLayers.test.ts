@@ -294,6 +294,14 @@ describe("IdeShell 里不再用 effect 同步两个开关", () => {
     expect(src).toContain("setExplainOpen(next)");
   });
 
+  it("宽屏文件树和讲解两侧都有可拖的分隔条", () => {
+    expect(src).toContain("ResizeGutter");
+    expect(src).toContain("调整文件树宽度");
+    expect(src).toContain("调整讲解面板宽度");
+    expect(src).toContain("onExplorerDelta");
+    expect(src).toContain("onExplainDelta");
+  });
+
   it("窄屏抽屉只属于窄屏：宽屏别再渲染一份带遮罩的抽屉", () => {
     // 可见性判据本身不分宽度，组件必须自己带上 !isLg，否则 1440 下
     // 停靠树和抽屉会同时出现（一次真机验收里撞到过）。

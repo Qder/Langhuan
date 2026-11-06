@@ -3,6 +3,10 @@ import {
   IDE_STORE_PERSIST_VERSION,
   migrateIdePersistedState,
 } from "./idePersist";
+import {
+  IDE_EXPLAIN_WIDTH_DEFAULT,
+  IDE_EXPLORER_WIDTH_DEFAULT,
+} from "./ideSplit";
 
 describe("migrateIdePersistedState", () => {
   it("upgrades v1 recent+explorerOpen blob without wiping recent", () => {
@@ -29,7 +33,9 @@ describe("migrateIdePersistedState", () => {
       },
     ]);
     expect(out.explorerOpen).toBe(false);
+    expect(out.explorerWidth).toBe(IDE_EXPLORER_WIDTH_DEFAULT);
     expect(out.explainOpen).toBe(false);
+    expect(out.explainWidth).toBe(IDE_EXPLAIN_WIDTH_DEFAULT);
     expect(out.explainBySession).toEqual({});
     expect(out.explainThreadsBySession).toEqual({});
     expect(out.explainActiveThreadIdBySession).toEqual({});
@@ -205,6 +211,21 @@ describe("migrateIdePersistedState", () => {
 
     const junk = migrateIdePersistedState({ outlineOpen: "yes" }, 4);
     expect(junk.outlineOpen).toBe(false);
+  });
+
+  it("keeps dragged explorer / explain widths and clamps junk", () => {
+    const kept = migrateIdePersistedState(
+      { recent: [], explorerWidth: 320, explainWidth: 500 },
+      IDE_STORE_PERSIST_VERSION
+    );
+    expect(kept.explorerWidth).toBe(320);
+    expect(kept.explainWidth).toBe(500);
+    const junk = migrateIdePersistedState(
+      { recent: [], explorerWidth: "wide", explainWidth: 12 },
+      IDE_STORE_PERSIST_VERSION
+    );
+    expect(junk.explorerWidth).toBe(IDE_EXPLORER_WIDTH_DEFAULT);
+    expect(junk.explainWidth).toBeGreaterThanOrEqual(280);
   });
 
   it("v4 keeps a pending ide link so a reload still knows where to jump", () => {

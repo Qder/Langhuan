@@ -11,6 +11,8 @@ import {
   javaImportToSuffix,
   listNearbyImports,
   planNearbyExplainFiles,
+  planExplainFolderFiles,
+  rankExplainFolderPaths,
   resolveExplainApiMessages,
   selectExplainPriorMessages,
   IDE_EXPLAIN_MAX_FULL_LINES,
@@ -369,6 +371,65 @@ describe("assembleExplainChatMessages · 多轮", () => {
     });
     expect(text).toContain("刚才说的注解是什么意思");
     expect(text).toContain("这个文件在干什么");
+  });
+});
+
+describe("planExplainFolderFiles / rankExplainFolderPaths", () => {
+  it("ranks README and build files ahead of deep sources", () => {
+    const ranked = rankExplainFolderPaths([
+      "src/deep/nested/Foo.java",
+      "logo.png",
+      "README.md",
+      "pom.xml",
+    ]);
+    expect(ranked[0]).toBe("README.md");
+    expect(ranked[1]).toBe("pom.xml");
+    expect(ranked).toContain("src/deep/nested/Foo.java");
+    expect(ranked).not.toContain("logo.png");
+  });
+
+  it("attaches capped bodies and skips already-sent paths", () => {
+    const bodies: Record<string, string> = {
+      "README.md": "# demo",
+      "pom.xml": "<project />",
+      "src/A.java": "class A {}",
+      "src/B.java": "class B {}",
+    };
+    const { files, omitted } = planExplainFolderFiles({
+      enabled: true,
+      fileIndex: Object.keys(bodies),
+      alreadyPaths: ["src/A.java"],
+      maxFiles: 2,
+      maxChars: 48_000,
+      readContent: (p) => bodies[p] ?? null,
+    });
+    expect(files.map((f) => f.path)).toEqual(["README.md", "pom.xml"]);
+    expect(files.some((f) => f.path === "src/A.java")).toBe(false);
+    expect(omitted).toBeGreaterThan(0);
+  });
+
+  it("stops when the char budget is exhausted", () => {
+    const { files, omitted } = planExplainFolderFiles({
+      enabled: true,
+      fileIndex: ["README.md", "src/A.java"],
+      maxFiles: 16,
+      maxChars: 20,
+      readContent: (p) => (p === "README.md" ? "x".repeat(50) : "class A {}"),
+    });
+    expect(files).toHaveLength(1);
+    expect(files[0]!.path).toBe("README.md");
+    expect(files[0]!.content).toContain("工程正文已达上限");
+    expect(omitted).toBe(1);
+  });
+
+  it("is a no-op when disabled", () => {
+    expect(
+      planExplainFolderFiles({
+        enabled: false,
+        fileIndex: ["README.md"],
+        readContent: () => "# hi",
+      })
+    ).toEqual({ files: [], skipped: [], omitted: 0 });
   });
 });
 

@@ -44,10 +44,11 @@ tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 
 [target.'cfg(target_os = "android")'.dependencies]
+# 不用 http2：部分网关 / rustls 握手会空等到超时；电脑浏览器 Next 走 HTTP/1.1 所以通。
 reqwest = { version = "0.13", default-features = false, features = [
   "json",
   "stream",
   "rustls",
   "charset",
-  "http2",
+  "system-proxy",
 ] }

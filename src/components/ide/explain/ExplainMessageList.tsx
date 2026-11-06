@@ -16,6 +16,7 @@ import {
   nextExplainFollowPin,
   shouldFollowExplainScroll,
 } from "@/lib/ide/explainScroll";
+import { assistantBubbleKind } from "@/lib/ide/explainTimeout";
 
 export function ExplainMessageList({
   hasSession,
@@ -129,15 +130,29 @@ export function ExplainMessageList({
           )}
         </div>
       ) : (
-        messages.map((m) => (
+        messages.map((m, i) => (
           <ExplainTurn
             key={m.id}
             msg={m}
+            kind={assistantBubbleKind({
+              content: m.content,
+              busy,
+              isLast: i === messages.length - 1,
+            })}
             saved={savedNotes[m.id]}
             onCite={onCite}
             onFence={onFence}
             onCapture={onCapture}
             onOpenSaved={onOpenSaved}
+            onRetry={() => {
+              for (let j = i - 1; j >= 0; j -= 1) {
+                const prev = messages[j];
+                if (prev?.role === "user" && prev.content.trim()) {
+                  void onSend(prev.content.trim());
+                  return;
+                }
+              }
+            }}
             failedCitePath={failedCitePath}
           />
         ))
@@ -180,19 +195,23 @@ export function ExplainMessageList({
 
 const ExplainTurn = React.memo(function ExplainTurn({
   msg,
+  kind,
   saved,
   onCite,
   onFence,
   onCapture,
   onOpenSaved,
+  onRetry,
   failedCitePath,
 }: {
   msg: IdeExplainMessage;
+  kind: ReturnType<typeof assistantBubbleKind>;
   saved?: { docId: string; path: string };
   onCite: (c: IdeCitation) => void;
   onFence: (f: ExplainFence, msgId?: string) => void;
   onCapture: (msg: IdeExplainMessage) => void;
   onOpenSaved: (msgId: string) => void;
+  onRetry: () => void;
   failedCitePath?: string | null;
 }) {
   const onFenceThis = React.useCallback(
@@ -212,7 +231,23 @@ const ExplainTurn = React.memo(function ExplainTurn({
         {msg.role === "user" ? "你" : msg.mock ? "示例讲解" : "讲解"}
       </div>
       {msg.role === "assistant" ? (
-        msg.content ? (
+        kind === "generating" ? (
+          <div className="flex items-center gap-1.5 text-[var(--muted)] text-xs">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            生成中…
+          </div>
+        ) : kind === "empty" ? (
+          <div className="flex flex-wrap items-center gap-2 text-[var(--muted)] text-xs font-ui">
+            <span>未生成内容</span>
+            <button
+              type="button"
+              className="text-[var(--accent)] hover:underline"
+              onClick={onRetry}
+            >
+              重试
+            </button>
+          </div>
+        ) : (
           <>
             <ExplainBody
               content={msg.content}
@@ -234,11 +269,6 @@ const ExplainTurn = React.memo(function ExplainTurn({
               onOpenSaved={onOpenSaved}
             />
           </>
-        ) : (
-          <div className="flex items-center gap-1.5 text-[var(--muted)] text-xs">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            生成中…
-          </div>
         )
       ) : (
         <div className="text-sm whitespace-pre-wrap">{msg.content}</div>

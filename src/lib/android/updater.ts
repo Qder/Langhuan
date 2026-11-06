@@ -74,15 +74,15 @@ export function explainAndroidUpdaterError(err: unknown): string {
   if (/sha256|校验失败|不匹配/.test(raw)) {
     return "更新包校验失败（sha256 不匹配），没有安装。请从 GitHub Releases 核对来源后再试。";
   }
+  if (/404|not found|找不到更新/.test(raw) || /找不到更新/.test(msg)) {
+    return "找不到更新清单。可能还没有发布过安装包。";
+  }
   if (
-    /failed to fetch|network|dns|timed out|timeout|econnrefused|connect|unavailable|502|503|504|连不上/.test(
+    /failed to fetch|network|dns|timed out|timeout|econnrefused|unavailable|502|503|504|连不上/.test(
       msg
     )
   ) {
     return "连不上更新服务器。检查网络后重试。";
-  }
-  if (/404|not found|找不到更新/.test(msg)) {
-    return "找不到更新清单。可能还没有发布过安装包。";
   }
   if (/https|insecure|更新通道必须/.test(msg)) {
     return "更新通道必须使用 HTTPS。当前清单地址不可用。";
