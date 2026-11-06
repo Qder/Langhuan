@@ -93,6 +93,12 @@ export const mdSanitizeSchema: SanitizeOptions = {
       // Callout cards (rehypeCallout) — lets CSS / click-to-edit read the kind
       // without parsing the class list.
       ["data-callout"],
+      // 文内目录（rehypeToc）。这两个属性是「点了跳到哪」的唯一依据，
+      // 被 sanitize 剥掉就只剩一行不能点的字。
+      ["data-toc"],
+      ["data-toc-target"],
+      ["aria-label"],
+      ["role"],
     ],
   },
   protocols: {

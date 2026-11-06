@@ -17,11 +17,44 @@ import {
   centerTextareaCaret,
   scrollElementToTypewriterAnchor,
 } from "@/lib/typewriterScroll";
+import { collectTocEntries, isTocMarkerLine, type TocEntry } from "@/lib/tocMarker";
+import { buildTocTree, type TocNode } from "@/lib/rehypeToc";
 import "katex/dist/katex.min.css";
 
 /** Module-level — recreating plugin arrays each render forces react-markdown to reparse. */
 const MIXED_REMARK_PLUGINS = [remarkGfm, remarkMath];
 const MIXED_REHYPE_PLUGINS = [rehypeKatex, rehypeSlug];
+
+/** 混合模式的目录列表：与 rehypeToc 共用 buildTocTree，缩进层级保持一致。 */
+function TocList({
+  nodes,
+  onJumpTo,
+}: {
+  nodes: TocNode[];
+  onJumpTo: (entry: TocEntry) => void;
+}) {
+  return (
+    <ul>
+      {nodes.map((node) => (
+        <li key={node.entry.id}>
+          <a
+            href={`#${node.entry.id}`}
+            data-toc-target={node.entry.id}
+            onClick={(e) => {
+              // 混合模式没有整篇渲染出的标题节点，只能按标题文字去找对应的块。
+              e.preventDefault();
+              e.stopPropagation();
+              onJumpTo(node.entry);
+            }}
+          >
+            {node.entry.text}
+          </a>
+          {node.children.length > 0 && <TocList nodes={node.children} onJumpTo={onJumpTo} />}
+        </li>
+      ))}
+    </ul>
+  );
+}
 
 type MixedMdBlockProps = {
   text: string;
@@ -30,6 +63,10 @@ type MixedMdBlockProps = {
   index: number;
   /** 打字机模式：当前块要在获得焦点/输入时跑回中线。 */
   typewriterMode: boolean;
+  /** 这块是纯 TOC 标记时的目录树（由整篇正文算出）；null 表示普通块。 */
+  tocEntries: TocNode[] | null;
+  /** 点目录项：跳到对应标题所在的块。 */
+  onJumpTo: (entry: TocEntry) => void;
   onActivate: (index: number) => void;
   onChange: (index: number, text: string) => void;
 };
@@ -40,6 +77,8 @@ const MixedMdBlock = React.memo(function MixedMdBlock({
   fontSize,
   index,
   typewriterMode,
+  tocEntries,
+  onJumpTo,
   onActivate,
   onChange,
 }: MixedMdBlockProps) {
@@ -122,7 +161,19 @@ const MixedMdBlock = React.memo(function MixedMdBlock({
         />
       ) : (
         <div className="prose-langhuan px-3 py-2 min-h-[2rem]">
-          {text.trim() ? (
+          {tocEntries ? (
+            // 混合模式是「一块一块」渲染的，rehypeToc 看不到别的块的标题，
+            // 所以这一块直接按整篇正文算好的目录项画出来，不再走 Markdown 管线。
+            // 只读渲染 / 整块源码编辑：点一下进入 textarea，里面仍是 `<!-- toc -->` 原文。
+            <div className="lh-toc" data-toc role="navigation" aria-label="目录">
+              <p className="lh-toc-title">目录</p>
+              {tocEntries.length ? (
+                <TocList nodes={tocEntries} onJumpTo={onJumpTo} />
+              ) : (
+                <p className="lh-toc-empty">（目录为空：加上标题后这里会自动列出）</p>
+              )}
+            </div>
+          ) : text.trim() ? (
             <ReactMarkdown
               remarkPlugins={MIXED_REMARK_PLUGINS}
               rehypePlugins={MIXED_REHYPE_PLUGINS}
@@ -144,6 +195,8 @@ const MixedMdBlock = React.memo(function MixedMdBlock({
   prev.fontSize === next.fontSize &&
   prev.index === next.index &&
   prev.typewriterMode === next.typewriterMode &&
+  prev.tocEntries === next.tocEntries &&
+  prev.onJumpTo === next.onJumpTo &&
   prev.onActivate === next.onActivate &&
   prev.onChange === next.onChange
 );
@@ -222,6 +275,47 @@ export function MixedMdView({ doc }: { doc: Document }) {
     setActive(index);
   }, []);
 
+  /**
+   * 文内目录项（整篇正文算一遍）。
+   * 混合模式每块独立渲染，`rehypeToc` 看不到别的块，所以这一块只能在这里算好喂进去。
+   */
+  const tocEntries = React.useMemo(() => buildTocTree(collectTocEntries(body)), [body]);
+
+  /**
+   * 点目录项 → 滚到对应标题块。
+   *
+   * 混合模式没有 `<h2 id>` 这样的锚点节点，只能自己找块。注意**不能用 DOM 里的文字**：
+   * 失活块是渲染后的 Markdown，`##` 早就不在 DOM 里了，只读的 `textContent` 是
+   * 「第二节 收束」而不是「## 第二节 收束」。所以匹配用的是草稿原文（`draftsRef`），
+   * 下标再映射回第 N 个 `[data-md-block]`。
+   *
+   * 找不到就什么都不做——比乱跳到一个不相干的块好。
+   */
+  const onJumpTo = React.useCallback(
+    (entry: TocEntry) => {
+      const scroller = scrollRef.current;
+      if (!scroller) return;
+      const want = entry.text.trim();
+      const texts = draftsRef.current;
+      const index = texts.findIndex((block) =>
+        block.split(/\r?\n/).some((line) => {
+          const m = line.match(/^ {0,3}#{1,4}[ \t]+(.+)$/);
+          return !!m && m[1]!.replace(/[#*`]/g, "").trim() === want;
+        })
+      );
+      if (index < 0) return;
+      const el = scroller.querySelectorAll<HTMLElement>("[data-md-block]")[index];
+      if (!el) return;
+      // 跳到块的顶部附近，而不是居中——读者要看的是这一节的开头。
+      const top =
+        el.getBoundingClientRect().top -
+        scroller.getBoundingClientRect().top +
+        scroller.scrollTop;
+      scroller.scrollTo({ top: Math.max(0, top - 24), behavior: "smooth" });
+    },
+    []
+  );
+
   const onChangeBlock = React.useCallback(
     (index: number, text: string) => {
       setDrafts((prev) => {
@@ -255,6 +349,9 @@ export function MixedMdView({ doc }: { doc: Document }) {
           // Prefer source start (stable while editing this block's text).
           // Including end would remount the active textarea on every length change.
           const key = meta != null ? `b-${meta.start}` : `draft-${i}`;
+          // 纯标记块（整块只有一行 `<!-- toc -->`）走只读目录渲染。
+          const isTocBlock = text.split(/\r?\n/).filter((l) => l.trim()).every(isTocMarkerLine)
+            && text.split(/\r?\n/).some(isTocMarkerLine);
           return (
             <MixedMdBlock
               key={key}
@@ -263,6 +360,8 @@ export function MixedMdView({ doc }: { doc: Document }) {
               fontSize={readingPrefs.fontSize}
               index={i}
               typewriterMode={typewriterMode}
+              tocEntries={isTocBlock ? tocEntries : null}
+              onJumpTo={onJumpTo}
               onActivate={onActivate}
               onChange={onChangeBlock}
             />

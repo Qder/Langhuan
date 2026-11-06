@@ -27,9 +27,13 @@ import { useStore } from "@/lib/store";
 import { useShallow } from "zustand/react/shallow";
 import { backlinkEqualityKey, findBacklinks } from "@/lib/search";
 import {
+  applyOutlineJump,
   extractOutline,
+  findOutlineHeadingEl,
   OUTLINE_SPY_THRESHOLD_PX,
+  planOutlineJump,
   resolveActiveHeadingId,
+  resolveOutlineScrollRoot,
   measureHeadingContentTops,
   headingViewportTops,
   type HeadingContentTop,
@@ -65,6 +69,7 @@ import type { LocateResult } from "@/lib/locate";
 import { rehypeSrcPositions } from "@/lib/locate/rehypeSrcPositions";
 import { rehypeRecoverEmphasis } from "@/lib/rehypeRecoverEmphasis";
 import { rehypeCallout } from "@/lib/rehypeCallout";
+import { rehypeToc } from "@/lib/rehypeToc";
 import { PreviewContextMenu, type ContextMenuItem } from "./locate/PreviewContextMenu";
 import { subscribeScrollSync } from "@/lib/locate/scrollBus";
 import { probeRender, probeSection } from "@/lib/dev/perfProbe";
@@ -513,6 +518,28 @@ function MdLibLink({
           ? "noreferrer noopener"
           : undefined
       }
+      onClick={
+        typeof href === "string" && href.startsWith("#")
+          ? (e) => {
+              // 页内锚点（文内目录最常见）不能用原生 hash 跳转：
+              // 阅读区滚的是内层 `#reader-scroll`，浏览器只会去动 window，
+              // 结果是「点了没反应」或整页被顶走。这里直接按标题 id 定位。
+              const id = decodeURIComponent(href.slice(1));
+              const scope =
+                (e.currentTarget.closest("article") as HTMLElement | null) ?? null;
+              const heading = findOutlineHeadingEl(id, scope);
+              if (!heading) return; // 找不到就交回浏览器，至少别吞掉行为
+              e.preventDefault();
+              const root = resolveOutlineScrollRoot(heading);
+              const plan = planOutlineJump(root, heading);
+              if (plan.ok && root) {
+                applyOutlineJump(root, plan, { smooth: true, headingEl: heading });
+                return;
+              }
+              heading.scrollIntoView({ behavior: "smooth", block: "start" });
+            }
+          : undefined
+      }
       {...(props as React.AnchorHTMLAttributes<HTMLAnchorElement>)}
     >
       {children}
@@ -546,6 +573,9 @@ const MarkdownBody = React.memo(
         // GitHub/Obsidian callouts (`> [!tip] 标题`) → cards. Runs after the
         // src stamps so the card inherits the blockquote's range.
         rehypeCallout,
+        // 文内目录：必须在 sanitize 之前——sanitize 会把注释节点整个删掉，
+        // 之后再找 `<!-- toc -->` 就什么都找不到了。
+        rehypeToc,
         // Typora-friendly: recover `**|A|…**` that CommonMark left-flanking rejects.
         rehypeRecoverEmphasis,
         [rehypeSanitize, mdSanitizeSchema] as [typeof rehypeSanitize, typeof mdSanitizeSchema],

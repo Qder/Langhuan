@@ -16,7 +16,8 @@ export type SlashCommandId =
   | "embed"
   | "table"
   | "callout-tip"
-  | "math";
+  | "math"
+  | "toc";
 
 export type SlashCommand = {
   id: SlashCommandId;
@@ -129,6 +130,13 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     hint: "$$",
     keywords: ["math", "katex", "公式", "latex"],
     insert: "$$\n{cursor}\n$$\n",
+  },
+  {
+    id: "toc",
+    label: "插入目录",
+    hint: "<!-- toc -->",
+    keywords: ["toc", "目录", "outline", "大纲"],
+    insert: "<!-- toc -->\n{cursor}\n",
   },
 ];
 

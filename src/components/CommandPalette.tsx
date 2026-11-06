@@ -11,6 +11,7 @@ import { titleOf, cn } from "@/lib/utils";
 import { importClipboardAs } from "@/lib/clipboardImport";
 import { openCreateDocDialog } from "@/lib/createDocDialogBus";
 import { requestToggleToc } from "@/lib/tocPanel";
+import { insertTocMarker, planTocInsert } from "@/lib/tocMarker";
 import { SaveSearchDialog } from "./BatchOpsDialogs";
 
 /** Extra IDE-mode commands injected by IdeShell (kept out of the notes bundle). */
@@ -60,6 +61,8 @@ export function CommandPalette({
   const setPropsDialogOpen = useStore((s) => s.setPropsDialogOpen);
   const renameTagAcrossLibrary = useStore((s) => s.renameTagAcrossLibrary);
   const setExportDialogOpen = useStore((s) => s.setExportDialogOpen);
+  const getContent = useStore((s) => s.getContent);
+  const setDraft = useStore((s) => s.setDraft);
   const toggleDocSplit = useStore((s) => s.toggleDocSplit);
   const secondaryId = useStore((s) => s.secondaryId);
   const savedSearches = useStore((s) => s.savedSearches);
@@ -334,6 +337,33 @@ export function CommandPalette({
           }
           setViewMode("mixed");
           setStatus("已切换到混合模式");
+        }),
+      },
+      {
+        key: "cmd-toc-insert",
+        label: "插入目录",
+        hint: "写入 <!-- toc -->，预览与导出渲染为可点目录",
+        icon: <ListTree className="h-4 w-4 text-[var(--teal)]" />,
+        run: inNotes(() => {
+          const a = getActive();
+          if (!a) {
+            setStatus("请先打开一篇文档");
+            return;
+          }
+          if (a.type !== "md") {
+            setStatus("文内目录只支持 Markdown");
+            return;
+          }
+          const md = getContent(a.id);
+          const plan = planTocInsert(md);
+          if (plan.kind === "exists") {
+            // 静默再来一次会得到两块一样的目录，比不插更糟。
+            setStatus("这篇已经有目录标记了；要更新内容无需重插");
+            return;
+          }
+          const next = insertTocMarker(md);
+          setDraft(a.id, next.text);
+          setStatus("已插入目录标记（预览里会渲染成可点目录）");
         }),
       },
       {

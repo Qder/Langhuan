@@ -30,6 +30,7 @@ import {
 } from "../resolveLibraryPath";
 import { parseWikiInner } from "../wikilink";
 import { rehypeCallout } from "../rehypeCallout";
+import { rehypeToc } from "../rehypeToc";
 import { escapeHtml } from "./escape";
 
 /** 读一个库内二进制文件，返回 base64（无 data: 前缀）。 */
@@ -288,6 +289,9 @@ export async function renderMarkdownForExport(
     .use(rehypeSlug)
     // 顺序跟预览一致：callout 在 raw 之后，卡片能接住手写的 blockquote。
     .use(rehypeCallout)
+    // 文内目录与预览同一个插件：导出物里的锚点也是 rehypeSlug 生成的 id，
+    // 离线打开点目录照样能跳。
+    .use(rehypeToc)
     .use(rehypeWikilinks, opts)
     .use(rehypeExportMedia, opts)
     .use(rehypeExportLinks, opts)

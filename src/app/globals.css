@@ -1143,6 +1143,58 @@ html[data-lh-resizing="row"] * {
   font-weight: 600;
 }
 
+/* ---- 文内目录（rehypeToc）：标记展开成的一小块索引 ----
+   层级靠嵌套 <ul> 表达（sanitize 不会给 ul/li 留 className），
+   所以缩进也只能按结构写，写在 `ul ul` 上。 */
+.prose-langhuan .lh-toc {
+  margin: 1.4em 0 1.8em;
+  padding: 0.9em 1.1em;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--hover) 55%, transparent);
+  font-size: 0.94em;
+  line-height: 1.65;
+}
+.prose-langhuan .lh-toc-title {
+  margin: 0 0 0.5em;
+  font-family: var(--font-ui), ui-sans-serif, system-ui, sans-serif;
+  font-size: 0.82em;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+.prose-langhuan .lh-toc ul {
+  list-style: none;
+  margin: 0;
+  padding-left: 0;
+}
+.prose-langhuan .lh-toc ul ul {
+  padding-left: 1.15em;
+  margin-top: 0.15em;
+}
+.prose-langhuan .lh-toc li {
+  margin: 0.2em 0;
+}
+.prose-langhuan .lh-toc li::before {
+  /* 正文列表的朱砂点不该出现在目录里。 */
+  content: none;
+}
+.prose-langhuan .lh-toc a {
+  color: var(--fg);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: color 120ms, border-color 120ms;
+}
+.prose-langhuan .lh-toc a:hover {
+  color: var(--accent);
+  border-bottom-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.prose-langhuan .lh-toc-empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9em;
+}
+
 .cm-editor {
   height: 100%;
   font-size: 13.5px;

@@ -211,3 +211,49 @@ describe("导出：单篇独立 HTML", () => {
     expect(html).toContain(".export-wiki-missing");
   });
 });
+
+describe("导出：文内 TOC", () => {
+  const TOC_DOC = `# 总纲
+
+<!-- toc -->
+
+## 上卷
+
+### 第一章
+
+## 下卷
+`;
+
+  it("标记渲染成可点目录，锚点指向真实标题 id", async () => {
+    const { bodyHtml } = await renderMarkdownForExport({
+      ...base,
+      content: TOC_DOC,
+    });
+    expect(bodyHtml).toContain("lh-toc");
+    expect(bodyHtml).not.toContain("<!-- toc -->");
+    // 目录里的每个 href 都能在正文找到同名 id —— 这就是「可跳」的定义。
+    const hrefs = [...bodyHtml.matchAll(/<a href="#([^"]+)"/g)].map((m) => m[1]);
+    expect(hrefs.length).toBeGreaterThan(0);
+    for (const id of hrefs) {
+      expect(bodyHtml).toContain(`id="${id}"`);
+    }
+  });
+
+  it("h5/h6 不进导出目录（与大纲深度一致）", async () => {
+    const { bodyHtml } = await renderMarkdownForExport({
+      ...base,
+      content: "# 一\n\n<!-- toc -->\n\n##### 太深\n\n## 正常\n",
+    });
+    expect(bodyHtml).not.toContain('href="#太深"');
+    expect(bodyHtml).toContain('href="#正常"');
+  });
+
+  it("单篇 HTML 里也带 TOC 样式（离线打开不塌成纯文字）", async () => {
+    const html = await documentToStandaloneHtml(doc({ content: TOC_DOC }), {
+      content: TOC_DOC,
+    });
+    expect(html).toContain("lh-toc");
+    expect(html).toContain(".prose .lh-toc");
+    expect(html).toContain(".prose .lh-toc ul ul");
+  });
+});

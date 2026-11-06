@@ -182,6 +182,56 @@ a.export-wiki:hover { border-bottom-color: var(--accent); }
 }
 .export-link-plain { color: var(--fg); border-bottom: 1px dotted var(--border); }
 
+/* ---- 文内目录（rehypeToc）----
+   层级靠嵌套 <ul> 表达，缩进因此只能写在结构选择器上。
+   与预览同一套意图，只是这里用的是导出的纸面色板。 */
+.prose .lh-toc {
+  margin: 1.4em 0 1.8em;
+  padding: 0.85em 1.05em;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(43, 38, 31, 0.03);
+  font-size: 0.94em;
+  line-height: 1.65;
+}
+.prose .lh-toc-title {
+  margin: 0 0 0.45em;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 0.8em;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+.prose .lh-toc ul {
+  list-style: none;
+  margin: 0;
+  padding-left: 0;
+}
+.prose .lh-toc ul ul {
+  padding-left: 1.15em;
+  margin-top: 0.15em;
+}
+.prose .lh-toc li {
+  margin: 0.2em 0;
+}
+.prose .lh-toc a {
+  color: var(--fg);
+  text-decoration: none;
+}
+.prose .lh-toc a:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+.prose .lh-toc-empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9em;
+}
+@media print {
+  /* 打印时目录就是导航页：别让整块被跨页切断。 */
+  .prose .lh-toc { break-inside: avoid; }
+}
+
 .footer {
   margin-top: 3rem;
   padding-top: 1rem;
