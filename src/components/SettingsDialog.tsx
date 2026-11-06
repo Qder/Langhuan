@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils";
 import {
   LINE_HEIGHT_OPTIONS,
   PARAGRAPH_SPACING_OPTIONS,
+  ZOOM_OPTIONS,
 } from "@/lib/readingPrefs";
 import { UpdateSettings } from "./UpdateSettings";
 
@@ -146,6 +147,31 @@ export function SettingsDialog() {
                   className={cn(
                     "px-2.5 py-1 text-[11px] rounded-[10px] font-ui",
                     readingPrefs.lineWidth === w
+                      ? "bg-[var(--accent)] text-white"
+                      : "hover:bg-[var(--hover)] text-[var(--muted)]"
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm text-[var(--muted)] w-14 shrink-0">缩放</span>
+            <div
+              className="inline-flex rounded-xl border border-[var(--border)] p-0.5 bg-[var(--card)]"
+              role="group"
+              aria-label="阅读缩放"
+            >
+              {ZOOM_OPTIONS.map(({ value, label }) => (
+                <button
+                  key={value}
+                  type="button"
+                  title={`正文缩放 ${label}`}
+                  onClick={() => setReadingPrefs({ zoom: value })}
+                  className={cn(
+                    "px-2.5 py-1 text-[11px] rounded-[10px] font-ui tabular-nums",
+                    readingPrefs.zoom === value
                       ? "bg-[var(--accent)] text-white"
                       : "hover:bg-[var(--hover)] text-[var(--muted)]"
                   )}

@@ -19,6 +19,11 @@ import {
 } from "@/lib/typewriterScroll";
 import { collectTocEntries, isTocMarkerLine, type TocEntry } from "@/lib/tocMarker";
 import { buildTocTree, type TocNode } from "@/lib/rehypeToc";
+import { proseWidthForZoom } from "@/lib/readingPrefs";
+import {
+  effectiveZoom,
+  scrollTopForViewportDelta,
+} from "@/lib/outline";
 import "katex/dist/katex.min.css";
 
 /** Module-level — recreating plugin arrays each render forces react-markdown to reparse. */
@@ -307,11 +312,13 @@ export function MixedMdView({ doc }: { doc: Document }) {
       const el = scroller.querySelectorAll<HTMLElement>("[data-md-block]")[index];
       if (!el) return;
       // 跳到块的顶部附近，而不是居中——读者要看的是这一节的开头。
-      const top =
-        el.getBoundingClientRect().top -
-        scroller.getBoundingClientRect().top +
-        scroller.scrollTop;
-      scroller.scrollTo({ top: Math.max(0, top - 24), behavior: "smooth" });
+      // zoom 生效时 rect 差值是屏幕像素，乘回 zoom 才是容器的 scrollTop 单位。
+      const viewportDelta =
+        el.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+      scroller.scrollTo({
+        top: scrollTopForViewportDelta(scroller.scrollTop, viewportDelta, effectiveZoom(el), 24),
+        behavior: "smooth",
+      });
     },
     []
   );
@@ -338,8 +345,11 @@ export function MixedMdView({ doc }: { doc: Document }) {
       <div
         className="mx-auto space-y-3"
         style={{
-          maxWidth: readingPrefs.lineWidth,
+          // 与预览同一套换算：zoom 会把 maxWidth 一起放大，所以先除回去，
+          // 视觉版心宽度仍等于 lineWidth。混合模式也是 MD 预览，缩放要跟着走。
+          maxWidth: proseWidthForZoom(readingPrefs.zoom, readingPrefs.lineWidth),
           fontSize: readingPrefs.fontSize,
+          zoom: readingPrefs.zoom,
         }}
       >
         {drafts.map((text, i) => {

@@ -69,6 +69,7 @@ import type { LocateResult } from "@/lib/locate";
 import { rehypeSrcPositions } from "@/lib/locate/rehypeSrcPositions";
 import { rehypeRecoverEmphasis } from "@/lib/rehypeRecoverEmphasis";
 import { rehypeCallout } from "@/lib/rehypeCallout";
+import { proseWidthForZoom } from "@/lib/readingPrefs";
 import { rehypeToc } from "@/lib/rehypeToc";
 import { PreviewContextMenu, type ContextMenuItem } from "./locate/PreviewContextMenu";
 import { subscribeScrollSync } from "@/lib/locate/scrollBus";
@@ -2597,8 +2598,13 @@ export function MarkdownReader({ doc }: { doc: Document }) {
           ref={articleRef}
           className="prose-langhuan relative w-full min-w-0"
           style={{
-            maxWidth: readingPrefs.lineWidth,
+            // zoom 会把 max-width 一起放大，所以宽度先除掉它：视觉版心宽度
+            // 仍然等于 lineWidth，缩放只是让字变大、每行字数变少。
+            maxWidth: proseWidthForZoom(readingPrefs.zoom, readingPrefs.lineWidth),
             fontSize: readingPrefs.fontSize,
+            // Chromium / Safari / Firefox 126+ 都支持标准 zoom。
+            // 不用 transform: scale —— 那会脱离文档流，滚动高度和锚点坐标全乱。
+            zoom: readingPrefs.zoom,
             // 变量交给 globals.css 的规则消费；用内联变量而不是直接写
             // line-height/margin，主题（尤其 phycat）自己的 p 规则仍能生效，
             // 只是被这一层覆盖。

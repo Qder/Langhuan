@@ -3,7 +3,9 @@ import {
   DEFAULT_READING_PREFS,
   LINE_HEIGHT_OPTIONS,
   PARAGRAPH_SPACING_OPTIONS,
+  ZOOM_OPTIONS,
   normalizeReadingPrefs,
+  proseWidthForZoom,
 } from "./readingPrefs";
 
 describe("normalizeReadingPrefs", () => {
@@ -21,6 +23,25 @@ describe("normalizeReadingPrefs", () => {
     expect(prefs.paragraphSpacing).toBe(0.85);
     expect(DEFAULT_READING_PREFS.lineHeight).toBe(1.95);
     expect(DEFAULT_READING_PREFS.paragraphSpacing).toBe(0.85);
+  });
+
+  it("缩放默认 1，落在 0.9–1.3 之间", () => {
+    expect(normalizeReadingPrefs(null).zoom).toBe(1);
+    expect(DEFAULT_READING_PREFS.zoom).toBe(1);
+    const values = ZOOM_OPTIONS.map((o) => o.value);
+    expect(Math.min(...values)).toBeGreaterThanOrEqual(0.9);
+    expect(Math.max(...values)).toBeLessThanOrEqual(1.3);
+    // 必须含 1，否则老用户没有「回到默认」的档位可点。
+    expect(values).toContain(1);
+  });
+
+  it("缩放只吸附到档位，越界值不会漏出去", () => {
+    expect(normalizeReadingPrefs({ zoom: 5 }).zoom).toBe(1.3);
+    expect(normalizeReadingPrefs({ zoom: 0.1 }).zoom).toBe(0.9);
+    expect(normalizeReadingPrefs({ zoom: 1.23 }).zoom).toBe(1.2);
+    expect(normalizeReadingPrefs({ zoom: 1.31 }).zoom).toBe(1.3);
+    expect(normalizeReadingPrefs({ zoom: NaN }).zoom).toBe(1);
+    expect(normalizeReadingPrefs({ zoom: "big" } as never).zoom).toBe(1);
   });
 
   it("snaps arbitrary values to the nearest shipped option", () => {
@@ -61,6 +82,7 @@ describe("normalizeReadingPrefs", () => {
       lineWidth: 680,
       lineHeight: DEFAULT_READING_PREFS.lineHeight,
       paragraphSpacing: DEFAULT_READING_PREFS.paragraphSpacing,
+      zoom: DEFAULT_READING_PREFS.zoom,
       focusMode: true,
       typewriterMode: false,
     });
@@ -86,5 +108,43 @@ describe("normalizeReadingPrefs", () => {
     const gaps = PARAGRAPH_SPACING_OPTIONS.map((o) => o.value);
     expect(gaps).toEqual([...gaps].sort((a, b) => a - b));
     expect(new Set(gaps).size).toBe(gaps.length);
+    const zooms = ZOOM_OPTIONS.map((o) => o.value);
+    expect(zooms).toEqual([...zooms].sort((a, b) => a - b));
+    expect(new Set(zooms).size).toBe(zooms.length);
+  });
+
+  it("keeps zoom values exactly when they are already on a stop", () => {
+    for (const { value } of ZOOM_OPTIONS) {
+      expect(normalizeReadingPrefs({ zoom: value }).zoom).toBe(value);
+    }
+  });
+});
+
+describe("proseWidthForZoom", () => {
+  it("1 倍时版心就是 lineWidth 本身", () => {
+    expect(proseWidthForZoom(1, 740)).toBe(740);
+    expect(proseWidthForZoom(1, 560)).toBe(560);
+  });
+
+  it("放大时把内联宽度除回去，视觉版心宽度保持不变", () => {
+    // zoom 会把 max-width 一起放大，所以 1.3 倍 + 740 版心 → 内联约 569px。
+    // 740 / 1.3 = 569.23 → 取整 569，乘回 1.3 是 739.7，误差不到 1px。
+    const inner = proseWidthForZoom(1.3, 740);
+    expect(inner).toBe(569);
+    expect(Math.abs(inner * 1.3 - 740)).toBeLessThan(1);
+  });
+
+  it("缩小时同理，且不会因为取整跑出可见偏差", () => {
+    for (const { value } of ZOOM_OPTIONS) {
+      const inner = proseWidthForZoom(value, 740);
+      expect(Math.abs(inner * value - 740)).toBeLessThan(1);
+    }
+  });
+
+  it("遇到坏 zoom 值退化成 1，而不是算出 0 或 Infinity", () => {
+    expect(proseWidthForZoom(0, 740)).toBe(740);
+    expect(proseWidthForZoom(-2, 740)).toBe(740);
+    expect(proseWidthForZoom(NaN, 740)).toBe(740);
+    expect(proseWidthForZoom(Infinity, 740)).toBe(740);
   });
 });

@@ -7,6 +7,7 @@
  */
 
 import { centeredScrollTop, shouldRecenter, typewriterBottomPad } from "./typewriter";
+import { effectiveZoom } from "./outline";
 
 export type ScrollHostMetrics = {
   scrollTop: number;
@@ -35,7 +36,9 @@ export function scrollElementToTypewriterAnchor(
   const scrollRect = scroller.getBoundingClientRect();
   const targetRect = target.getBoundingClientRect();
   // 用 rect 差值算，避免 offsetParent 链上多套定位带来的 off-by-scrollTop。
-  const contentY = targetRect.top - scrollRect.top + metrics.scrollTop;
+  // zoom 预览里 rect 是屏幕像素，scrollTop 是容器像素，缺了乘 zoom 会越滚越偏。
+  const contentY =
+    (targetRect.top - scrollRect.top) * effectiveZoom(target) + metrics.scrollTop;
   const next = centeredScrollTop(
     contentY,
     metrics.clientHeight,

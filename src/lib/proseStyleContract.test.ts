@@ -153,6 +153,41 @@ describe("行高 / 段距由阅读偏好驱动", () => {
   });
 });
 
+describe("zoom 只作用于 prose，且不撑破版心", () => {
+  it("预览 article 上同时有 zoom 与除过 zoom 的 maxWidth", () => {
+    const src = stripComments(reader);
+    // 直接写 maxWidth: lineWidth 会让 zoom 把版心一起放大，窄窗口横向溢出。
+    expect(src).toContain("proseWidthForZoom(readingPrefs.zoom, readingPrefs.lineWidth)");
+    expect(src).toContain("zoom: readingPrefs.zoom");
+    // 不许用 transform 假装缩放：那会脱离文档流，滚动高度和锚点坐标全乱。
+    expect(src).not.toMatch(/scale\(\s*readingPrefs\.zoom/);
+  });
+
+  it("源码编辑器不吃阅读缩放", () => {
+    const sourceEditor = stripComments(
+      readFileSync(new URL("../components/SourceEditor.tsx", import.meta.url), "utf8")
+    );
+    expect(sourceEditor).not.toContain("readingPrefs.zoom");
+    expect(sourceEditor).not.toContain("proseWidthForZoom");
+  });
+
+  it("HTML 沙箱不吃阅读缩放", () => {
+    const htmlReader = stripComments(
+      readFileSync(new URL("../components/HtmlReader.tsx", import.meta.url), "utf8")
+    );
+    expect(htmlReader).not.toContain("readingPrefs.zoom");
+    expect(htmlReader).not.toContain("proseWidthForZoom");
+  });
+
+  it("混合模式与预览共用同一套换算（它也是 MD 预览）", () => {
+    const mixed = stripComments(
+      readFileSync(new URL("../components/editor/MixedMdView.tsx", import.meta.url), "utf8")
+    );
+    expect(mixed).toContain("proseWidthForZoom(readingPrefs.zoom, readingPrefs.lineWidth)");
+    expect(mixed).toContain("zoom: readingPrefs.zoom");
+  });
+});
+
 describe("五种 callout 的色相表仍在", () => {
   it("kind 表是五种，且有默认标题", () => {
     for (const kind of ["note", "tip", "important", "warning", "caution"]) {

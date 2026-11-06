@@ -85,13 +85,16 @@ export function measureHeadingContentTops(
     rects[i] = nodes[i].getBoundingClientRect();
   }
   const scrollTop = scrollRoot.scrollTop;
+  // 标题可能在 zoom 过的容器里，rect 是屏幕像素而 scrollTop 是容器像素，
+  // 所以 rect 差值要乘 zoom 才能换算回容器的坐标。
+  const zoom = effectiveZoom(scope);
   const out: HeadingContentTop[] = [];
   for (let i = 0; i < n; i++) {
     const id = nodes[i].id;
     if (!id) continue;
     out.push({
       id,
-      contentTop: rects[i].top - rootRect.top + scrollTop,
+      contentTop: scrollTop + (rects[i].top - rootRect.top) * zoom,
     });
   }
   return out;
@@ -111,6 +114,44 @@ export function headingViewportTops(
 
 /** Brief flash on jumped heading (matches MarkdownReader preview flash). */
 export const OUTLINE_JUMP_FLASH_MS = 1200;
+
+/**
+ * 读一个元素实际生效的缩放倍数（CSS `zoom`）。
+ *
+ * 为什么必须读它：`scrollTop` 是滚动容器**自己的** CSS 像素，而
+ * `getBoundingClientRect()` 返回的是**屏幕**像素；两者在 `zoom ≠ 1` 时差一个
+ * 倍数。1.3 倍下滚 1000px，视口里只移动约 770px —— 拿 rect 差值直接当
+ * scrollTop 用，跳转会偏出四分之一屏。
+ *
+ * 读 computed 而不是内联 style：缩放可能来自内联（预览）也可能是祖先元素。
+ */
+export function effectiveZoom(el: Element | null | undefined): number {
+  if (!el || typeof window === "undefined") return 1;
+  try {
+    const raw = window.getComputedStyle(el).zoom;
+    const z = Number.parseFloat(raw);
+    return Number.isFinite(z) && z > 0 ? z : 1;
+  } catch {
+    // 测试里的假元素 / 已卸载节点：拿不到样式就当没缩放，别把整条跳转带崩。
+    return 1;
+  }
+}
+
+/**
+ * 把「元素相对滚动容器的屏幕偏移」换成容器的 scrollTop。
+ *
+ * `viewportDelta` 是 rect.top 差值（屏幕像素），乘 zoom 才落回容器的
+ * CSS 像素。zoom = 1 时退化成原来的 `scrollTop + rectΔ − offset`。
+ */
+export function scrollTopForViewportDelta(
+  scrollTop: number,
+  viewportDelta: number,
+  zoom: number = 1,
+  offsetPx: number = OUTLINE_SPY_THRESHOLD_PX
+): number {
+  const z = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
+  return Math.max(0, scrollTop + (viewportDelta - offsetPx) * z);
+}
 
 /**
  * Target scrollTop so a heading's contentTop sits `offsetPx` below the
@@ -141,10 +182,15 @@ export function planOutlineJump(
   if (!headingEl) return { ok: false, reason: "no-heading" };
   const rootRect = scrollRoot.getBoundingClientRect();
   const headRect = headingEl.getBoundingClientRect();
-  const contentTop = headRect.top - rootRect.top + scrollRoot.scrollTop;
+  // 用统一的换算函数：缩放生效时 rect 差值是屏幕像素，得乘回 zoom。
   return {
     ok: true,
-    scrollTop: scrollOffsetForHeading(contentTop, offsetPx),
+    scrollTop: scrollTopForViewportDelta(
+      scrollRoot.scrollTop,
+      headRect.top - rootRect.top,
+      effectiveZoom(headingEl),
+      offsetPx
+    ),
     headingId: headingEl.id || "",
   };
 }

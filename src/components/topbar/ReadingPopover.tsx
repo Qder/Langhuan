@@ -23,6 +23,7 @@ import type { ReadingPrefs } from "@/lib/readingPrefs";
 import {
   LINE_HEIGHT_OPTIONS,
   PARAGRAPH_SPACING_OPTIONS,
+  ZOOM_OPTIONS,
 } from "@/lib/readingPrefs";
 import { ReadingStatsCard, useReadingStats } from "../ReadingStatsCard";
 import type { ViewMode } from "@/lib/types";
@@ -103,7 +104,7 @@ export function ReadingPopover({
         className={touchIcon}
         aria-label="阅读设置"
         aria-expanded={open}
-        title="阅读：字号 / 行宽 / 专注 / 宽度 / 缩放"
+        title="阅读：字号 / 行宽 / 缩放 / 行高 / 专注"
         onClick={onToggle}
       >
         <SlidersHorizontal className="h-4 w-4" />
@@ -167,6 +168,18 @@ export function ReadingPopover({
                     active={readingPrefs.lineWidth === w}
                     title={`行宽 ${w}px`}
                     onClick={() => setReadingPrefs({ lineWidth: w })}
+                  >
+                    {label}
+                  </SegButton>
+                ))}
+              </SegGroup>
+              <SegGroup label="缩放">
+                {ZOOM_OPTIONS.map(({ value, label }) => (
+                  <SegButton
+                    key={`rp-zoom-${value}`}
+                    active={readingPrefs.zoom === value}
+                    title={`正文缩放 ${label}`}
+                    onClick={() => setReadingPrefs({ zoom: value })}
                   >
                     {label}
                   </SegButton>

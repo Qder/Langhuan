@@ -9,6 +9,8 @@ import {
   planOutlineJump,
   findOutlineHeadingEl,
   normalizeOutlineMatchText,
+  effectiveZoom,
+  scrollTopForViewportDelta,
   OUTLINE_SPY_THRESHOLD_PX,
   MAX_OUTLINE_DEPTH,
   measureHeadingContentTops,
@@ -186,6 +188,51 @@ describe("scrollOffsetForHeading / planOutlineJump", () => {
       ok: false,
       reason: "no-heading",
     });
+  });
+});
+
+describe("zoom 下的坐标换算", () => {
+  it("effectiveZoom 无 DOM 时退回 1", () => {
+    expect(effectiveZoom(null)).toBe(1);
+    expect(effectiveZoom(undefined)).toBe(1);
+    // 测试里的假元素、以及已卸载的节点：getComputedStyle 会抛，不能把跳转带崩。
+    expect(effectiveZoom({} as Element)).toBe(1);
+  });
+
+  it("zoom = 1 时退化成原来那套算法", () => {
+    // contentTop = 500，spy 阈值 120 → 380
+    expect(scrollTopForViewportDelta(200, 300, 1, 120)).toBe(380);
+  });
+
+  it("zoom = 1.3 时把屏幕像素差值乘回容器像素", () => {
+    // 视口里标题在下方 300px（屏幕像素），容器自身是 1.3 倍缩放，
+    // 所以真实内容是 300 × 1.3 = 390 容器像素。
+    expect(scrollTopForViewportDelta(200, 300, 1.3, 0)).toBe(590);
+    // 乘 1.3 的结果必须大于不乘：这是修 bug 的核心方向，别写反了。
+    expect(scrollTopForViewportDelta(200, 300, 1.3, 0)).toBeGreaterThan(
+      scrollTopForViewportDelta(200, 300, 1, 0)
+    );
+  });
+
+  it("已经滚过目标时钳成 0，不会给出负 scrollTop", () => {
+    expect(scrollTopForViewportDelta(0, -500, 1.3, 80)).toBe(0);
+    expect(scrollTopForViewportDelta(0, 10, 1, 80)).toBe(0);
+  });
+
+  it("坏 zoom 值退化成 1，而不是算出 NaN / Infinity", () => {
+    for (const bad of [0, -1, NaN, Infinity]) {
+      expect(scrollTopForViewportDelta(100, 200, bad, 0)).toBe(300);
+    }
+  });
+
+  it("实测公式：滚到目标偏移后，标题恰好落在指定位置", () => {
+    // 复刻浏览器里验过的数字：zoom 1.3、标题在视口下方 5892px、目标偏移 80。
+    // 应有 scrollTop = 0 + (5892 - 80) × 1.3 = 7555.6
+    const next = scrollTopForViewportDelta(0, 5892, 1.3, 80);
+    expect(Math.round(next)).toBe(7556);
+    // 反推：滚过去之后，视口偏移应该正好是 80
+    const deltaAfter = (5892 - next / 1.3) * 1.3;
+    expect(Math.round(deltaAfter / 1.3)).toBe(80);
   });
 });
 

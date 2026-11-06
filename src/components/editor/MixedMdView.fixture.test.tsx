@@ -42,7 +42,7 @@ vi.mock("@/lib/store", () => ({
     sel({
       getContent: () => SOURCE,
       setDraft: vi.fn(),
-      readingPrefs: { fontSize: 17, lineWidth: 740, lineHeight: 1.95, paragraphSpacing: 0.85, focusMode: false, typewriterMode: false },
+      readingPrefs: { fontSize: 17, lineWidth: 740, lineHeight: 1.95, paragraphSpacing: 0.85, zoom: 1, focusMode: false, typewriterMode: false },
       viewMode: "mixed",
     }),
 }));
