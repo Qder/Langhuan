@@ -4,6 +4,8 @@ import * as React from "react";
 import { List, Minimize2 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
+import { ReadingStatsCard, useReadingStats } from "./ReadingStatsCard";
+import { readingStatsTitle } from "@/lib/readingStats";
 import { TocPopover } from "./topbar/TocPopover";
 import { useActiveHeading } from "./topbar/useActiveHeading";
 import { useDocAsideData } from "./topbar/useDocAsideData";
@@ -21,6 +23,8 @@ export function MdFocusExitButton() {
   const assetsForDoc = useStore((s) => s.assetsForDoc);
 
   const progress = useReadingProgressPercent();
+  const focusContent = active ? getContent(active.id) : "";
+  const stats = useReadingStats(focusContent, active?.type === "html" ? "html" : "md");
 
   const { outline, backlinks, asideAvailable } = useDocAsideData({
     active,
@@ -91,6 +95,16 @@ export function MdFocusExitButton() {
           title="阅读进度"
         >
           {Math.round(progress)}%
+        </span>
+        <span className="mx-0.5 h-4 w-px bg-[var(--border)]" aria-hidden />
+        {/* 专注时顶栏整块不渲染，浮动条是唯一能看到字数与时长的地方，
+            所以窄屏也不收起，只把字号压到 10px。 */}
+        <span
+          className="px-1.5"
+          data-focus-stats=""
+          title={readingStatsTitle(stats)}
+        >
+          <ReadingStatsCard stats={stats} compact className="max-lg:text-[10px]" />
         </span>
         {/* 1px 底衬进度：和顶栏那条 2px 同源，专注时也有「读到哪」的把握。 */}
         <span

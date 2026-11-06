@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useStore } from "@/lib/store";
-import { countWords, readingMinutes } from "@/lib/utils";
+import { formatCount, readingStatsOf, readingTimeLabel } from "@/lib/readingStats";
 
 export function StatusBar() {
   const status = useStore((s) => s.status);
@@ -15,8 +15,11 @@ export function StatusBar() {
   const hoverReveal = useStore((s) => s.hoverReveal);
 
   const content = active ? getContent(active.id) : "";
-  const words = active ? countWords(content) : 0;
-  const mins = readingMinutes(words);
+  // 与正文页、阅读弹层同一把尺子：去 YAML、去围栏代码，所以三处数字一致。
+  const stats = React.useMemo(
+    () => readingStatsOf(content, active?.type === "html" ? "html" : "md"),
+    [content, active?.type]
+  );
   const dirty = active ? isDirty(active.id) : false;
   const showCaret =
     !!active &&
@@ -46,7 +49,7 @@ export function StatusBar() {
               Ln {editorCaret!.line}, Col {editorCaret!.col}
             </span>
           )}
-          <span>{words} 字</span>
+          <span>{formatCount(stats.chars)} 字</span>
           <span>沙箱渲染</span>
         </div>
       </footer>
@@ -70,8 +73,8 @@ export function StatusBar() {
                 Ln {editorCaret!.line}, Col {editorCaret!.col}
               </span>
             )}
-            <span>{words} 字</span>
-            <span className="hidden sm:inline">约 {mins} 分钟</span>
+            <span>{formatCount(stats.chars)} 字</span>
+            <span className="hidden sm:inline">{readingTimeLabel(stats)}</span>
             <span>{dirty ? "未保存" : "已保存"}</span>
           </>
         )}

@@ -23,6 +23,7 @@ import {
   LINE_HEIGHT_OPTIONS,
   PARAGRAPH_SPACING_OPTIONS,
 } from "@/lib/readingPrefs";
+import { ReadingStatsCard, useReadingStats } from "../ReadingStatsCard";
 import type { ViewMode } from "@/lib/types";
 
 /**
@@ -89,6 +90,9 @@ export function ReadingPopover({
   openHtmlInNewTab: (html: string) => void;
   onClose: () => void;
 }) {
+  // 篇级统计：和阅读偏好同处一个弹层，专注模式里也是从这里看字数与时长。
+  const stats = useReadingStats(content, isHtml ? "html" : "md");
+
   return (
     <div className="relative">
       <Button
@@ -116,6 +120,8 @@ export function ReadingPopover({
           )}
         >
           <div className="text-xs font-ui font-semibold">阅读</div>
+
+          <ReadingStatsCard stats={stats} />
 
           {/* Phone only: the sm+ toolbar already has the 预览|源码 segment */}
           <div className="sm:hidden">

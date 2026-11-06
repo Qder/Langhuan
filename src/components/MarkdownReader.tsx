@@ -36,7 +36,13 @@ import {
 } from "@/lib/outline";
 import { getTags, parseFrontmatter } from "@/lib/tags";
 import { useMediaQuery } from "@/lib/useMediaQuery";
-import { countWords, readingMinutes, relativeTime, cn, titleOf } from "@/lib/utils";
+import { relativeTime, cn, titleOf } from "@/lib/utils";
+import {
+  codeExcludedNote,
+  formatCount,
+  readingStatsOfMarkdown,
+  readingTimeLabel,
+} from "@/lib/readingStats";
 import type { Document } from "@/lib/types";
 import {
   frontmatterOffset,
@@ -899,7 +905,8 @@ export function MarkdownReader({ doc }: { doc: Document }) {
   const fmLineOffset = React.useMemo(() => frontmatterLineOffset(content), [content]);
   const body = React.useMemo(() => parseFrontmatter(content).body, [content]);
   const tags = React.useMemo(() => getTags({ ...doc, content }), [doc, content]);
-  const words = React.useMemo(() => countWords(body), [body]);
+  const stats = React.useMemo(() => readingStatsOfMarkdown(content), [content]);
+  const codeNote = React.useMemo(() => codeExcludedNote(stats), [stats]);
   const outline = React.useMemo(() => extractOutline(content), [content]);
   const [activeHeading, setActiveHeading] = React.useState<string>("");
   const [tagInput, setTagInput] = React.useState("");
@@ -2623,8 +2630,9 @@ export function MarkdownReader({ doc }: { doc: Document }) {
                 Markdown
               </span>
               <span>更新于 {relativeTime(docUpdatedAt)}</span>
-              <span>{words} 字</span>
-              <span>约 {readingMinutes(words)} 分钟</span>
+              <span>{formatCount(stats.chars)} 字</span>
+              <span>{readingTimeLabel(stats)}</span>
+              {codeNote && <span title={codeNote}>（代码未计入）</span>}
             </div>
             {summary && (
               <blockquote className="!border-l-[var(--gold)] !text-[var(--muted)] !m-0 font-serif text-base">
