@@ -19,6 +19,10 @@ import {
 } from "@/lib/htmlPreviewPrefs";
 import type { HtmlDocPreviewPrefs } from "@/lib/htmlPreviewPrefs";
 import type { ReadingPrefs } from "@/lib/readingPrefs";
+import {
+  LINE_HEIGHT_OPTIONS,
+  PARAGRAPH_SPACING_OPTIONS,
+} from "@/lib/readingPrefs";
 import type { ViewMode } from "@/lib/types";
 
 /**
@@ -156,6 +160,30 @@ export function ReadingPopover({
                     active={readingPrefs.lineWidth === w}
                     title={`行宽 ${w}px`}
                     onClick={() => setReadingPrefs({ lineWidth: w })}
+                  >
+                    {label}
+                  </SegButton>
+                ))}
+              </SegGroup>
+              <SegGroup label="行高">
+                {LINE_HEIGHT_OPTIONS.map(({ value, label }) => (
+                  <SegButton
+                    key={`rp-lh-${value}`}
+                    active={readingPrefs.lineHeight === value}
+                    title={`行高 ${value}`}
+                    onClick={() => setReadingPrefs({ lineHeight: value })}
+                  >
+                    {label}
+                  </SegButton>
+                ))}
+              </SegGroup>
+              <SegGroup label="段距">
+                {PARAGRAPH_SPACING_OPTIONS.map(({ value, label }) => (
+                  <SegButton
+                    key={`rp-ps-${value}`}
+                    active={readingPrefs.paragraphSpacing === value}
+                    title={`段距 ${value}em`}
+                    onClick={() => setReadingPrefs({ paragraphSpacing: value })}
                   >
                     {label}
                   </SegButton>

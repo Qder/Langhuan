@@ -2565,7 +2565,12 @@ export function MarkdownReader({ doc }: { doc: Document }) {
           style={{
             maxWidth: readingPrefs.lineWidth,
             fontSize: readingPrefs.fontSize,
-          }}
+            // 变量交给 globals.css 的规则消费；用内联变量而不是直接写
+            // line-height/margin，主题（尤其 phycat）自己的 p 规则仍能生效，
+            // 只是被这一层覆盖。
+            "--lh-line-height": readingPrefs.lineHeight,
+            "--lh-para-gap": `${readingPrefs.paragraphSpacing}em`,
+          } as React.CSSProperties}
           onContextMenu={onContextMenu}
           onDragOver={(e) => {
             if ([...e.dataTransfer.types].includes("Files")) e.preventDefault();

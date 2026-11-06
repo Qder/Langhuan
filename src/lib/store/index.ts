@@ -15,6 +15,7 @@ import {
 } from "../theme";
 import { idbJSONStorage, STORE_KEY } from "../storage/idbPersist";
 import { stashIdbLibrary } from "../storage/contentMigration";
+import { mergePersistedState } from "./persistMerge";
 import { pruneEmptyFolders } from "../folders";
 import type { LanghuanState } from "./types";
 import { filteredDocuments } from "./helpers/filteredDocuments";
@@ -90,6 +91,7 @@ export const useStore = create<LanghuanState>()(
         customShortcuts: s.customShortcuts,
       }),
       version: 9,
+      merge: mergePersistedState,
       migrate: (persisted, fromVersion) => {
         const p = (persisted || {}) as Record<string, unknown>;
         if (fromVersion < 9) {

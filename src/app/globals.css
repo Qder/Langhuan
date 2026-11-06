@@ -393,7 +393,9 @@ body {
 /* Markdown prose */
 .prose-langhuan {
   max-width: 740px;
-  line-height: 1.95;
+  /* 阅读设置里的行高/段距：由 MarkdownReader 内联设置，缺省等于下面的字面量，
+     所以没设置时行为和以前完全一致。 */
+  line-height: var(--lh-line-height, 1.95);
   font-family: var(--font-serif), "Noto Serif SC", serif;
   font-size: 1.05rem;
 }
@@ -432,7 +434,7 @@ body {
   font-size: 1.15rem;
   margin-top: 1.9em;
 }
-.prose-langhuan p { margin: 0.85em 0; }
+.prose-langhuan p { margin: var(--lh-para-gap, 0.85em) 0; }
 .prose-langhuan a {
   color: var(--accent);
   text-decoration: underline;

@@ -14,6 +14,10 @@ import {
   themeLabel,
 } from "@/lib/theme";
 import { cn } from "@/lib/utils";
+import {
+  LINE_HEIGHT_OPTIONS,
+  PARAGRAPH_SPACING_OPTIONS,
+} from "@/lib/readingPrefs";
 import { UpdateSettings } from "./UpdateSettings";
 
 const FONT_SIZES = [15, 17, 19, 21] as const;
@@ -142,6 +146,56 @@ export function SettingsDialog() {
                   className={cn(
                     "px-2.5 py-1 text-[11px] rounded-[10px] font-ui",
                     readingPrefs.lineWidth === w
+                      ? "bg-[var(--accent)] text-white"
+                      : "hover:bg-[var(--hover)] text-[var(--muted)]"
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm text-[var(--muted)] w-14 shrink-0">行高</span>
+            <div
+              className="inline-flex rounded-xl border border-[var(--border)] p-0.5 bg-[var(--card)]"
+              role="group"
+              aria-label="阅读行高"
+            >
+              {LINE_HEIGHT_OPTIONS.map(({ value, label }) => (
+                <button
+                  key={value}
+                  type="button"
+                  title={`行高 ${value}`}
+                  onClick={() => setReadingPrefs({ lineHeight: value })}
+                  className={cn(
+                    "px-2.5 py-1 text-[11px] rounded-[10px] font-ui",
+                    readingPrefs.lineHeight === value
+                      ? "bg-[var(--accent)] text-white"
+                      : "hover:bg-[var(--hover)] text-[var(--muted)]"
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm text-[var(--muted)] w-14 shrink-0">段距</span>
+            <div
+              className="inline-flex rounded-xl border border-[var(--border)] p-0.5 bg-[var(--card)]"
+              role="group"
+              aria-label="阅读段距"
+            >
+              {PARAGRAPH_SPACING_OPTIONS.map(({ value, label }) => (
+                <button
+                  key={value}
+                  type="button"
+                  title={`段距 ${value}em`}
+                  onClick={() => setReadingPrefs({ paragraphSpacing: value })}
+                  className={cn(
+                    "px-2.5 py-1 text-[11px] rounded-[10px] font-ui",
+                    readingPrefs.paragraphSpacing === value
                       ? "bg-[var(--accent)] text-white"
                       : "hover:bg-[var(--hover)] text-[var(--muted)]"
                   )}

@@ -126,6 +126,33 @@ describe("标题与列表收一收", () => {
   });
 });
 
+describe("行高 / 段距由阅读偏好驱动", () => {
+  const phycatProse = stripComments(
+    readFileSync(new URL("../styles/phycat/prose.css", import.meta.url), "utf8")
+  );
+
+  it("globals.css 的行高与段距都吃 CSS 变量，且兜底是旧字面量", () => {
+    // 兜底值必须等于改动前的硬编码，否则功能一上线就改了默认观感。
+    expect(cssCode).toMatch(/\.prose-langhuan\s*\{[^}]*line-height:\s*var\(--lh-line-height,\s*1\.95\)/);
+    expect(cssCode).toMatch(
+      /\.prose-langhuan p\s*\{\s*margin:\s*var\(--lh-para-gap,\s*0\.85em\) 0;/
+    );
+  });
+
+  it("phycat 主题的 p 也让位给偏好的段距", () => {
+    expect(phycatProse).toMatch(
+      /html\[data-theme\^="phycat"\] \.prose-langhuan p\s*\{[^}]*margin:\s*var\(--lh-para-gap,\s*0\.75em\) 0;/
+    );
+  });
+
+  it("MarkdownReader 把两个偏好写成内联变量", () => {
+    const src = stripComments(reader);
+    expect(src).toContain('"--lh-line-height": readingPrefs.lineHeight');
+    expect(src).toContain("--lh-para-gap");
+    expect(src).toContain("readingPrefs.paragraphSpacing");
+  });
+});
+
 describe("五种 callout 的色相表仍在", () => {
   it("kind 表是五种，且有默认标题", () => {
     for (const kind of ["note", "tip", "important", "warning", "caution"]) {

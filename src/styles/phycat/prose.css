@@ -7,7 +7,7 @@
 
 html[data-theme^="phycat"] .prose-langhuan {
   max-width: min(740px, 100%);
-  line-height: 2.1;
+  line-height: var(--lh-line-height, 2.1);
   letter-spacing: 0.02em;
   font-family: "LXGW WenKai", "Noto Serif SC", Optima, Georgia, "Times New Roman",
     serif;
@@ -16,7 +16,7 @@ html[data-theme^="phycat"] .prose-langhuan {
 }
 
 html[data-theme^="phycat"] .prose-langhuan p {
-  margin: 0.75em 0;
+  margin: var(--lh-para-gap, 0.75em) 0;
   color: var(--fg);
   word-spacing: 0.05em;
 }
