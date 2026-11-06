@@ -31,6 +31,7 @@ import { ensureUniquePath } from "../helpers/paths";
 import { invalidateInspect } from "../inspectGate";
 import { softNavigate } from "../helpers/navigation";
 import { scheduleContentPersist, persistContent } from "../helpers/persistSchedule";
+import { renameScrollMemoryMany } from "../../scrollMemory";
 import type { LanghuanState } from "../types";
 import {
   emptyPreviewUndoStacks,
@@ -209,6 +210,8 @@ function applyWikiRenameSession(
       prevPaths.get(e.id) !== e.newPath ? prevPaths.get(e.id) : undefined
     );
   }
+  // 阅读位置跟着 path 走：应用内改名/移动不该让读者丢掉进度。
+  renameScrollMemoryMany(entries.map((e) => [e.oldPath, e.newPath] as const));
   for (const d of get().documents) {
     if (!renamedIds.has(d.id) && changedIds.has(d.id)) {
       scheduleContentPersist(get, set, d);

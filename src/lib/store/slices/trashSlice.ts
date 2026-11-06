@@ -13,6 +13,7 @@ import {
 } from "../../folders";
 import { ensureUniquePath } from "../helpers/paths";
 import { scheduleContentPersist } from "../helpers/persistSchedule";
+import { forgetScrollMemory, forgetScrollMemoryMany } from "../../scrollMemory";
 import type { LanghuanState } from "../types";
 
 type TrashSliceKeys =
@@ -36,6 +37,8 @@ export const createTrashSlice: StateCreator<
   deleteDoc: (id) => {
         const doc = get().documents.find((d) => d.id === id);
         if (!doc) return;
+        // 先忘掉阅读位置再移入回收站：回收站里的条目不该沿用旧 path 的进度。
+        forgetScrollMemory(doc.path);
         const item: TrashItem = { doc, deletedAt: Date.now() };
         set((s) => {
           const openTabs = s.openTabs.filter((t) => t !== id);
@@ -74,6 +77,8 @@ export const createTrashSlice: StateCreator<
         const victims = get().documents.filter((d) =>
           isPathUnderFolder(d.path, folder)
         );
+        // 整目录一次清掉，别每篇都重写一遍 lh.mdScroll。
+        forgetScrollMemoryMany(victims.map((d) => d.path));
         const now = Date.now();
         const trashItems: TrashItem[] = victims.map((doc) => ({
           doc,

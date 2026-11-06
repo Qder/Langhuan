@@ -3,7 +3,10 @@ import {
   MD_SCROLL_MAX_DOCS,
   MD_SCROLL_STORAGE_KEY,
   forgetScrollMemory,
+  forgetScrollMemoryMany,
   readScrollMemory,
+  renameScrollMemory,
+  renameScrollMemoryMany,
   scrollTargetFor,
   writeScrollMemory,
 } from "./scrollMemory";
@@ -70,6 +73,25 @@ describe("scroll memory", () => {
     expect(readScrollMemory("b.md")!.top).toBe(200);
   });
 
+  it("forget is a no-op for absent paths and never writes", () => {
+    writeScrollMemory("a.md", 100, 1000);
+    const before = store.get(MD_SCROLL_STORAGE_KEY);
+    forgetScrollMemory("nope.md");
+    expect(store.get(MD_SCROLL_STORAGE_KEY)).toBe(before);
+  });
+
+  it("forgetMany clears a folder in one pass", () => {
+    writeScrollMemory("pack/a.md", 10, 1000);
+    writeScrollMemory("pack/sub/b.md", 20, 1000);
+    writeScrollMemory("keep.md", 30, 1000);
+
+    expect(forgetScrollMemoryMany(["pack/a.md", "pack/sub/b.md"])).toBe(2);
+    expect(readScrollMemory("pack/a.md")).toBeNull();
+    expect(readScrollMemory("pack/sub/b.md")).toBeNull();
+    expect(readScrollMemory("keep.md")!.top).toBe(30);
+    expect(forgetScrollMemoryMany(["gone.md"])).toBe(0);
+  });
+
   it("silently drops corrupt or partial records", () => {
     store.set(
       MD_SCROLL_STORAGE_KEY,
@@ -102,6 +124,75 @@ describe("scroll memory", () => {
     expect(Object.keys(raw)).toHaveLength(MD_SCROLL_MAX_DOCS);
     expect(raw["doc-0.md"]).toBeUndefined();
     expect(raw[`doc-${MD_SCROLL_MAX_DOCS + 4}.md`]).toBeDefined();
+  });
+});
+
+describe("scroll memory rename", () => {
+  it("carries the position to the new path and drops the old one", () => {
+    writeScrollMemory("旧名.md", 400, 2000);
+    const before = readScrollMemory("旧名.md")!;
+
+    renameScrollMemory("旧名.md", "新名.md");
+
+    expect(readScrollMemory("旧名.md")).toBeNull();
+    expect(readScrollMemory("新名.md")).toEqual(before);
+  });
+
+  it("does nothing when the old path was never read", () => {
+    writeScrollMemory("other.md", 100, 1000);
+    const before = store.get(MD_SCROLL_STORAGE_KEY);
+
+    renameScrollMemory("never-read.md", "somewhere.md");
+
+    expect(store.get(MD_SCROLL_STORAGE_KEY)).toBe(before);
+    expect(readScrollMemory("somewhere.md")).toBeNull();
+  });
+
+  it("keeps the current occupant when the name is already taken", () => {
+    writeScrollMemory("a.md", 100, 1000);
+    writeScrollMemory("b.md", 900, 1000);
+
+    renameScrollMemory("a.md", "b.md");
+
+    // b.md 现在属于另一个文件，不能被路过用户的旧位置顶掉。
+    expect(readScrollMemory("b.md")!.top).toBe(900);
+    expect(readScrollMemory("a.md")).toBeNull();
+  });
+
+  it("is a no-op for same path / empty inputs", () => {
+    writeScrollMemory("a.md", 100, 1000);
+    const before = store.get(MD_SCROLL_STORAGE_KEY);
+    renameScrollMemory("a.md", "a.md");
+    renameScrollMemory("", "b.md");
+    renameScrollMemory("a.md", "");
+    expect(store.get(MD_SCROLL_STORAGE_KEY)).toBe(before);
+  });
+
+  it("moves a whole renamed folder in one pass", () => {
+    writeScrollMemory("pack/a.md", 100, 1000);
+    writeScrollMemory("pack/sub/b.md", 200, 1000);
+    writeScrollMemory("outside.md", 300, 1000);
+
+    renameScrollMemoryMany([
+      ["pack/a.md", "box/a.md"],
+      ["pack/sub/b.md", "box/sub/b.md"],
+    ]);
+
+    expect(readScrollMemory("pack/a.md")).toBeNull();
+    expect(readScrollMemory("pack/sub/b.md")).toBeNull();
+    expect(readScrollMemory("box/a.md")!.top).toBe(100);
+    expect(readScrollMemory("box/sub/b.md")!.top).toBe(200);
+    expect(readScrollMemory("outside.md")!.top).toBe(300);
+  });
+
+  it("renameMany skips pairs it has no record for", () => {
+    writeScrollMemory("pack/a.md", 100, 1000);
+    renameScrollMemoryMany([
+      ["pack/a.md", "box/a.md"],
+      ["pack/missing.md", "box/missing.md"],
+    ] as const);
+    expect(readScrollMemory("box/a.md")!.top).toBe(100);
+    expect(readScrollMemory("box/missing.md")).toBeNull();
   });
 });
 

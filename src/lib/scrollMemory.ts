@@ -6,8 +6,9 @@
  * 结构性改动都要同步 `store.behavior.test.ts` 的键快照，为一个滚动数字不值得。
  *
  * 键名：`lh.mdScroll`，值是 `{ [docPath]: Entry }`。
- * 用 path 而不是 id：文件改名后旧位置自然失效（静默忽略），符合「路径变更时
- * 不要拿错位置」；换了同名文件也不会莫名跳到一个旧坐标。
+ * 用 path 而不是 id：路径变了就不会错跳到旧坐标。应用内改名 / 移动由
+ * {@link renameScrollMemory} 把记录迁到新 path，删除由
+ * {@link forgetScrollMemory} 清掉，所以孤儿条目只剩「应用外改了文件名」这一种。
  */
 export const MD_SCROLL_STORAGE_KEY = "lh.mdScroll";
 
@@ -115,13 +116,62 @@ export function writeScrollMemory(
   writeMap(map);
 }
 
-/** 清掉某篇（删除 / 改名后调用；不调用也只是留一条孤儿数据）。 */
+/** 清掉某篇。删除、或路径被应用外改掉时调用。 */
 export function forgetScrollMemory(path: string): void {
   if (!path) return;
   const map = readMap();
   if (!(path in map)) return;
   delete map[path];
   writeMap(map);
+}
+
+/**
+ * 批量忘掉（删文件夹：一次读一次写，别每篇都 parse 整个 map）。
+ * 返回真正删掉的条数，便于调用方判断要不要写。
+ */
+export function forgetScrollMemoryMany(paths: Iterable<string>): number {
+  const map = readMap();
+  let removed = 0;
+  for (const p of paths) {
+    if (!p || !(p in map)) continue;
+    delete map[p];
+    removed += 1;
+  }
+  if (removed) writeMap(map);
+  return removed;
+}
+
+/**
+ * 改名 / 移动后把阅读位置搬到新 path，保留 `top`/`ratio`/`savedAt`。
+ *
+ * 旧 path 没有记录时什么都不做。新 path 已有记录则保留新的那份——它属于
+ * 当前占着这个名字的文件，不能被一个路过用户的旧位置覆盖。
+ */
+export function renameScrollMemory(oldPath: string, newPath: string): void {
+  if (!oldPath || !newPath || oldPath === newPath) return;
+  const map = readMap();
+  const entry = map[oldPath];
+  if (!entry) return;
+  delete map[oldPath];
+  if (!(newPath in map)) map[newPath] = entry;
+  writeMap(map);
+}
+
+/** 批量迁移（文件夹改名 / 移动）。键是 `[oldPath, newPath]`。 */
+export function renameScrollMemoryMany(
+  pairs: Iterable<readonly [string, string]>
+): void {
+  const map = readMap();
+  let touched = false;
+  for (const [from, to] of pairs) {
+    if (!from || !to || from === to) continue;
+    const entry = map[from];
+    if (!entry) continue;
+    delete map[from];
+    if (!(to in map)) map[to] = entry;
+    touched = true;
+  }
+  if (touched) writeMap(map);
 }
 
 /**
