@@ -9,6 +9,11 @@ export type ReadingPrefs = {
   paragraphSpacing: number;
   /** Focus / zen reading (hide chrome). */
   focusMode: boolean;
+  /**
+   * 打字机滚动：编辑时让当前行/当前块靠近视口中线。
+   * 只影响源码与混合模式的滚动，不改排版。
+   */
+  typewriterMode: boolean;
 };
 
 export const DEFAULT_READING_PREFS: ReadingPrefs = {
@@ -19,6 +24,8 @@ export const DEFAULT_READING_PREFS: ReadingPrefs = {
   lineHeight: 1.95,
   paragraphSpacing: 0.85,
   focusMode: false,
+  // 默认关：滚动行为属于「用久了才想要」的偏好，不该一上线就改变手感。
+  typewriterMode: false,
 };
 
 /**
@@ -86,5 +93,6 @@ export function normalizeReadingPrefs(
       DEFAULT_READING_PREFS.paragraphSpacing
     ),
     focusMode: !!partial?.focusMode,
+    typewriterMode: !!partial?.typewriterMode,
   };
 }

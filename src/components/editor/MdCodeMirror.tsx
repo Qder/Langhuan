@@ -33,6 +33,7 @@ import {
 import { safeCoordsAtPos, createRafScrollToOffset } from "./safeCoords";
 import { subscribeScrollSync } from "@/lib/locate/scrollBus";
 import { applyExternalDoc } from "@/lib/editorExternalSync";
+import { typewriterBottomPad } from "@/lib/typewriter";
 
 function offsetToLineCol(text: string, offset: number): { line: number; col: number } {
   const o = Math.max(0, Math.min(offset, text.length));
@@ -64,6 +65,11 @@ export function MdCodeMirror({
   const documents = useStore((s) => s.documents);
   const ingestImageFile = useStore((s) => s.ingestImageFile);
   const theme = useStore((s) => s.theme);
+  const typewriterMode = useStore((s) => s.readingPrefs.typewriterMode);
+  const typewriterRef = React.useRef(typewriterMode);
+  React.useEffect(() => {
+    typewriterRef.current = typewriterMode;
+  }, [typewriterMode]);
 
   const [slash, setSlash] = React.useState<{
     top: number;
@@ -101,6 +107,66 @@ export function MdCodeMirror({
   }, [wiki]);
 
   const content = getContent(doc.id);
+
+  /**
+   * 让当前光标行停在视口中线附近。
+   *
+   * 「该不该挪」交给 CM 的 `scrollIntoView` 自己判断：它已经会把
+   * 已在安全区内、离中线很近的光标判定为无需滚动，
+   * 所以这里不再重复算一遍目标 scrollTop（那只会多读一次布局）。
+   * 注：CM 的 `y: "center"` 是精确居中（≈50%），
+   * 混合模式走 `centeredScrollTop` 的 45%，两者都在「中线附近」，观感一致。
+   */
+  const centerCaret = React.useCallback((view: EditorView, pos: number) => {
+    if (!typewriterRef.current) return;
+    const scroll = view.scrollDOM;
+    if (!scroll || scroll.clientHeight <= 0 || scroll.scrollHeight <= scroll.clientHeight) {
+      return;
+    }
+    const coords = safeCoordsAtPos(view, pos);
+    if (!coords) return;
+    // 程序化滚动会触发 scroll 事件，这里开一个忽略窗，免得被当成「用户滚动」
+    // 而打断编辑器→预览的跟随（split 模式下尤其明显）。
+    ignoreScrollUntil.current = Date.now() + 120;
+    // 必须走 CM 自己的滚动机制：直接写 scrollTop 会被它在下一次
+    // measure/ensureSelectionVisible 时算回「只保证光标可见」的位置，
+    // 表现就是长文里光标永远贴着视口底部而不是中线。
+    view.dispatch({
+      effects: EditorView.scrollIntoView(pos, { y: "center" }),
+    });
+  }, []);
+
+  /** rAF 合帧：一帧内多次光标移动只居中一次（总是用最新光标）。
+   *
+   * 用双层 rAF：CM 在 dispatch 之后会自己排一次 measure 去「保证光标可见」，
+   * 那一次会覆盖掉我们的位置（症状是光标贴着视口底边而不是中线）。
+   * 等它跑完再居中，才轮得到我们的位置生效。
+   */
+  const centerRafA = React.useRef(0);
+  const centerRafB = React.useRef(0);
+  const scheduleCenterCaret = React.useCallback(
+    (view: EditorView) => {
+      if (!typewriterRef.current) return;
+      if (centerRafA.current || centerRafB.current) return;
+      centerRafA.current = requestAnimationFrame(() => {
+        centerRafA.current = 0;
+        centerRafB.current = requestAnimationFrame(() => {
+          centerRafB.current = 0;
+          centerCaret(view, view.state.selection.main.head);
+        });
+      });
+    },
+    [centerCaret]
+  );
+
+  React.useEffect(() => {
+    return () => {
+      if (centerRafA.current) cancelAnimationFrame(centerRafA.current);
+      if (centerRafB.current) cancelAnimationFrame(centerRafB.current);
+      centerRafA.current = 0;
+      centerRafB.current = 0;
+    };
+  }, []);
 
   const refreshSuggest = React.useCallback(
     (view: EditorView) => {
@@ -187,6 +253,16 @@ export function MdCodeMirror({
         const { line, col } = offsetToLineCol(update.state.doc.toString(), head);
         setEditorCaret({ line, col });
         refreshSuggest(update.view);
+        // 打字机：只在焦点确实在编辑器里时跟随。
+        // 不能只看 `view.hasFocus`：CM6 内部那个标记由它自己的 focus/blur 处理器维护，
+        // 程序化 focus、或者从预览/侧栏点回编辑器时可能还没置位，
+        // 而 `document.activeElement` 已经落在 contentDOM 里了。
+        if (
+          update.view.hasFocus ||
+          update.view.contentDOM.contains(document.activeElement)
+        ) {
+          scheduleCenterCaret(update.view);
+        }
         if (update.selectionSet) {
           const now = Date.now();
           // Caret/click: claim drive briefly; hasFocus blocks inbound yank.
@@ -449,8 +525,9 @@ export function MdCodeMirror({
         ".cm-content": {
           padding: "12px 8px",
           /* Tall bottom padding so clicks below the last line still place the caret
-             and the user can continue writing at EOF without hunting a thin edge. */
-          paddingBottom: "40vh",
+             and the user can continue writing at EOF without hunting a thin edge.
+             打字机模式会把它抬到半屏（见下方的 --lh-cm-bottom-pad）。 */
+          paddingBottom: "var(--lh-cm-bottom-pad, 40vh)",
           minHeight: "100%",
           caretColor: "var(--fg)",
         },
@@ -548,6 +625,39 @@ export function MdCodeMirror({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount once per doc
   }, [doc.id]);
+
+  // 打字机：开关打开时立即居中一次，并给文末留半屏，否则最后一行永远到不了中线。
+  // 依赖里带 `doc.id`：切文档时编辑器会整个重建（见上面 mount effect），
+  // 旧 view 已销毁，不留白/不居中会让「换一篇长文继续写」退回贴底滚动。
+  React.useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    const applyPad = () => {
+      const scroll = view.scrollDOM;
+      if (!scroll) return;
+      const pad = typewriterMode ? typewriterBottomPad(scroll.clientHeight) : 0;
+      // 走主题里的 CSS 变量，不直接改 contentDOM 内联样式，
+      // 这样关掉开关时能干净地退回 40vh，也不会和主题更新打架。
+      view.dom.style.setProperty("--lh-cm-bottom-pad", pad ? `${pad}px` : "40vh");
+    };
+    applyPad();
+    if (!typewriterMode) return;
+    // 当前行先归位，再在下一帧量一次（切过来时容器可能刚变宽/变高）。
+    centerCaret(view, view.state.selection.main.head);
+    const raf = requestAnimationFrame(() => {
+      applyPad();
+      centerCaret(view, view.state.selection.main.head);
+    });
+    const onResize = () => {
+      applyPad();
+      centerCaret(view, view.state.selection.main.head);
+    };
+    window.addEventListener("resize", onResize);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("resize", onResize);
+    };
+  }, [typewriterMode, centerCaret, doc.id]);
 
   // Sync external draft changes (e.g. preview inline edit / discard).
   // Preserve caret; skip while IME is composing so CJK input is not aborted.

@@ -62,7 +62,21 @@ describe("normalizeReadingPrefs", () => {
       lineHeight: DEFAULT_READING_PREFS.lineHeight,
       paragraphSpacing: DEFAULT_READING_PREFS.paragraphSpacing,
       focusMode: true,
+      typewriterMode: false,
     });
+  });
+
+  it("typewriterMode 默认关，且能从存档里读回 true", () => {
+    expect(DEFAULT_READING_PREFS.typewriterMode).toBe(false);
+    expect(normalizeReadingPrefs(null).typewriterMode).toBe(false);
+    expect(normalizeReadingPrefs({ typewriterMode: true }).typewriterMode).toBe(true);
+    // 与 focusMode 一致用 `!!`：缺省/假值都落成布尔，不会留 undefined。
+    expect(normalizeReadingPrefs({ typewriterMode: undefined }).typewriterMode).toBe(
+      false
+    );
+    expect(normalizeReadingPrefs({ typewriterMode: 0 } as never).typewriterMode).toBe(
+      false
+    );
   });
 
   it("option lists are sorted and deduped", () => {

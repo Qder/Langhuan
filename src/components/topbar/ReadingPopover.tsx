@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  ArrowDownToLine,
   ArrowLeftRight,
   ExternalLink,
   Link2,
@@ -210,6 +211,36 @@ export function ReadingPopover({
                 {mdFocusMode ? "退出专注模式" : "专注模式"}
               </button>
             </>
+          )}
+
+          {/* 打字机滚动：源码 / 混合模式 / 分栏都生效，所以放在 viewMode 判断之外——
+              源码模式恰恰是最需要它的时候，藏在「非源码」里等于没法用。
+              HTML 文档没有可跟随的编辑光标，不显示。 */}
+          {!isHtml && (
+            <button
+              type="button"
+              onClick={() => setReadingPrefs({ typewriterMode: !readingPrefs.typewriterMode })}
+              aria-pressed={readingPrefs.typewriterMode}
+              title={
+                readingPrefs.typewriterMode
+                  ? "关闭后恢复普通滚动"
+                  : "编辑时当前行 / 当前块保持视口中线"
+              }
+              className={cn(
+                "flex w-full items-center justify-between gap-2 rounded-xl border border-[var(--border)] px-3 py-2 text-xs font-ui",
+                readingPrefs.typewriterMode
+                  ? "border-[var(--accent)]/50 text-[var(--accent)]"
+                  : "hover:bg-[var(--hover)]"
+              )}
+            >
+              <span className="flex items-center gap-2">
+                <ArrowDownToLine className="h-3.5 w-3.5" />
+                打字机滚动
+              </span>
+              <span className="text-[10px] text-[var(--muted)]">
+                {readingPrefs.typewriterMode ? "开" : "关"}
+              </span>
+            </button>
           )}
 
           {isHtml && viewMode !== "source" && htmlPrefs && (

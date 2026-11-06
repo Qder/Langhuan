@@ -34,7 +34,13 @@ import { RegisterSW } from "./pwa/RegisterSW";
 import { IdeShell } from "./ide/IdeShell";
 import { MdFocusExitButton } from "./MdFocusExitButton";
 import { AUTOSAVE_DEBOUNCE_MS } from "@/lib/storage/constants";
-import { claimShortcut, matchShortcut, normalizeShortcuts } from "@/lib/shortcuts";
+import {
+  claimShortcut,
+  isTypingTarget,
+  matchShortcut,
+  normalizeShortcuts,
+  shortcutAllowedWhileTyping,
+} from "@/lib/shortcuts";
 import { isTocPanelOpen, closeTocPanel, requestToggleToc } from "@/lib/tocPanel";
 import { shouldHandlePreviewUndoShortcut } from "@/lib/previewUndo";
 
@@ -69,6 +75,7 @@ export function AppShell() {
   const setFindInFileOpen = useStore((s) => s.setFindInFileOpen);
   const undoPreviewEdit = useStore((s) => s.undoPreviewEdit);
   const redoPreviewEdit = useStore((s) => s.redoPreviewEdit);
+  const setReadingPrefs = useStore((s) => s.setReadingPrefs);
 
   const shortcuts = React.useMemo(
     () => normalizeShortcuts(customShortcuts),
@@ -139,12 +146,9 @@ export function AppShell() {
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented) return;
       const target = e.target as HTMLElement | null;
-      const typing =
-        !!target &&
-        (target.tagName === "INPUT" ||
-          target.tagName === "TEXTAREA" ||
-          target.tagName === "SELECT" ||
-          target.isContentEditable);
+      // 判断收敛在 `isTypingTarget`：它认识的 contenteditable 正是
+      // CodeMirror / 混合模式块编辑器，漏判会让「写作中按快捷键」整片失效。
+      const typing = isTypingTarget(target);
 
       if (matchShortcut(e, shortcuts.commandPalette)) {
         claimShortcut(e);
@@ -204,6 +208,24 @@ export function AppShell() {
       if (matchShortcut(e, shortcuts.findReplace) && !typing) {
         claimShortcut(e);
         setFindReplaceOpen(true);
+        return;
+      }
+      // 不收 `typing` 守卫：源码/混合模式的 contentDOM 本身就是 contenteditable，
+      // 带守卫等于「正在写作时按不出来」——而写作恰恰是唯一需要它的场景。
+      // mod+shift+t 不产生字符、也不和编辑器的输入法组合键冲突。
+      // 这个「输入中仍放行」的名单在 `SHORTCUTS_ALLOWED_WHILE_TYPING`，不是散落的特例。
+      if (
+        shortcutAllowedWhileTyping("typewriterMode", typing) &&
+        matchShortcut(e, shortcuts.typewriterMode)
+      ) {
+        claimShortcut(e);
+        if (!getActive()) {
+          setStatus("请先打开一篇文档");
+          return;
+        }
+        const next = !useStore.getState().readingPrefs.typewriterMode;
+        setReadingPrefs({ typewriterMode: next });
+        setStatus(next ? "打字机滚动：开" : "打字机滚动：关");
         return;
       }
       if (matchShortcut(e, shortcuts.toggleToc) && !typing) {
@@ -297,6 +319,7 @@ export function AppShell() {
     setFindInFileOpen,
     undoPreviewEdit,
     redoPreviewEdit,
+    setReadingPrefs,
   ]);
 
   if (!hydrated) {

@@ -25,6 +25,17 @@ describe("mergePersistedState", () => {
     expect(merged.readingPrefs.paragraphSpacing).toBe(
       DEFAULT_READING_PREFS.paragraphSpacing
     );
+    // 打字机是后来加的开关：老存档必须显式落成 false，不能是 undefined
+    // （undefined 会让 `readingPrefs.typewriterMode` 在 UI 里判成关闭但比较失败）。
+    expect(merged.readingPrefs.typewriterMode).toBe(false);
+  });
+
+  it("打字机开关能存能读", () => {
+    const persisted = {
+      readingPrefs: normalizeReadingPrefs({ fontSize: 17, typewriterMode: true }),
+    };
+    const merged = mergePersistedState(persisted, current);
+    expect(merged.readingPrefs.typewriterMode).toBe(true);
   });
 
   it("保留用户已经存下的值", () => {

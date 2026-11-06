@@ -42,7 +42,7 @@ vi.mock("@/lib/store", () => ({
     sel({
       getContent: () => SOURCE,
       setDraft: vi.fn(),
-      readingPrefs: { fontSize: 17, lineWidth: 740, lineHeight: 1.95, paragraphSpacing: 0.85, focusMode: false },
+      readingPrefs: { fontSize: 17, lineWidth: 740, lineHeight: 1.95, paragraphSpacing: 0.85, focusMode: false, typewriterMode: false },
       viewMode: "mixed",
     }),
 }));
@@ -114,5 +114,23 @@ describe("MixedMdView 分块渲染", () => {
     const codeBlock = blocks.find((b) => (b.textContent || "").includes("const a = 1"));
     expect(codeBlock).toBeTruthy();
     expect(codeBlock!.textContent).toContain("const b = 2");
+  });
+
+  it("每块都带打字机定位用的 data 属性", () => {
+    const host = render();
+    const blocks = [...host.querySelectorAll("[data-md-block]")];
+    expect(blocks).toHaveLength(splitMarkdownBlocks(SOURCE).length);
+    // 只有当前编辑块标记为 active，滚动逻辑靠它找目标
+    const actives = blocks.filter((b) => b.getAttribute("data-active") === "true");
+    expect(actives).toHaveLength(1);
+    expect(actives[0]!.querySelector("textarea")).toBeTruthy();
+  });
+
+  it("滚动容器有 data-md-scroll 标记（混合模式可能同屏多份，不能用 id）", () => {
+    const host = render();
+    const scroller = host.querySelector("[data-md-scroll]");
+    expect(scroller).toBeTruthy();
+    // 块必须在这个容器里，否则 closest() 找不到滚动目标
+    expect(scroller!.querySelector("[data-md-block]")).toBeTruthy();
   });
 });

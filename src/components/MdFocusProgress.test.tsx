@@ -27,6 +27,9 @@ vi.mock("@/lib/store", () => ({
     sel({
       setMdFocusMode,
       setStatus,
+      readingPrefs: { typewriterMode: false },
+      setReadingPrefs: vi.fn(),
+      viewMode: "source",
       getActive: () => ({ ...doc, type: focusType }),
       documents: [doc],
       getContent: () => doc.content,

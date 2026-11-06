@@ -8,6 +8,7 @@ import { requestToggleToc, isTocPanelOpen, setTocPanelOpen } from "@/lib/tocPane
 
 const setMdFocusMode = vi.fn();
 const setStatus = vi.fn();
+const setReadingPrefs = vi.fn();
 
 const doc = {
   id: "doc_1",
@@ -33,6 +34,9 @@ let current: typeof doc = doc;
 const store = {
   setMdFocusMode,
   setStatus,
+  readingPrefs: { typewriterMode: false },
+  setReadingPrefs,
+  viewMode: "source" as const,
   getActive: () => current,
   documents: [doc, doc2],
   getContent: (id?: string) => (id === doc2.id ? doc2.content : doc.content),
@@ -57,6 +61,7 @@ beforeEach(() => {
     true;
   setMdFocusMode.mockReset();
   setStatus.mockReset();
+  setReadingPrefs.mockReset();
   current = doc;
   setTocPanelOpen(false);
 });
@@ -88,6 +93,28 @@ describe("MdFocusExitButton（专注浮动条）", () => {
     const { host, cleanup } = mount();
     expect(byLabel(host, "目录")?.textContent).toContain("目录");
     expect(byLabel(host, "退出专注")?.textContent).toContain("退出");
+    cleanup();
+  });
+
+  // 专注模式会整块不渲染 TopBar，阅读弹层也跟着消失；
+  // 浮条上的这个开关是专注时唯一的打字机入口，不能悄悄消失。
+  it("源码模式下浮条给出打字机开关，点一下真的写偏好", () => {
+    const { host, cleanup } = mount();
+    const tw = byLabel(host, "打字机滚动");
+    expect(tw).toBeTruthy();
+    expect(tw?.getAttribute("aria-pressed")).toBe("false");
+    act(() => {
+      tw!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(setReadingPrefs).toHaveBeenCalledWith({ typewriterMode: true });
+    cleanup();
+  });
+
+  it("纯预览没有可跟随的编辑光标，不摆这个开关", () => {
+    store.viewMode = "preview" as never;
+    const { host, cleanup } = mount();
+    expect(byLabel(host, "打字机滚动")).toBeUndefined();
+    store.viewMode = "source" as never;
     cleanup();
   });
 

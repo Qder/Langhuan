@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { List, Minimize2 } from "lucide-react";
+import { List, Minimize2, Type } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { ReadingStatsCard, useReadingStats } from "./ReadingStatsCard";
@@ -16,6 +16,9 @@ import { useReadingProgressPercent } from "@/lib/useReadingProgress";
 export function MdFocusExitButton() {
   const setMdFocusMode = useStore((s) => s.setMdFocusMode);
   const setStatus = useStore((s) => s.setStatus);
+  const readingPrefs = useStore((s) => s.readingPrefs);
+  const setReadingPrefs = useStore((s) => s.setReadingPrefs);
+  const viewMode = useStore((s) => s.viewMode);
   const active = useStore((s) => s.getActive());
   const documents = useStore((s) => s.documents);
   const getContent = useStore((s) => s.getContent);
@@ -74,6 +77,29 @@ export function MdFocusExitButton() {
           目录
         </button>
         <span className="mx-0.5 h-4 w-px bg-[var(--border)]" aria-hidden />
+        {/* 专注时顶栏整块不渲染，阅读弹层也跟着消失——打字机开关必须在这里留一个，
+            否则「专注下仍生效」只能靠记快捷键，等于不可发现。
+            只在源码/混合模式展示：纯预览没有可跟随的编辑光标。 */}
+        {active?.type === "md" && viewMode !== "preview" && (
+          <>
+            <button
+              type="button"
+              className={cn(chip, readingPrefs.typewriterMode && "text-[var(--accent)]")}
+              onClick={() => {
+                const next = !readingPrefs.typewriterMode;
+                setReadingPrefs({ typewriterMode: next });
+                setStatus(next ? "打字机滚动：开" : "打字机滚动：关");
+              }}
+              aria-pressed={readingPrefs.typewriterMode}
+              aria-label="打字机滚动"
+              title="打字机滚动 (Ctrl/⌘ Shift T)"
+            >
+              <Type className="h-3.5 w-3.5" />
+              打字机
+            </button>
+            <span className="mx-0.5 h-4 w-px bg-[var(--border)]" aria-hidden />
+          </>
+        )}
         <button
           type="button"
           className={chip}
