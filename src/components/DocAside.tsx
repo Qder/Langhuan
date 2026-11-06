@@ -18,7 +18,12 @@ import { findUnlinkedMentions, linkifyMention } from "@/lib/wikilink";
 import { listBacklinkHits, type BacklinkHit } from "@/lib/search";
 import { getDocMeta } from "@/lib/docMeta";
 import { AssetsPanel } from "./AssetsPanel";
-import { resolveAnnotation } from "@/lib/annotations";
+import {
+  annotationLostHint,
+  normalizeAnnotation,
+  rematchAnnotationWithAnchor,
+  resolveAnnotation,
+} from "@/lib/annotations";
 
 export type DocAsideProps = {
   outline: OutlineHeading[];
@@ -442,6 +447,11 @@ export function DocAside({
                   ? resolveAnnotation(doc.content, a)
                   : a;
                 const stale = resolved.status === "stale";
+                // 失效原因要说清楚：是「找不到原文」还是「同一句出现多次」。
+                const lostReason = doc?.content
+                  ? rematchAnnotationWithAnchor(doc.content, normalizeAnnotation(a))
+                      .lostReason
+                  : undefined;
                 return (
                 <li
                   key={a.id}
@@ -513,7 +523,9 @@ export function DocAside({
                     </button>
                   </div>
                   {stale && (
-                    <div className="mb-1 text-[10px] text-[var(--accent)]">已失效 · 可删除</div>
+                    <div className="mb-1 text-[10px] leading-4 text-[var(--accent)]">
+                      {annotationLostHint(lostReason)}
+                    </div>
                   )}
                   <textarea
                     value={a.note}

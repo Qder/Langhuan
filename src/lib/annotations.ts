@@ -24,6 +24,12 @@ export type Annotation = {
   /** Short context before/after quote for safe reanchor. */
   contextBefore: string;
   contextAfter: string;
+  /**
+   * 可选：创建时所在的最近一个标题（纯文本）。
+   * 只用于「正文该不该高亮」的判断——标题都没了说明这一节被搬走或删了，
+   * 再按偏移找就是瞎猜。旧数据没有这个字段，照常按 quote 走。
+   */
+  heading?: string;
   color: "cinnabar" | "gold" | "teal";
   status: AnnotationStatus;
   createdAt: number;
@@ -40,6 +46,8 @@ export type AnnotationInput = {
   plainOffset?: number;
   source?: string;
   color?: Annotation["color"];
+  /** 创建时所在标题；由调用方从正文里推，缺省不带。 */
+  heading?: string;
 };
 
 const CTX = 24;
@@ -48,6 +56,26 @@ function takeContext(source: string, start: number, end: number) {
   const before = source.slice(Math.max(0, start - CTX), start);
   const after = source.slice(end, Math.min(source.length, end + CTX));
   return { contextBefore: before, contextAfter: after };
+}
+
+/**
+ * 某个源码偏移所在小节的标题（最近一个 `#`–`######` 行的纯文本）。
+ *
+ * 用行首匹配而不是 `extractOutline`：大纲只收 h1–h4，而批注落在 `#####`
+ * 下也得有个归属。纯文本化的方式和 `outlineHeadingText` 保持一致。
+ */
+export function headingAtOffset(source: string, offset: number): string {
+  if (!source) return "";
+  const upto = source.slice(0, Math.max(0, Math.min(offset, source.length)));
+  const lines = upto.split("\n");
+  // 最后一行是光标所在行的前半截，可能正是一个标题本身。
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const m = /^#{1,6}\s+(.+)$/.exec(lines[i]!);
+    if (!m) continue;
+    const text = m[1]!.replace(/[#*`]/g, "").trim();
+    if (text) return text;
+  }
+  return "";
 }
 
 export function createAnnotation(input: AnnotationInput, now = Date.now()): Annotation {
@@ -69,6 +97,7 @@ export function createAnnotation(input: AnnotationInput, now = Date.now()): Anno
     plainOffset: input.plainOffset ?? start,
     contextBefore: ctx.contextBefore,
     contextAfter: ctx.contextAfter,
+    ...(input.heading ? { heading: input.heading } : {}),
     color: input.color || "cinnabar",
     status: "active",
     createdAt: now,
@@ -94,6 +123,11 @@ export type RematchResult = {
   start: number;
   end: number;
   precision: "exact" | "reanchor" | "lost";
+  /**
+   * 只在 precision === "lost" 时出现，用来区分「改文导致失效」和「本来就没有」，
+   * 好让 UI 说人话而不是一律「已失效」。
+   */
+  lostReason?: "quote-gone" | "ambiguous" | "heading-gone";
 };
 
 export type ReanchorSummary = {
@@ -110,10 +144,33 @@ export function summarizeReanchor(results: RematchResult[]): ReanchorSummary {
   return out;
 }
 
-/** Status bar copy; null when nothing drifted (all exact / empty). */
+/**
+ * Status bar copy; null when nothing drifted (all exact / empty).
+ *
+ * 批注失效是「正文改过了」的信号，用户需要知道 —— 但不能吓人：重锚成功的
+ * 那几条此刻是准的，只有 lost 的那几条正文不再高亮。
+ */
 export function formatReanchorStatus(summary: ReanchorSummary): string | null {
   if (summary.reanchor === 0 && summary.lost === 0) return null;
-  return `批注已对齐：${summary.reanchor} 条重锚，${summary.lost} 条已失效`;
+  if (summary.lost === 0) {
+    return `原文有改动，${summary.reanchor} 条批注已重新对齐`;
+  }
+  if (summary.reanchor === 0) {
+    return `原文已变，${summary.lost} 条批注定位不准（只在侧栏保留）`;
+  }
+  return `原文已变：${summary.reanchor} 条已重新对齐，${summary.lost} 条定位不准（只在侧栏保留）`;
+}
+
+/** 单条批注失效时侧栏里的一句话。 */
+export function annotationLostHint(reason?: RematchResult["lostReason"]): string {
+  switch (reason) {
+    case "ambiguous":
+      return "原文有多处相同文字，无法确定位置 · 正文不再高亮";
+    case "heading-gone":
+      return "所在小节已改动或移走 · 正文不再高亮";
+    default:
+      return "原文已变，找不到这段文字 · 正文不再高亮";
+  }
 }
 
 /**
@@ -124,7 +181,9 @@ export function formatReanchorStatus(summary: ReanchorSummary): string | null {
  */
 export function rematchAnnotation(source: string, ann: Annotation): RematchResult {
   const quote = ann.quote;
-  if (!quote) return { start: ann.start, end: ann.end, precision: "lost" };
+  if (!quote) {
+    return { start: ann.start, end: ann.end, precision: "lost", lostReason: "quote-gone" };
+  }
 
   if (
     ann.start >= 0 &&
@@ -190,7 +249,7 @@ export function rematchAnnotation(source: string, ann: Annotation): RematchResul
       };
     }
     // Ambiguous — do not guess wrong sentence
-    return { start: ann.start, end: ann.end, precision: "lost" };
+    return { start: ann.start, end: ann.end, precision: "lost", lostReason: "ambiguous" };
   }
 
   // Try exact context sandwich outside the local window once (still unique-only).
@@ -205,7 +264,45 @@ export function rematchAnnotation(source: string, ann: Annotation): RematchResul
     }
   }
 
-  return { start: ann.start, end: ann.end, precision: "lost" };
+  return { start: ann.start, end: ann.end, precision: "lost", lostReason: "quote-gone" };
+}
+
+/**
+ * 标题锚校验：这条批注原来在某个标题下，现在那个标题还藏在文中吗？
+ *
+ * - 没有 `heading`（旧数据）→ 无从判断，放行，保持老行为；
+ * - 标题已经不存在 → 这一节被整体删掉/改名了，偏移再怎么算都不可信 → 失效；
+ * - 标题还在 → 正常。
+ *
+ * 只看「标题是否还在」，不要求 quote 落在它下面——把一段话挪到别的小节是
+ * 正当编辑，不该因此判失效。
+ */
+export function headingStillPresent(source: string, ann: Annotation): boolean {
+  const h = ann.heading;
+  if (!h) return true;
+  return new RegExp(`^#{1,6}\\s+[^\\n]*${escapeRe(h)}`, "m").test(source);
+}
+
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Combined verdict: quote rematch + heading anchor. */
+export function rematchAnnotationWithAnchor(
+  source: string,
+  ann: Annotation
+): RematchResult {
+  // 先判锚：小节整体没了时，quote 也必然找不到，此时「小节没了」是更具体的
+  // 解释，直接用它，别让用户以为是自己那几个字被改了。
+  if (!headingStillPresent(source, ann)) {
+    return {
+      start: ann.start,
+      end: ann.end,
+      precision: "lost",
+      lostReason: "heading-gone",
+    };
+  }
+  return rematchAnnotation(source, ann);
 }
 
 /** Apply rematch into a new annotation object (marks stale when lost). */
@@ -214,7 +311,7 @@ export function resolveAnnotation(
   ann: Annotation,
   now = Date.now()
 ): Annotation {
-  const m = rematchAnnotation(source, ann);
+  const m = rematchAnnotationWithAnchor(source, ann);
   if (m.precision === "lost") {
     if (ann.status === "stale") return ann;
     return { ...ann, status: "stale", updatedAt: now };
@@ -260,6 +357,8 @@ export function normalizeAnnotation(raw: Partial<Annotation> & Pick<Annotation, 
     plainOffset: raw.plainOffset ?? start,
     contextBefore: raw.contextBefore || "",
     contextAfter: raw.contextAfter || "",
+    // 旧数据没有这个字段：不补、不重置，保持「按 quote 匹配」的老行为。
+    ...(raw.heading ? { heading: raw.heading } : {}),
     color: raw.color || "cinnabar",
     status: raw.status === "stale" ? "stale" : "active",
     createdAt: raw.createdAt || Date.now(),

@@ -1,9 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  annotationLostHint,
   annotationsForDoc,
   createAnnotation,
   formatReanchorStatus,
+  headingAtOffset,
+  headingStillPresent,
+  normalizeAnnotation,
   rematchAnnotation,
+  rematchAnnotationWithAnchor,
   resolveAnnotation,
   summarizeReanchor,
   updateAnnotationNote,
@@ -130,11 +135,130 @@ describe("reanchor summary", () => {
     expect(r2.precision).toBe("lost");
     const summary = summarizeReanchor([r1, r2]);
     expect(summary).toEqual({ exact: 0, reanchor: 1, lost: 1 });
-    expect(formatReanchorStatus(summary)).toBe(
-      "批注已对齐：1 条重锚，1 条已失效",
-    );
+    // 文案必须点明「原文已变」，只报数字不够。
+    const msg = formatReanchorStatus(summary)!;
+    expect(msg).toContain("原文已变");
+    expect(msg).toContain("1 条已重新对齐");
+    expect(msg).toContain("1 条定位不准");
     expect(
       formatReanchorStatus({ exact: 2, reanchor: 0, lost: 0 }),
     ).toBeNull();
+  });
+
+  it("全部失效 / 全部重锚各有独立说法", () => {
+    expect(formatReanchorStatus({ exact: 0, reanchor: 0, lost: 3 })).toBe(
+      "原文已变，3 条批注定位不准（只在侧栏保留）",
+    );
+    expect(formatReanchorStatus({ exact: 1, reanchor: 2, lost: 0 })).toBe(
+      "原文有改动，2 条批注已重新对齐",
+    );
+  });
+});
+
+describe("heading anchor", () => {
+  const body = ["# 总览", "", "开头一句。", "", "## 第二节", "", "目标句子在这里。", ""].join(
+    "\n",
+  );
+
+  function annWithHeading() {
+    const start = body.indexOf("目标句子在这里");
+    return createAnnotation({
+      docId: "d",
+      quote: "目标句子在这里",
+      start,
+      end: start + "目标句子在这里".length,
+      source: body,
+      heading: headingAtOffset(body, start),
+    });
+  }
+
+  it("记下的是所在小节标题，不是文档第一个标题", () => {
+    const a = annWithHeading();
+    expect(a.heading).toBe("第二节");
+  });
+
+  it("偏移在标题行之前时退回上一个标题", () => {
+    expect(headingAtOffset(body, body.indexOf("开头一句"))).toBe("总览");
+    expect(headingAtOffset("没有标题的正文", 3)).toBe("");
+  });
+
+  it("标题还在就照常重锚", () => {
+    const a = annWithHeading();
+    const edited = body.replace("目标句子在这里。", "目标句子在这里，改了一个字。");
+    const m = rematchAnnotationWithAnchor(edited, a);
+    expect(m.precision).not.toBe("lost");
+    expect(edited.slice(m.start, m.start + 2)).toBe("目标");
+    expect(resolveAnnotation(edited, a).status).toBe("active");
+  });
+
+  it("小节被整段删掉 → 失效，并说明是小节没了", () => {
+    const a = annWithHeading();
+    const edited = body.replace("## 第二节", "## 换了个小节").replace("目标句子在这里。", "别的内容。");
+    expect(headingStillPresent(edited, a)).toBe(false);
+    const m = rematchAnnotationWithAnchor(edited, a);
+    expect(m.precision).toBe("lost");
+    expect(m.lostReason).toBe("heading-gone");
+    expect(annotationLostHint(m.lostReason)).toContain("小节");
+  });
+
+  it("旧数据没有 heading 字段 → 不因锚失效，行为与以前一致", () => {
+    const a = annWithHeading();
+    const legacy = normalizeAnnotation({ ...a, heading: undefined });
+    expect(legacy.heading).toBeUndefined();
+    const edited = body.replace("## 第二节", "## 换了个小节");
+    expect(headingStillPresent(edited, legacy)).toBe(true);
+    expect(rematchAnnotationWithAnchor(edited, legacy).precision).not.toBe("lost");
+  });
+
+  it("段落被挪到别的小节不算失效", () => {
+    const a = annWithHeading();
+    const moved = [
+      "# 总览",
+      "",
+      "## 第二节",
+      "",
+      "这一节还在但正文换了。",
+      "",
+      "## 附录",
+      "",
+      "目标句子在这里。",
+      "",
+    ].join("\n");
+    expect(headingStillPresent(moved, a)).toBe(true);
+    expect(rematchAnnotationWithAnchor(moved, a).precision).not.toBe("lost");
+  });
+});
+
+describe("lost reasons", () => {
+  it("文字被删干净 → quote-gone", () => {
+    const a = createAnnotation({ docId: "d", quote: "目标", start: 0, end: 2 });
+    const m = rematchAnnotationWithAnchor("完全无关的内容", a);
+    expect(m.precision).toBe("lost");
+    expect(m.lostReason).toBe("quote-gone");
+    expect(annotationLostHint(m.lostReason)).toContain("找不到");
+  });
+
+  it("同文多次且分不清 → ambiguous", () => {
+    const quote = "重复句";
+    const body = `前 ${quote} 中\n后 ${quote} 尾`;
+    const first = body.indexOf(quote);
+    const a = createAnnotation({
+      docId: "d",
+      quote,
+      start: first,
+      end: first + quote.length,
+      source: body,
+    });
+    const broken = {
+      ...a,
+      start: 0,
+      end: quote.length,
+      plainOffset: 0,
+      contextBefore: "",
+      contextAfter: "",
+    };
+    const m = rematchAnnotationWithAnchor(body, broken);
+    expect(m.lostReason).toBe("ambiguous");
+    expect(annotationLostHint(m.lostReason)).toContain("多处相同文字");
   });
 });

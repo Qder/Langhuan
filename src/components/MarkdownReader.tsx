@@ -63,7 +63,12 @@ import { PreviewContextMenu, type ContextMenuItem } from "./locate/PreviewContex
 import { subscribeScrollSync } from "@/lib/locate/scrollBus";
 import { probeRender, probeSection } from "@/lib/dev/perfProbe";
 import { AssetImage } from "./editor/AssetImage";
-import { rematchAnnotation } from "@/lib/annotations";
+import {
+  headingAtOffset,
+  normalizeAnnotation,
+  rematchAnnotationWithAnchor,
+} from "@/lib/annotations";
+import { pickQuoteSegments } from "@/lib/annotationHighlight";
 import {
   InlineCodeFenceEditor,
   removeOrphanCodeFenceHosts,
@@ -2447,6 +2452,8 @@ export function MarkdownReader({ doc }: { doc: Document }) {
             end: result.end,
             plainOffset: result.start,
             source: content,
+            // 记下所在小节：以后这一节被删/改名，就别再按偏移硬找了。
+            heading: headingAtOffset(content, result.start),
             note: "",
           });
           setStatus("已添加划线批注");
@@ -2490,6 +2497,10 @@ export function MarkdownReader({ doc }: { doc: Document }) {
   }, [doc.id, docType, content, reanchorDocAnnotations]);
 
   // Soft-highlight annotation quotes in preview (does not mutate markdown body).
+  //
+  // 落点由 `pickQuoteRange` 决定：先用 reanchor 的偏移锁定所在块，块内再挑
+  // 离原位置最近的那次出现；挑不出来就不亮（只留侧栏），绝不按文档顺序
+  // 抓第一个同文 —— 那正是「改文后悄悄高亮错段」的来源。
   React.useEffect(() => {
     const root = articleRef.current;
     if (!root) return;
@@ -2503,38 +2514,24 @@ export function MarkdownReader({ doc }: { doc: Document }) {
     });
     const anns = annotations.filter((a) => a.docId === doc.id && a.quote.trim());
     if (!anns.length) return;
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-    const textNodes: Text[] = [];
-    let n: Node | null;
-    while ((n = walker.nextNode())) {
-      const tnode = n as Text;
-      if (!tnode.nodeValue || !tnode.nodeValue.trim()) continue;
-      if (tnode.parentElement?.closest("mark.lh-annot-live")) continue;
-      textNodes.push(tnode);
-    }
     for (const ann of anns) {
-      const hit = rematchAnnotation(content, ann);
-      if (hit.precision === "lost" || ann.status === "stale") continue; // 已失效：不贴错句
-      const q = ann.quote.trim();
-      // Prefer locating the quote string in preview text (body), not raw offsets
-      for (const tn of textNodes) {
-        const val = tn.nodeValue || "";
-        const idx = val.indexOf(q);
-        if (idx < 0) continue;
-        // If the quote appears multiple times in this text node, skip rather than guess
-        if (val.indexOf(q, idx + 1) >= 0) continue;
+      const norm = normalizeAnnotation(ann);
+      const hit = rematchAnnotationWithAnchor(content, norm);
+      if (hit.precision === "lost") continue; // 已失效：不贴错句
+      const segs = pickQuoteSegments(root, norm.quote, hit.start);
+      if (!segs) continue;
+      for (const seg of segs) {
         try {
           const range = document.createRange();
-          range.setStart(tn, idx);
-          range.setEnd(tn, idx + q.length);
+          range.setStart(seg.node, seg.start);
+          range.setEnd(seg.node, seg.end);
           const mark = document.createElement("mark");
           mark.className = `lh-annot lh-annot-live lh-annot-${ann.color}`;
           mark.title = ann.note || "划线";
           range.surroundContents(mark);
         } catch {
-          /* cross-node — skip */
+          /* 已经被别的批注包住 / 节点失效 — 跳过这一段 */
         }
-        break;
       }
     }
   }, [annotations, doc.id, body, content]);

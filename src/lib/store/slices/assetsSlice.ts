@@ -2,7 +2,7 @@
 
 import type { StateCreator } from "zustand";
 import type { AssetMeta } from "../../types";
-import { createAnnotation, updateAnnotationNote, resolveAnnotation, normalizeAnnotation, rematchAnnotation, summarizeReanchor, formatReanchorStatus, type RematchResult } from "../../annotations";
+import { createAnnotation, updateAnnotationNote, resolveAnnotation, normalizeAnnotation, rematchAnnotationWithAnchor, summarizeReanchor, formatReanchorStatus, type RematchResult } from "../../annotations";
 import {
   setQuizItemState as applyQuizItemState,
   syncQuizDocFromSource,
@@ -259,7 +259,7 @@ export const createAssetsSlice: StateCreator<
         const annotations = prev.map((a) => {
           if (a.docId !== docId) return a;
           const norm = normalizeAnnotation(a);
-          matches.push(rematchAnnotation(source, norm));
+          matches.push(rematchAnnotationWithAnchor(source, norm));
           return resolveAnnotation(source, norm);
         });
         const changed = annotations.some((a, i) => a !== prev[i]);
