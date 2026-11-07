@@ -28,6 +28,7 @@ rand = "0.8"
 sha2 = "0.10"
 hex = "0.4"
 futures-util = "0.3"
+tokio = { version = "1", default-features = false, features = ["time"] }
 
 # 桌面版讲解的 HTTP 通路：只连用户自己配置的 OpenAI 兼容端点。
 # Windows 用 `native-tls`（SChannel），避开 cmake/Perl 和 aws-lc-rs。
@@ -45,6 +46,8 @@ tauri-plugin-process = "2"
 
 [target.'cfg(target_os = "android")'.dependencies]
 # 不用 http2：部分网关 / rustls 握手会空等到超时；电脑浏览器 Next 走 HTTP/1.1 所以通。
+# rustls 默认走 platform-verifier，安卓未 JNI 初始化时 HTTPS 会一直挂到超时。
+# 讲解改用内置 webpki 根证书，不依赖系统 Verifier。
 reqwest = { version = "0.13", default-features = false, features = [
   "json",
   "stream",
@@ -52,3 +55,5 @@ reqwest = { version = "0.13", default-features = false, features = [
   "charset",
   "system-proxy",
 ] }
+rustls = { version = "0.23", default-features = false, features = ["std", "tls12", "aws-lc-rs"] }
+webpki-roots = "1"

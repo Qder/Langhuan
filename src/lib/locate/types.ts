@@ -190,6 +190,8 @@ export type HtmlElementPayload = {
   range?: { start: number; end: number } | null;
   /** 元素自身的文本片段（定位不到标注时的推断线索） */
   text?: string;
+  /** Alt+点击：检视关着时也能查一次，不必先开模式 */
+  altKey?: boolean;
 };
 
 export type BridgeInboundMessage =

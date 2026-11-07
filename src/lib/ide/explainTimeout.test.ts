@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   EMPTY_EXPLAIN_REPLY,
+  EXPLAIN_FIRST_BYTE_TIMEOUT_MS,
   EXPLAIN_REQUEST_TIMEOUT_MS,
   assistantBubbleKind,
+  createExplainWatchdog,
   explainTimeoutMessage,
   explainTransportFailure,
   finalizeExplainReply,
@@ -50,8 +52,10 @@ describe("finalizeExplainReply / 超时文案", () => {
     expect(msg).toMatch(/超时/);
     expect(msg).toContain("检查网络或 Base URL");
     expect(msg.toLowerCase()).not.toContain("sk-");
-    expect(EXPLAIN_REQUEST_TIMEOUT_MS).toBeGreaterThanOrEqual(60_000);
-    expect(EXPLAIN_REQUEST_TIMEOUT_MS).toBeLessThanOrEqual(90_000);
+    expect(EXPLAIN_FIRST_BYTE_TIMEOUT_MS).toBeGreaterThanOrEqual(90_000);
+    expect(EXPLAIN_FIRST_BYTE_TIMEOUT_MS).toBeLessThanOrEqual(180_000);
+    expect(EXPLAIN_REQUEST_TIMEOUT_MS).toBeGreaterThanOrEqual(180_000);
+    expect(EXPLAIN_REQUEST_TIMEOUT_MS).toBeLessThanOrEqual(360_000);
   });
 
   it("用户停止不算超时错误", () => {
@@ -95,6 +99,33 @@ describe("mergeExplainAbort", () => {
     expect(signal.aborted).toBe(true);
     expect(user.signal.aborted).toBe(false);
     dispose();
+    vi.useRealTimers();
+  });
+});
+
+describe("createExplainWatchdog", () => {
+  it("首包到期 abort，收到字节后不再因首包杀掉", () => {
+    vi.useFakeTimers();
+    const user = new AbortController();
+    const wd = createExplainWatchdog(user.signal, {
+      firstByteMs: 1_000,
+      idleMs: 5_000,
+      overallMs: 60_000,
+    });
+    vi.advanceTimersByTime(1_000);
+    expect(wd.signal.aborted).toBe(true);
+    wd.dispose();
+
+    const user2 = new AbortController();
+    const wd2 = createExplainWatchdog(user2.signal, {
+      firstByteMs: 1_000,
+      idleMs: 5_000,
+      overallMs: 60_000,
+    });
+    wd2.noteByte();
+    vi.advanceTimersByTime(1_000);
+    expect(wd2.signal.aborted).toBe(false);
+    wd2.dispose();
     vi.useRealTimers();
   });
 });

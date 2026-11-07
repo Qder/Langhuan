@@ -60,6 +60,8 @@ export function TopBar() {
   const setOutlineRailOpen = useStore((s) => s.setOutlineRailOpen);
   const htmlImmersive = useStore((s) => s.htmlImmersive);
   const setHtmlImmersive = useStore((s) => s.setHtmlImmersive);
+  const htmlInspectEnabled = useStore((s) => s.htmlInspectEnabled);
+  const toggleHtmlInspectEnabled = useStore((s) => s.toggleHtmlInspectEnabled);
   const setHtmlPreviewPrefs = useStore((s) => s.setHtmlPreviewPrefs);
   const htmlPreviewPrefs = useStore((s) => s.htmlPreviewPrefs);
   const bumpHtmlReload = useStore((s) => s.bumpHtmlReload);
@@ -174,6 +176,8 @@ export function TopBar() {
                   openHtmlInNewTab(getContent(active.id));
                   setStatus("已在新标签页打开");
                 }}
+                htmlInspectEnabled={htmlInspectEnabled}
+                onToggleHtmlInspect={toggleHtmlInspectEnabled}
                 setHtmlImmersive={setHtmlImmersive}
                 tabletUp={tabletUp}
                 splitSourceFirst={splitSourceFirst}
@@ -199,6 +203,8 @@ export function TopBar() {
                 mdFocusMode={mdFocusMode}
                 setMdFocusMode={setMdFocusMode}
                 setHtmlImmersive={setHtmlImmersive}
+                htmlInspectEnabled={htmlInspectEnabled}
+                onToggleHtmlInspect={toggleHtmlInspectEnabled}
                 setHtmlPreviewPrefs={setHtmlPreviewPrefs}
                 bumpHtmlReload={bumpHtmlReload}
                 splitSourceFirst={splitSourceFirst}
@@ -265,6 +271,8 @@ export function TopBar() {
             mdFocusMode={mdFocusMode}
             setMdFocusMode={setMdFocusMode}
             setHtmlImmersive={setHtmlImmersive}
+            htmlInspectEnabled={htmlInspectEnabled}
+            onToggleHtmlInspect={toggleHtmlInspectEnabled}
             splitSourceFirst={splitSourceFirst}
             toggleSplitSourceFirst={toggleSplitSourceFirst}
             syncScrollOn={syncScrollOn}

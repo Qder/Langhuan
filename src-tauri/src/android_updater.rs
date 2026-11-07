@@ -169,7 +169,7 @@ fn parse_latest_manifest(raw: &str) -> Result<AndroidLatestManifest, String> {
 #[tauri::command]
 pub async fn android_fetch_latest_manifest(url: String) -> Result<AndroidLatestManifest, String> {
     require_https(&url)?;
-    let client = outbound_http_client(Duration::from_secs(20), Duration::from_secs(45))?;
+    let client = outbound_http_client(Duration::from_secs(20), Some(Duration::from_secs(45)))?;
     let response = client
         .get(&url)
         .header("Cache-Control", "no-cache")
@@ -210,7 +210,7 @@ pub async fn android_download_update(
     let _ = std::fs::remove_file(&tmp);
     let _ = std::fs::remove_file(&dest);
 
-    let client = outbound_http_client(Duration::from_secs(20), Duration::from_secs(600))?;
+    let client = outbound_http_client(Duration::from_secs(20), Some(Duration::from_secs(600)))?;
 
     let response = client
         .get(&url)

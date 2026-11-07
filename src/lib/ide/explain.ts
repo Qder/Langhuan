@@ -37,6 +37,36 @@ export const IDE_EXPLAIN_FOLDER_MAX_CHARS = 48_000;
 export const IDE_EXPLAIN_FOLDER_MAX_FILES_ANDROID = 8;
 export const IDE_EXPLAIN_FOLDER_MAX_CHARS_ANDROID = 24_000;
 
+export const DEFAULT_EXPLAIN_BASE_URL = "https://api.openai.com/v1";
+export const DEFAULT_EXPLAIN_MODEL = "gpt-4o-mini";
+/** 官方 OpenAI 兼容 base_url，不要强行加 /v1。 */
+export const DEEPSEEK_EXPLAIN_BASE_URL = "https://api.deepseek.com";
+/** 官方推荐模型名；旧名 deepseek-chat 仍可手填。 */
+export const DEEPSEEK_EXPLAIN_MODEL = "deepseek-flash";
+
+/** 去掉末尾斜杠和误贴的 `/chat/completions`。DeepSeek 官方地址不含 /v1。 */
+export function normalizeExplainBaseUrl(raw: string): string {
+  let b = String(raw ?? "").trim();
+  if (!b) return "";
+  b = b.replace(/\/+$/, "");
+  b = b.replace(/\/chat\/completions$/i, "");
+  b = b.replace(/\/+$/, "");
+  return b;
+}
+
+/** 设置里留空时默认 DeepSeek：只填 Key 打到 OpenAI 会在国内空等到超时。 */
+export function resolveExplainBaseUrl(raw: string): string {
+  return normalizeExplainBaseUrl(raw) || DEEPSEEK_EXPLAIN_BASE_URL;
+}
+
+/** 留空模型：DeepSeek 端点用 deepseek-flash，显式 OpenAI 才用 gpt-4o-mini。 */
+export function resolveExplainModel(raw: string, baseUrl: string): string {
+  const m = String(raw ?? "").trim();
+  if (m) return m;
+  if (/openai\.com/i.test(baseUrl)) return DEFAULT_EXPLAIN_MODEL;
+  return DEEPSEEK_EXPLAIN_MODEL;
+}
+
 export type IdeExplainFilePayload = {
   path: string;
   content: string;

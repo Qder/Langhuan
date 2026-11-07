@@ -5,6 +5,7 @@ import {
   ArrowLeft,
   Code2,
   Minimize2,
+  ScanSearch,
 } from "lucide-react";
 import { useStore } from "@/lib/store"
 import { subscribeScrollSync } from "@/lib/locate/scrollBus";
@@ -24,6 +25,7 @@ import {
   lineAtOffset,
   lineRangeLabel,
 } from "@/lib/locate";
+import { shouldInspectClick } from "@/lib/store/slices/elementInspectSlice";
 import type { HtmlLocatePayload, LocateResult } from "@/lib/locate";
 import type { RawCssHit } from "@/lib/locate/cssLocate";
 import type { BridgeElementNode } from "@/lib/locate/types";
@@ -138,6 +140,8 @@ export function HtmlReader({ doc }: { doc: Document }) {
   const elementPanelPinned = useStore((s) => s.elementPanelPinned);
   const setElementPanelPinned = useStore((s) => s.setElementPanelPinned);
   const closeInspector = useStore((s) => s.closeInspector);
+  const htmlInspectEnabled = useStore((s) => s.htmlInspectEnabled);
+  const setHtmlInspectEnabled = useStore((s) => s.setHtmlInspectEnabled);
   /** 最近一次点击的源码定位结果：抽屉的 HTML 段用它给行号（精确 / 推断）。 */
   const lastLocateRef = React.useRef<{
     payload: HtmlLocatePayload;
@@ -152,6 +156,8 @@ export function HtmlReader({ doc }: { doc: Document }) {
   React.useEffect(() => {
     contentRef.current = content;
   }, [content]);
+  const inspectOnRef = React.useRef(htmlInspectEnabled);
+  inspectOnRef.current = htmlInspectEnabled;
   const postToBridge = React.useCallback((msg: Record<string, unknown>) => {
     const win = iframeRef.current?.contentWindow;
     if (!win) return;
@@ -591,6 +597,7 @@ export function HtmlReader({ doc }: { doc: Document }) {
       }
 
       if (data.type === "lh-css-hits") {
+        if (!inspectOnRef.current) return;
         if (typeof data.nonce === "number" && data.nonce !== cssNonceRef.current) return;
         // HTML 段：lh-locate 已算好位置就用它；否则用 lh-element 的标注区间（精确）；
         // 都没有就按元素自身文本找一次——降到「推断」，绝不冒充精确。
@@ -625,6 +632,7 @@ export function HtmlReader({ doc }: { doc: Document }) {
       // 每次点击先到的是元素身份：交互元素（button/a/input）不会发 lh-locate，
       // 但「元素检视」对它们同样有意义（谁绑了 click），所以这里统一追问一次样式规则。
       if (data.type === "lh-element") {
+        if (!shouldInspectClick(inspectOnRef.current, !!data.altKey)) return;
         lastLocateRef.current = null; // 上一次点击的定位结果不能串到这一次
         lastElementRangeRef.current =
           data.range && Number.isFinite(data.range.start) && Number.isFinite(data.range.end)
@@ -639,6 +647,10 @@ export function HtmlReader({ doc }: { doc: Document }) {
       if (data.type === "lh-hover") {
         const setHoverReveal = useStore.getState().setHoverReveal;
         const clearHoverReveal = useStore.getState().clearHoverReveal;
+        if (!inspectOnRef.current) {
+          clearHoverReveal();
+          return;
+        }
         if (!data.range) {
           if (data.degrade) {
             setHoverReveal({
@@ -987,7 +999,7 @@ export function HtmlReader({ doc }: { doc: Document }) {
         </div>
         </div>
 
-        {/* 元素检视：一次点击，HTML / 样式 / 行为三段一起看 */}
+        {/* 元素检视：检视开着时一次点击，HTML / 样式 / 行为三段一起看 */}
         {elementPanel && (
           <ElementInspector
             key={elementPanel.nonce}
@@ -1025,6 +1037,24 @@ export function HtmlReader({ doc }: { doc: Document }) {
           >
             <Code2 className="h-3.5 w-3.5" />
             源码
+          </button>
+          <button
+            type="button"
+            className={cn(
+              "inline-flex h-7 items-center gap-1 rounded-full px-2.5 text-xs hover:bg-white/10",
+              htmlInspectEnabled && "bg-white/15"
+            )}
+            onClick={() => setHtmlInspectEnabled(!htmlInspectEnabled)}
+            aria-pressed={htmlInspectEnabled}
+            aria-label={htmlInspectEnabled ? "关闭元素检视" : "开启元素检视"}
+            title={
+              htmlInspectEnabled
+                ? "检视已开：点击元素查看 HTML / 样式 / 行为"
+                : "默认只阅读。开启后点击即检视；也可以按住 Alt 点一下"
+            }
+          >
+            <ScanSearch className="h-3.5 w-3.5" />
+            检视
           </button>
           <button
             type="button"

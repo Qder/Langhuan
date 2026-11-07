@@ -845,6 +845,7 @@
           ancestors: elementAncestors(lastClickEl, 6),
           range: (lhEl && parseLh(lhEl)) || null,
           text: ownText,
+          altKey: !!e.altKey,
         },
         "*"
       );

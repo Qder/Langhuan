@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { shouldOpenElementPanel } from "./elementInspectSlice";
+import { shouldInspectClick, shouldOpenElementPanel } from "./elementInspectSlice";
 import type { BehaviorResolution } from "../../locate/jsIndex";
 
 const empty: BehaviorResolution = {
@@ -30,6 +30,12 @@ describe("元素面板何时弹出", () => {
 
   it("三样全无 → 不开（点空白不该冒空面板）", () => {
     expect(shouldOpenElementPanel(0, empty)).toBe(false);
+  });
+
+  it("检视关着时普通点击不查，Alt+点击仍查", () => {
+    expect(shouldInspectClick(false, false)).toBe(false);
+    expect(shouldInspectClick(false, true)).toBe(true);
+    expect(shouldInspectClick(true, false)).toBe(true);
   });
 
   it("只有页面级监听 / 无法归属 → 不开（否则每点一下都弹）", () => {

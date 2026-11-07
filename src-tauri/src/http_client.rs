@@ -40,19 +40,40 @@ mod android_dns {
 const UA: &str = "Langhuan/0.1 (+https://github.com/Qder/Langhuan)";
 
 /// Do not set `read_timeout`: waiting for headers counts as a read.
+/// `timeout = None` means no whole-request cap (explain streams until idle/cancel).
 pub fn outbound_http_client(
     connect_timeout: Duration,
-    timeout: Duration,
+    timeout: Option<Duration>,
 ) -> Result<reqwest::Client, String> {
-    let http = reqwest::Client::builder()
+    let mut http = reqwest::Client::builder()
         .connect_timeout(connect_timeout)
-        .timeout(timeout)
         .tcp_nodelay(true)
         .pool_max_idle_per_host(0)
         .redirect(reqwest::redirect::Policy::limited(10))
         .user_agent(UA);
+    if let Some(t) = timeout {
+        http = http.timeout(t);
+    }
     #[cfg(target_os = "android")]
-    let http = http.http1_only().dns_resolver(android_dns::resolver());
+    {
+        http = http
+            .http1_only()
+            .dns_resolver(android_dns::resolver())
+            .use_preconfigured_tls(android_webpki_tls()?);
+    }
     http.build()
         .map_err(|e| format!("HTTP 客户端初始化失败：{e}"))
+}
+
+/// 内置 Mozilla 根证书。避免 rustls-platform-verifier 在安卓上未 init 导致握手空转。
+#[cfg(target_os = "android")]
+fn android_webpki_tls() -> Result<rustls::ClientConfig, String> {
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+    let mut roots = rustls::RootCertStore::empty();
+    roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    let mut tls = rustls::ClientConfig::builder()
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+    tls.alpn_protocols = vec![b"http/1.1".to_vec()];
+    Ok(tls)
 }

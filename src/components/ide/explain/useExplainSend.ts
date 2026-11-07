@@ -46,7 +46,7 @@ export function useExplainSend({
   const [includeFile, setIncludeFile] = React.useState(true);
   const [includeSelection, setIncludeSelection] = React.useState(false);
   const [includeNearby, setIncludeNearby] = React.useState(true);
-  const [includeFolder, setIncludeFolder] = React.useState(true);
+  const [includeFolder, setIncludeFolder] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [isMock, setIsMock] = React.useState(false);
   const abortRef = React.useRef<AbortController | null>(null);

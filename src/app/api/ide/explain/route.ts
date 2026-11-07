@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import dns from "node:dns";
 import {
   buildMockExplainMarkdown,
   resolveExplainApiMessages,
+  resolveExplainBaseUrl,
+  resolveExplainModel,
   type IdeExplainFilePayload,
 } from "@/lib/ide/explain";
 import {
@@ -10,8 +13,11 @@ import {
   isAbortLike,
 } from "@/lib/ide/explainTimeout";
 
+dns.setDefaultResultOrder("ipv4first");
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 300;
 
 type Body = {
   question?: string;
@@ -32,14 +38,11 @@ function pickKey(body: Body): string {
 }
 
 function pickBase(body: Body): string {
-  return (
-    (body.baseUrl || process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").trim() ||
-    "https://api.openai.com/v1"
-  ).replace(/\/$/, "");
+  return resolveExplainBaseUrl(body.baseUrl || process.env.OPENAI_BASE_URL || "");
 }
 
-function pickModel(body: Body): string {
-  return (body.model || process.env.OPENAI_MODEL || "gpt-4o-mini").trim() || "gpt-4o-mini";
+function pickModel(body: Body, base: string): string {
+  return resolveExplainModel(body.model || process.env.OPENAI_MODEL || "", base);
 }
 
 function mockStream(text: string): ReadableStream<Uint8Array> {
@@ -99,7 +102,7 @@ export async function POST(req: NextRequest) {
   }
 
   const base = pickBase(body);
-  const model = pickModel(body);
+  const model = pickModel(body, base);
 
   try {
     const upstream = await fetch(`${base}/chat/completions`, {
@@ -114,7 +117,7 @@ export async function POST(req: NextRequest) {
         stream: true,
         temperature: 0.3,
       }),
-      // 连上后不吐数据也不能把 Route Handler 挂死；客户端还有同等上限。
+      // 等首包用较短超时；整轮上限更长，避免生成中途被 75/180s 杀掉。
       signal: AbortSignal.timeout(EXPLAIN_REQUEST_TIMEOUT_MS),
     });
 

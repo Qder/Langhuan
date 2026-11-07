@@ -29,6 +29,11 @@ export function ExplainDesktopHint() {
       {isDesktop && (
         <div className="text-[var(--muted)]">{TAURI_EXPLAIN_HINT}</div>
       )}
+      <div className="text-[var(--muted)]">
+        DeepSeek（官方 OpenAI 兼容）：Base URL 填{" "}
+        <code>https://api.deepseek.com</code>，模型填 <code>deepseek-flash</code>
+        （或 <code>deepseek-v4-pro</code>）。只填 Key 时默认也走 DeepSeek，不必填 OpenAI 地址。
+      </div>
       <label className="block">
         <span className="text-[var(--muted)]">API Key</span>
         <input
@@ -46,7 +51,7 @@ export function ExplainDesktopHint() {
           className="mt-0.5 w-full h-8 rounded-lg border border-[var(--border)] bg-[var(--card)] px-2"
           value={explainSettings.baseUrl}
           onChange={(e) => setExplainSettings({ baseUrl: e.target.value })}
-          placeholder="https://api.openai.com/v1 或 Ollama …/v1"
+          placeholder="https://api.deepseek.com 或 https://api.openai.com/v1"
         />
       </label>
       <label className="block">
@@ -55,7 +60,7 @@ export function ExplainDesktopHint() {
           className="mt-0.5 w-full h-8 rounded-lg border border-[var(--border)] bg-[var(--card)] px-2"
           value={explainSettings.model}
           onChange={(e) => setExplainSettings({ model: e.target.value })}
-          placeholder="gpt-4o-mini"
+          placeholder="deepseek-flash / gpt-4o-mini"
         />
       </label>
     </div>

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildMockExplainMarkdown } from "./explain";
+import { EXPLAIN_FIRST_BYTE_TIMEOUT_MS } from "./explainTimeout";
 
 const runtime = vi.hoisted(() => ({ tauri: false }));
 
@@ -153,7 +154,7 @@ describe("streamExplain · 浏览器", () => {
       collect().handlers
     );
     const flushed = expect(p).rejects.toThrow(/超时/);
-    await vi.advanceTimersByTimeAsync(75_000);
+    await vi.advanceTimersByTimeAsync(EXPLAIN_FIRST_BYTE_TIMEOUT_MS);
     await flushed;
     await expect(p).rejects.toThrow(/检查网络或 Base URL/);
     await expect(p).rejects.not.toThrow(/sk-test/);
@@ -213,6 +214,26 @@ describe("streamExplain · 桌面", () => {
         fileIndex: req.fileIndex,
       })
     );
+  });
+
+  it("DeepSeek 用官方 host，空模型用 deepseek-flash", async () => {
+    invokeMock.mockResolvedValue(undefined);
+    await streamExplain(
+      {
+        question: "q",
+        files,
+        apiKey: "sk-live",
+        baseUrl: "https://api.deepseek.com",
+        model: "",
+        signal: new AbortController().signal,
+      },
+      collect().handlers
+    );
+    const payload = invokeMock.mock.calls[0]![1] as {
+      args: { baseUrl: string; model: string };
+    };
+    expect(payload.args.baseUrl).toBe("https://api.deepseek.com");
+    expect(payload.args.model).toBe("deepseek-flash");
   });
 
   it("有 Key 时走 ide_explain，并把 delta 拼起来", async () => {
@@ -298,7 +319,7 @@ describe("streamExplain · 桌面", () => {
       collect().handlers
     );
     const flushed = expect(p).rejects.toThrow(/超时/);
-    await vi.advanceTimersByTimeAsync(75_000);
+    await vi.advanceTimersByTimeAsync(EXPLAIN_FIRST_BYTE_TIMEOUT_MS);
     await flushed;
     expect(String(invokeMock.mock.calls.map((c) => c[0]))).toContain("ide_explain_cancel");
     vi.useRealTimers();

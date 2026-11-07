@@ -22,15 +22,15 @@ use tauri::State;
 
 use crate::http_client::outbound_http_client;
 
-pub const DEFAULT_BASE_URL: &str = "https://api.openai.com/v1";
-pub const DEFAULT_MODEL: &str = "gpt-4o-mini";
+pub const DEFAULT_BASE_URL: &str = "https://api.deepseek.com";
+pub const DEFAULT_MODEL: &str = "deepseek-flash";
 
 /// TCP 连接上限。连上之后若上游不吐数据，不能只靠这个。
-pub const CONNECT_TIMEOUT_SECS: u64 = 15;
-/// 整轮上限（含等首包 / 读完），60–90s。挂死后 invoke 必须返回。
-pub const REQUEST_TIMEOUT_SECS: u64 = 75;
-/// 两次读之间的空闲。连上但一直不发 chunk 时比整轮更早失败。
-pub const READ_IDLE_TIMEOUT_SECS: u64 = 45;
+pub const CONNECT_TIMEOUT_SECS: u64 = 20;
+/// 等响应头 / 首包。超时文案仍走「连接 … 超时」。
+pub const FIRST_BYTE_TIMEOUT_SECS: u64 = 120;
+/// 两次读之间的空闲。连上但一直不发 chunk 时失败。
+pub const READ_IDLE_TIMEOUT_SECS: u64 = 90;
 
 /// Live cancellation flags, keyed by the frontend's request id.
 #[derive(Default)]
@@ -118,6 +118,31 @@ fn timeout_error(base: &str) -> String {
     format!("连接 {base} 超时，检查网络或 Base URL")
 }
 
+fn normalize_base_url(raw: &str) -> String {
+    let mut b = raw.trim().trim_end_matches('/').to_string();
+    if let Some(stripped) = b
+        .strip_suffix("/chat/completions")
+        .or_else(|| b.strip_suffix("/Chat/Completions"))
+    {
+        b = stripped.trim_end_matches('/').to_string();
+    }
+    if b.is_empty() {
+        return DEFAULT_BASE_URL.to_string();
+    }
+    b
+}
+
+fn resolve_model(raw: &str, base: &str) -> String {
+    let m = raw.trim();
+    if !m.is_empty() {
+        return m.to_string();
+    }
+    if base.to_ascii_lowercase().contains("deepseek") {
+        return "deepseek-flash".to_string();
+    }
+    DEFAULT_MODEL.to_string()
+}
+
 fn connect_error(base: &str, err: &reqwest::Error) -> String {
     if err.is_timeout() {
         timeout_error(base)
@@ -174,31 +199,14 @@ async fn stream_completion(
         return Err("未配置 API Key".into());
     }
 
-    let base = {
-        let raw = args.base_url.trim();
-        if raw.is_empty() {
-            DEFAULT_BASE_URL
-        } else {
-            raw
-        }
-    };
-    let model = {
-        let raw = args.model.trim();
-        if raw.is_empty() {
-            DEFAULT_MODEL
-        } else {
-            raw
-        }
-    };
+    let base = normalize_base_url(&args.base_url);
+    let model = resolve_model(&args.model, &base);
     let url = format!("{}/chat/completions", base.trim_end_matches('/'));
 
     clear_cancel(&state, &args.request_id);
 
-    // 不要设 read_timeout：等响应头 / 第一个 SSE 也算一次 read。
-    let client = outbound_http_client(
-        Duration::from_secs(CONNECT_TIMEOUT_SECS),
-        Duration::from_secs(REQUEST_TIMEOUT_SECS),
-    )?;
+    // 不要设整轮 timeout：生成可以超过 3 分钟。等首包 / 空闲用下面的 tokio timeout。
+    let client = outbound_http_client(Duration::from_secs(CONNECT_TIMEOUT_SECS), None)?;
 
     let body = serde_json::json!({
         "model": model,
@@ -207,13 +215,17 @@ async fn stream_completion(
         "temperature": 0.3,
     });
 
-    let mut res = client
-        .post(&url)
-        .bearer_auth(&key)
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| connect_error(base, &e))?;
+    let send = client.post(&url).bearer_auth(&key).json(&body).send();
+    let mut res = match tokio::time::timeout(
+        Duration::from_secs(FIRST_BYTE_TIMEOUT_SECS),
+        send,
+    )
+    .await
+    {
+        Ok(Ok(r)) => r,
+        Ok(Err(e)) => return Err(connect_error(&base, &e)),
+        Err(_) => return Err(timeout_error(&base)),
+    };
 
     let status = res.status();
     if !status.is_success() {
@@ -233,12 +245,21 @@ async fn stream_completion(
             clear_cancel(&state, &args.request_id);
             return Ok(());
         }
-        let chunk = match res.chunk().await {
-            Ok(Some(c)) => c,
-            Ok(None) => break,
-            Err(e) => {
+        let chunk = match tokio::time::timeout(
+            Duration::from_secs(READ_IDLE_TIMEOUT_SECS),
+            res.chunk(),
+        )
+        .await
+        {
+            Ok(Ok(Some(c))) => c,
+            Ok(Ok(None)) => break,
+            Ok(Err(e)) => {
                 clear_cancel(&state, &args.request_id);
-                return Err(connect_error(base, &e));
+                return Err(connect_error(&base, &e));
+            }
+            Err(_) => {
+                clear_cancel(&state, &args.request_id);
+                return Err(timeout_error(&base));
             }
         };
         pending.extend_from_slice(&chunk);
@@ -339,11 +360,10 @@ mod tests {
 
     #[test]
     fn timeouts_are_in_the_agreed_window_and_copy_is_chinese() {
-        assert_eq!(CONNECT_TIMEOUT_SECS, 15);
-        assert!(REQUEST_TIMEOUT_SECS >= 60 && REQUEST_TIMEOUT_SECS <= 90);
-        // READ_IDLE 只作文档对齐；客户端不再设 read_timeout，避免等首包误杀。
+        assert_eq!(CONNECT_TIMEOUT_SECS, 20);
+        assert!(FIRST_BYTE_TIMEOUT_SECS >= 90 && FIRST_BYTE_TIMEOUT_SECS <= 180);
         assert!(READ_IDLE_TIMEOUT_SECS > CONNECT_TIMEOUT_SECS);
-        assert!(READ_IDLE_TIMEOUT_SECS < REQUEST_TIMEOUT_SECS);
+        assert!(READ_IDLE_TIMEOUT_SECS < FIRST_BYTE_TIMEOUT_SECS);
         let msg = timeout_error("https://example.invalid/v1");
         assert!(msg.contains("超时"));
         assert!(msg.contains("检查网络或 Base URL"));
@@ -389,6 +409,22 @@ mod tests {
         assert!(blob.contains("入口是注解"));
         assert!(blob.contains("刚才说的注解是什么意思"));
         assert_eq!(v.as_array().map(|a| a.len()), Some(4));
+    }
+
+    #[test]
+    fn normalize_deepseek_keeps_official_host() {
+        assert_eq!(
+            normalize_base_url("https://api.deepseek.com"),
+            "https://api.deepseek.com"
+        );
+        assert_eq!(
+            normalize_base_url("https://api.deepseek.com/v1/chat/completions"),
+            "https://api.deepseek.com/v1"
+        );
+        assert_eq!(
+            resolve_model("", "https://api.deepseek.com"),
+            "deepseek-flash"
+        );
     }
 
     #[test]

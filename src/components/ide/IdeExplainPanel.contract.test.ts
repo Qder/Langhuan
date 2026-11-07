@@ -291,7 +291,7 @@ describe("讲解面板：生成中不再空转", () => {
     expect(sendSrc).toContain("IDE_EXPLAIN_FOLDER_MAX_FILES_ANDROID");
     expect(sendSrc).toContain("isTauriAndroidRuntime");
     expect(sendSrc).toContain(
-      "const [includeFolder, setIncludeFolder] = React.useState(true)"
+      "const [includeFolder, setIncludeFolder] = React.useState(false)"
     );
     expect(sendSrc).toContain("本轮带上工程内");
     expect(composerSrc).toContain("带上工程文件");

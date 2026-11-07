@@ -39,6 +39,9 @@ type ElementInspectSliceKeys =
   | "jsIndexes"
   | "elementPanel"
   | "elementPanelPinned"
+  | "htmlInspectEnabled"
+  | "setHtmlInspectEnabled"
+  | "toggleHtmlInspectEnabled"
   | "setCssIndexes"
   | "setJsIndexes"
   | "setElementPanelPinned"
@@ -135,6 +138,14 @@ export function shouldOpenElementPanel(
 }
 
 /**
+ * 预览点击要不要走「元素检视」：默认只阅读（点答题、展开答案都交给页面）。
+ * 开了检视之后单击即查；没开时按住 Alt 点一下也能查，不必先开模式。
+ */
+export function shouldInspectClick(inspectEnabled: boolean, altKey: boolean): boolean {
+  return inspectEnabled || altKey;
+}
+
+/**
  * 抽屉只认「点它的那篇文档还在眼前」：切文档后旧结果不许落到新文档上。
  *
  * 分屏时有两篇同时在眼前（`activeId` + `secondaryId`），点哪一篇都算数 ——
@@ -211,12 +222,32 @@ export const createElementInspectSlice: StateCreator<
   elementPanel: null,
   /** pin 后抽屉成为布局里的一列（预览变窄），而不是压在预览上；跨点击保持 */
   elementPanelPinned: false,
+  /** 默认关：看 HTML 作业/笔记时点击归页面；需要学结构时再开 */
+  htmlInspectEnabled: false,
 
   setCssIndexes: (list) => set({ cssIndexes: list }),
 
   setJsIndexes: (list) => set({ jsIndexes: list }),
 
   setElementPanelPinned: (pinned) => set({ elementPanelPinned: !!pinned }),
+
+  setHtmlInspectEnabled: (on) => {
+    const next = !!on;
+    set({ htmlInspectEnabled: next });
+    if (!next) {
+      get().closeInspector();
+      get().clearHoverReveal();
+    }
+    get().setStatus(
+      next
+        ? "已开启元素检视：点击预览即可查看 HTML / 样式 / 行为"
+        : "已关闭元素检视，点击交给文档本身"
+    );
+  },
+
+  toggleHtmlInspectEnabled: () => {
+    get().setHtmlInspectEnabled(!get().htmlInspectEnabled);
+  },
 
   /**
    * 预览里点元素之后：iframe 回传的「样式命中 + 元素身份」→ 三段（HTML / 样式 / 行为）都算好。

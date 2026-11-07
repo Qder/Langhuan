@@ -9,6 +9,7 @@ import {
   Maximize2,
   PanelRight,
   PanelRightClose,
+  ScanSearch,
   Star,
 } from "lucide-react";
 import { Button } from "../ui/button";
@@ -30,6 +31,8 @@ export function ReadingTools({
   mdFocusMode,
   setMdFocusMode,
   onOpenHtmlInNewTab,
+  htmlInspectEnabled,
+  onToggleHtmlInspect,
   setHtmlImmersive,
   tabletUp,
   splitSourceFirst,
@@ -45,6 +48,8 @@ export function ReadingTools({
   mdFocusMode: boolean;
   setMdFocusMode: (on: boolean) => void;
   onOpenHtmlInNewTab: () => void;
+  htmlInspectEnabled: boolean;
+  onToggleHtmlInspect: () => void;
   setHtmlImmersive: (on: boolean) => void;
   tabletUp: boolean;
   splitSourceFirst: boolean;
@@ -90,6 +95,21 @@ export function ReadingTools({
             onClick={onOpenHtmlInNewTab}
           >
             <ExternalLink className="h-4 w-4" />
+          </Button>
+          <Button
+            variant={htmlInspectEnabled ? "secondary" : "ghost"}
+            size="sm"
+            aria-label={htmlInspectEnabled ? "关闭元素检视" : "开启元素检视"}
+            aria-pressed={htmlInspectEnabled}
+            title={
+              htmlInspectEnabled
+                ? "检视已开：点击元素查看 HTML / 样式 / 行为"
+                : "默认只阅读文档。开启后点击即检视；也可以按住 Alt 点一下"
+            }
+            onClick={onToggleHtmlInspect}
+          >
+            <ScanSearch className="h-3.5 w-3.5" />
+            检视
           </Button>
           <Button
             variant="ghost"

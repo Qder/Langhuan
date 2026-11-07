@@ -6,6 +6,7 @@ import {
   buildMockExplainMarkdown,
   collectScannedFileIndex,
   mockExplainHasCitationTo,
+  normalizeExplainBaseUrl,
   normalizeExplainFilePayloads,
   planExplainSelectionRequest,
   javaImportToSuffix,
@@ -14,7 +15,13 @@ import {
   planExplainFolderFiles,
   rankExplainFolderPaths,
   resolveExplainApiMessages,
+  resolveExplainBaseUrl,
+  resolveExplainModel,
   selectExplainPriorMessages,
+  DEEPSEEK_EXPLAIN_BASE_URL,
+  DEEPSEEK_EXPLAIN_MODEL,
+  DEFAULT_EXPLAIN_BASE_URL,
+  DEFAULT_EXPLAIN_MODEL,
   IDE_EXPLAIN_MAX_FULL_LINES,
   IDE_EXPLAIN_MODEL_PRIOR_MAX,
   IDE_EXPLAIN_PRIOR_CHARS_MAX,
@@ -430,6 +437,33 @@ describe("planExplainFolderFiles / rankExplainFolderPaths", () => {
         readContent: () => "# hi",
       })
     ).toEqual({ files: [], skipped: [], omitted: 0 });
+  });
+});
+
+describe("normalizeExplainBaseUrl / resolveExplainModel", () => {
+  it("DeepSeek 官方 host 不加 /v1，去掉误贴的 chat/completions", () => {
+    expect(normalizeExplainBaseUrl("https://api.deepseek.com")).toBe(
+      DEEPSEEK_EXPLAIN_BASE_URL
+    );
+    expect(
+      normalizeExplainBaseUrl("https://api.deepseek.com/chat/completions")
+    ).toBe(DEEPSEEK_EXPLAIN_BASE_URL);
+    expect(
+      normalizeExplainBaseUrl("https://api.deepseek.com/v1/chat/completions")
+    ).toBe("https://api.deepseek.com/v1");
+    expect(resolveExplainBaseUrl("")).toBe(DEEPSEEK_EXPLAIN_BASE_URL);
+  });
+
+  it("DeepSeek 端点留空模型用 deepseek-flash", () => {
+    expect(resolveExplainModel("", DEEPSEEK_EXPLAIN_BASE_URL)).toBe(
+      DEEPSEEK_EXPLAIN_MODEL
+    );
+    expect(resolveExplainModel("", DEFAULT_EXPLAIN_BASE_URL)).toBe(
+      DEFAULT_EXPLAIN_MODEL
+    );
+    expect(resolveExplainModel("deepseek-v4-pro", DEEPSEEK_EXPLAIN_BASE_URL)).toBe(
+      "deepseek-v4-pro"
+    );
   });
 });
 

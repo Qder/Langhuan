@@ -18,14 +18,17 @@ import {
   assembleExplainUserContent,
   buildMockExplainMarkdown,
   IDE_EXPLAIN_SYSTEM_PROMPT,
+  resolveExplainBaseUrl,
+  resolveExplainModel,
   type ExplainChatMessage,
   type IdeExplainFilePayload,
 } from "@/lib/ide/explain";
 import {
+  EXPLAIN_FIRST_BYTE_TIMEOUT_MS,
   EXPLAIN_REQUEST_TIMEOUT_MS,
+  createExplainWatchdog,
   explainTimeoutMessage,
   explainTransportFailure,
-  mergeExplainAbort,
   raceWithDeadline,
 } from "@/lib/ide/explainTimeout";
 
@@ -112,7 +115,10 @@ async function streamViaTauri(
 
   const { invoke, Channel } = await import("@tauri-apps/api/core");
   const id = requestId();
+  const baseUrl = resolveExplainBaseUrl(req.baseUrl);
+  const model = resolveExplainModel(req.model, baseUrl);
   let finished = false;
+  let sawByte = false;
   const onAbort = () => {
     // Best effort: the Rust loop checks this on its next chunk.
     void invoke("ide_explain_cancel", { requestId: id }).catch(() => {});
@@ -123,10 +129,12 @@ async function streamViaTauri(
   channel.onmessage = (ev) => {
     if (finished) return;
     if (ev.type === "delta") {
+      sawByte = true;
       handlers.onDelta(ev.text);
       return;
     }
     if (ev.type === "done") {
+      sawByte = true;
       finished = true;
       handlers.onDone({ mock: false });
     }
@@ -135,27 +143,40 @@ async function streamViaTauri(
   try {
     const messages = chatMessagesFor(req);
     const lastUser = [...messages].reverse().find((m) => m.role === "user");
-    await raceWithDeadline(
-      invoke("ide_explain", {
-        args: {
-          requestId: id,
-          systemPrompt: IDE_EXPLAIN_SYSTEM_PROMPT,
-          userContent: lastUser?.content
-            || assembleExplainUserContent(req.question, req.files, req.fileIndex),
-          messages,
-          apiKey: key,
-          baseUrl: req.baseUrl.trim(),
-          model: req.model.trim(),
-        },
-        onEvent: channel,
-      }),
-      EXPLAIN_REQUEST_TIMEOUT_MS,
-      () => {
-        void invoke("ide_explain_cancel", { requestId: id }).catch(() => {});
-        return new Error(explainTimeoutMessage(req.baseUrl));
+    const invokeP = invoke("ide_explain", {
+      args: {
+        requestId: id,
+        systemPrompt: IDE_EXPLAIN_SYSTEM_PROMPT,
+        userContent: lastUser?.content
+          || assembleExplainUserContent(req.question, req.files, req.fileIndex),
+        messages,
+        apiKey: key,
+        baseUrl,
+        model,
       },
-      req.signal
-    );
+      onEvent: channel,
+    });
+    const firstByteP = new Promise<never>((_, reject) => {
+      const t = setTimeout(() => {
+        if (sawByte) return;
+        void invoke("ide_explain_cancel", { requestId: id }).catch(() => {});
+        reject(new Error(explainTimeoutMessage(baseUrl)));
+      }, EXPLAIN_FIRST_BYTE_TIMEOUT_MS);
+      const stop = () => clearTimeout(t);
+      req.signal.addEventListener("abort", stop, { once: true });
+    });
+    await Promise.race([
+      raceWithDeadline(
+        invokeP,
+        EXPLAIN_REQUEST_TIMEOUT_MS,
+        () => {
+          void invoke("ide_explain_cancel", { requestId: id }).catch(() => {});
+          return new Error(explainTimeoutMessage(baseUrl));
+        },
+        req.signal
+      ),
+      firstByteP,
+    ]);
     // A cancelled turn returns Ok without a done event; the caller already
     // knows it aborted, so don't fake completion.
     if (!finished && !req.signal.aborted) {
@@ -183,10 +204,14 @@ async function streamViaNextRoute(
     locale: "zh",
   };
   if (req.apiKey.trim()) body.apiKey = req.apiKey.trim();
-  if (req.baseUrl.trim()) body.baseUrl = req.baseUrl.trim();
-  if (req.model.trim()) body.model = req.model.trim();
+  const baseUrl = req.baseUrl.trim() ? resolveExplainBaseUrl(req.baseUrl) : "";
+  const model = req.model.trim()
+    ? resolveExplainModel(req.model, baseUrl || req.baseUrl)
+    : "";
+  if (baseUrl) body.baseUrl = baseUrl;
+  if (model) body.model = model;
 
-  const merged = mergeExplainAbort(req.signal, EXPLAIN_REQUEST_TIMEOUT_MS);
+  const watchdog = createExplainWatchdog(req.signal);
   try {
     let res: Response;
     try {
@@ -194,15 +219,19 @@ async function streamViaNextRoute(
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
-        signal: merged.signal,
+        signal: watchdog.signal,
       });
     } catch (e) {
       if (req.signal.aborted) throw e;
       const fail = explainTransportFailure(e, {
         userAborted: false,
-        baseUrl: req.baseUrl,
+        baseUrl: baseUrl || req.baseUrl,
       });
-      throw new Error(fail.kind === "error" ? fail.message : explainTimeoutMessage(req.baseUrl));
+      throw new Error(
+        fail.kind === "error"
+          ? fail.message
+          : explainTimeoutMessage(baseUrl || req.baseUrl)
+      );
     }
 
     if (!res.ok) {
@@ -226,6 +255,7 @@ async function streamViaNextRoute(
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
+      if (value?.byteLength) watchdog.noteByte();
       seen += decoder.decode(value, { stream: true });
       // Same contract as the desktop bridge: hand over only the new text.
       if (seen.startsWith(lastSent)) {
@@ -241,6 +271,6 @@ async function streamViaNextRoute(
     }
     handlers.onDone({ mock });
   } finally {
-    merged.dispose();
+    watchdog.dispose();
   }
 }

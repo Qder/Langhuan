@@ -10,6 +10,7 @@ import {
   Link2,
   Maximize2,
   MoreHorizontal,
+  ScanSearch,
   Network,
   PanelRight,
   Pencil,
@@ -44,6 +45,8 @@ export function MoreMenu({
   mdFocusMode,
   setMdFocusMode,
   setHtmlImmersive,
+  htmlInspectEnabled,
+  onToggleHtmlInspect,
   splitSourceFirst,
   toggleSplitSourceFirst,
   syncScrollOn,
@@ -78,6 +81,8 @@ export function MoreMenu({
   mdFocusMode: boolean;
   setMdFocusMode: (on: boolean) => void;
   setHtmlImmersive: (on: boolean) => void;
+  htmlInspectEnabled: boolean;
+  onToggleHtmlInspect: () => void;
   splitSourceFirst: boolean;
   toggleSplitSourceFirst: () => void;
   syncScrollOn: boolean;
@@ -158,9 +163,15 @@ export function MoreMenu({
         </DropdownItem>
       )}
       {isHtml && viewMode !== "source" && (
-        <DropdownItem onClick={() => setHtmlImmersive(true)}>
-          <Maximize2 className="h-3.5 w-3.5" /> 沉浸模式
-        </DropdownItem>
+        <>
+          <DropdownItem onClick={onToggleHtmlInspect}>
+            <ScanSearch className="h-3.5 w-3.5" />
+            {htmlInspectEnabled ? "关闭元素检视" : "开启元素检视"}
+          </DropdownItem>
+          <DropdownItem onClick={() => setHtmlImmersive(true)}>
+            <Maximize2 className="h-3.5 w-3.5" /> 沉浸模式
+          </DropdownItem>
+        </>
       )}
       {asideAvailable && (
         <DropdownItem

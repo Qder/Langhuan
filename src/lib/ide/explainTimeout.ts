@@ -5,11 +5,14 @@
  * 以及空助手气泡不能只凭 content==='' 就永远显示「生成中…」。
  */
 
-/** 连上 TCP 之后整轮上限（含等首包）。与 Rust `REQUEST_TIMEOUT_SECS` 对齐。 */
-export const EXPLAIN_REQUEST_TIMEOUT_MS = 75_000;
+/** 等到首个 token 的上限。与 Rust `FIRST_BYTE_TIMEOUT_SECS` 对齐。 */
+export const EXPLAIN_FIRST_BYTE_TIMEOUT_MS = 120_000;
+
+/** 整轮上限（含生成）。首包之后不再用这个去杀流。与 Rust 文档窗口对齐。 */
+export const EXPLAIN_REQUEST_TIMEOUT_MS = 300_000;
 
 /** 读空闲：两次 chunk 之间太久就当挂死。与 Rust `READ_IDLE_TIMEOUT_SECS` 对齐。 */
-export const EXPLAIN_READ_IDLE_TIMEOUT_MS = 45_000;
+export const EXPLAIN_READ_IDLE_TIMEOUT_MS = 90_000;
 
 /** 空响应写进气泡，避免 persist 一条空 assistant 被当成还在生成。 */
 export const EMPTY_EXPLAIN_REPLY = "（未生成内容）";
@@ -90,6 +93,54 @@ export function mergeExplainAbort(
     signal: ac.signal,
     dispose: () => {
       clearTimeout(timer);
+      user.removeEventListener("abort", onUser);
+    },
+  };
+}
+
+/**
+ * 首包 / 读空闲 / 整轮 三档，不依赖 AbortSignal.any。
+ * 收到字节后取消「等首包」，并重置空闲时钟；用户停止不算超时。
+ */
+export function createExplainWatchdog(
+  user: AbortSignal,
+  opts?: {
+    firstByteMs?: number;
+    idleMs?: number;
+    overallMs?: number;
+  }
+): { signal: AbortSignal; noteByte: () => void; dispose: () => void } {
+  const firstByteMs = opts?.firstByteMs ?? EXPLAIN_FIRST_BYTE_TIMEOUT_MS;
+  const idleMs = opts?.idleMs ?? EXPLAIN_READ_IDLE_TIMEOUT_MS;
+  const overallMs = opts?.overallMs ?? EXPLAIN_REQUEST_TIMEOUT_MS;
+  const ac = new AbortController();
+  let idle: ReturnType<typeof setTimeout> | undefined;
+  const abortTimeout = () => {
+    if (!user.aborted && !ac.signal.aborted) ac.abort("explain-timeout");
+  };
+  const onUser = () => ac.abort(user.reason);
+  if (user.aborted) {
+    ac.abort(user.reason);
+    return { signal: ac.signal, noteByte: () => {}, dispose: () => {} };
+  }
+  user.addEventListener("abort", onUser, { once: true });
+  const first = setTimeout(abortTimeout, firstByteMs);
+  const overall = setTimeout(abortTimeout, overallMs);
+  let firstCleared = false;
+  return {
+    signal: ac.signal,
+    noteByte: () => {
+      if (!firstCleared) {
+        firstCleared = true;
+        clearTimeout(first);
+      }
+      if (idle) clearTimeout(idle);
+      idle = setTimeout(abortTimeout, idleMs);
+    },
+    dispose: () => {
+      clearTimeout(first);
+      clearTimeout(overall);
+      if (idle) clearTimeout(idle);
       user.removeEventListener("abort", onUser);
     },
   };

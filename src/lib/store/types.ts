@@ -114,6 +114,13 @@ export type LanghuanState = {
   jsIndexes: JsFileIndex[];
   /** 预览里点元素后的「元素检视」抽屉（HTML / 样式 / 行为）；null = 关闭 */
   elementPanel: ElementPanelState | null;
+  /**
+   * HTML 预览是否处于元素检视：默认关，点击归文档自己（答题、展开答案）。
+   * 打开后单击即出抽屉；关着时 Alt+点击仍可检视一次。会话态，不持久化。
+   */
+  htmlInspectEnabled: boolean;
+  setHtmlInspectEnabled: (on: boolean) => void;
+  toggleHtmlInspectEnabled: () => void;
   activeId: string | null;
   viewMode: ViewMode;
   /** notes library shell vs IDE project shell */

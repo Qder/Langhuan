@@ -7,6 +7,7 @@ import {
   Link2,
   Maximize2,
   RefreshCw,
+  ScanSearch,
   SlidersHorizontal,
 } from "lucide-react";
 import { Button } from "../ui/button";
@@ -54,6 +55,8 @@ export function ReadingPopover({
   mdFocusMode,
   setMdFocusMode,
   setHtmlImmersive,
+  htmlInspectEnabled,
+  onToggleHtmlInspect,
   setHtmlPreviewPrefs,
   bumpHtmlReload,
   splitSourceFirst,
@@ -81,6 +84,8 @@ export function ReadingPopover({
   mdFocusMode: boolean;
   setMdFocusMode: (on: boolean) => void;
   setHtmlImmersive: (on: boolean) => void;
+  htmlInspectEnabled: boolean;
+  onToggleHtmlInspect: () => void;
   setHtmlPreviewPrefs: (id: string, patch: Partial<HtmlDocPreviewPrefs>) => void;
   bumpHtmlReload: () => void;
   splitSourceFirst: boolean;
@@ -318,6 +323,25 @@ export function ReadingPopover({
                   刷新
                 </Button>
               </div>
+              <button
+                type="button"
+                onClick={onToggleHtmlInspect}
+                className={cn(
+                  "flex w-full items-center justify-between gap-2 rounded-xl border border-[var(--border)] px-3 py-2 text-xs font-ui",
+                  htmlInspectEnabled
+                    ? "border-[var(--accent)]/50 text-[var(--accent)]"
+                    : "hover:bg-[var(--hover)]"
+                )}
+                aria-pressed={htmlInspectEnabled}
+              >
+                <span className="flex items-center gap-2">
+                  <ScanSearch className="h-3.5 w-3.5" />
+                  元素检视
+                </span>
+                <span className="text-[10px] text-[var(--muted)]">
+                  {htmlInspectEnabled ? "开 · 点击即查" : "关 · 只阅读"}
+                </span>
+              </button>
               <button
                 type="button"
                 onClick={() => {

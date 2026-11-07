@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Tag, BookOpenCheck, Archive, HeartPulse, Replace, BookmarkPlus, CalendarDays, ClipboardPaste, Columns2, Download, FilePlus2, FileSearch, FileText, FolderOpen, FolderSync, Globe, History, Home, LayoutTemplate, ListTree, Network, Search, Settings2, SlidersHorizontal, Sparkles, Trash2, Maximize2, Blend, Code2 } from "lucide-react";
+import { Tag, BookOpenCheck, Archive, HeartPulse, Replace, BookmarkPlus, CalendarDays, ClipboardPaste, Columns2, Download, FilePlus2, FileSearch, FileText, FolderOpen, FolderSync, Globe, History, Home, LayoutTemplate, ListTree, Network, Search, Settings2, SlidersHorizontal, Sparkles, Trash2, Maximize2, Blend, Code2, ScanSearch } from "lucide-react";
 import { Dialog } from "./ui/dialog";
 import { useStore } from "@/lib/store";
 import { useIdeStore } from "@/lib/ide/store";
@@ -48,6 +48,8 @@ export function CommandPalette({
   const mdFocusMode = useStore((s) => s.mdFocusMode);
   const setMdFocusMode = useStore((s) => s.setMdFocusMode);
   const getActive = useStore((s) => s.getActive);
+  const htmlInspectEnabled = useStore((s) => s.htmlInspectEnabled);
+  const toggleHtmlInspectEnabled = useStore((s) => s.toggleHtmlInspectEnabled);
 
   const activeId = useStore((s) => s.activeId);
   const openDailyNote = useStore((s) => s.openDailyNote);
@@ -322,6 +324,22 @@ export function CommandPalette({
           const to = window.prompt(`把「${from.trim()}」改成（新名）`);
           if (to === null) return;
           renameTagAcrossLibrary(from, to);
+        }),
+      },
+      {
+        key: "cmd-html-inspect",
+        label: htmlInspectEnabled ? "关闭元素检视" : "开启元素检视",
+        hint: htmlInspectEnabled
+          ? "点击预览查看 HTML / 样式 / 行为"
+          : "默认只阅读；开启后点击即查，也可 Alt+点击",
+        icon: <ScanSearch className="h-4 w-4 text-[var(--accent)]" />,
+        run: inNotes(() => {
+          const a = getActive();
+          if (!a || a.type !== "html") {
+            setStatus("元素检视只用于 HTML 预览");
+            return;
+          }
+          toggleHtmlInspectEnabled();
         }),
       },
       {
