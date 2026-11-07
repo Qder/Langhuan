@@ -97,7 +97,9 @@ fn not_android() -> String {
 }
 
 #[cfg(target_os = "android")]
-fn bridge(app: &AppHandle) -> Result<&AndroidSafBridge<tauri::Wry>, String> {
+fn bridge(
+    app: &AppHandle,
+) -> Result<tauri::State<'_, AndroidSafBridge<tauri::Wry>>, String> {
     app.try_state::<AndroidSafBridge<tauri::Wry>>()
         .ok_or_else(|| "Android 文件夹桥未初始化".to_string())
 }

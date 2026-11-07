@@ -75,6 +75,10 @@ function Build-Abi([string]$Triple, [string]$JniAbi) {
     } else {
       cargo build -p langhuan --target $Triple --features "tauri/custom-protocol" --lib
     }
+    if ($LASTEXITCODE -ne 0) {
+      Pop-Location
+      throw "cargo build $Triple failed"
+    }
     Pop-Location
     $so = Join-Path $TargetDir "$Triple\$ProfileName\libapp_lib.so"
   }
