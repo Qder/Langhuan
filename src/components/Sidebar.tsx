@@ -16,6 +16,7 @@ import { BookOpenCheck,
   Network,
   Palette,
   PanelLeft,
+  PanelLeftClose,
   Plus,
   RotateCcw,
   Search,
@@ -1682,12 +1683,20 @@ export function Sidebar() {
       </Dropdown>
       <button
         type="button"
-        onClick={() => setHtmlSidebarPeek(true)}
-        className="mt-auto inline-flex h-9 w-9 items-center justify-center rounded-xl hover:bg-[var(--hover)]"
-        aria-label="展开侧栏"
-        title="展开侧栏"
+        onClick={() => setHtmlSidebarPeek(!htmlSidebarPeek)}
+        className={cn(
+          "mt-auto inline-flex h-9 w-9 items-center justify-center rounded-xl hover:bg-[var(--hover)]",
+          htmlSidebarPeek && "bg-[var(--hover)]"
+        )}
+        aria-label={htmlSidebarPeek ? "收起侧栏" : "展开侧栏"}
+        aria-pressed={htmlSidebarPeek}
+        title={htmlSidebarPeek ? "收起侧栏" : "展开侧栏"}
       >
-        <PanelLeft className="h-4 w-4" />
+        {htmlSidebarPeek ? (
+          <PanelLeftClose className="h-4 w-4" />
+        ) : (
+          <PanelLeft className="h-4 w-4" />
+        )}
       </button>
     </div>
   );
@@ -1697,24 +1706,19 @@ export function Sidebar() {
       {/* HTML: 56px icon rail (does not squeeze when overlay opens) */}
       {htmlRail ? (
         <>
-          {rail}
-          {/* Left-edge hover strip to peek */}
-          <div
-            className="pointer-events-auto fixed left-0 top-0 z-40 hidden h-dvh w-1.5 lg:block"
-            onMouseEnter={() => setHtmlSidebarPeek(true)}
-          />
+          <div className="relative z-[60] hidden lg:flex h-full">{rail}</div>
           {htmlSidebarPeek && (
-            <div className="fixed inset-0 z-50 hidden lg:flex">
+            <div className="fixed inset-y-0 left-14 right-0 z-50 hidden lg:flex">
               <div
                 className="h-full shadow-2xl animate-enter"
                 style={{ width: sidebarWidth }}
-                onMouseLeave={() => setHtmlSidebarPeek(false)}
               >
                 {panel}
               </div>
               <div
                 className="h-full flex-1 bg-black/20"
                 onClick={() => setHtmlSidebarPeek(false)}
+                aria-hidden
               />
             </div>
           )}

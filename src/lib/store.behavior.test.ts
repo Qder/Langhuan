@@ -892,6 +892,43 @@ describe("store behavior snapshots", () => {
     expect(useStore.getState().openTabs.includes(b.id)).toBe(false);
   });
 
+  it("HTML 换文档不关侧栏；打开 Markdown 才关", () => {
+    const a = useStore.getState().createDoc({
+      type: "html",
+      path: "作业/一阶.html",
+      content: "<p>a</p>",
+      open: true,
+    });
+    const b = useStore.getState().createDoc({
+      type: "html",
+      path: "作业/图论.html",
+      content: "<p>b</p>",
+      open: false,
+    });
+    const md = useStore.getState().createDoc({
+      type: "md",
+      path: "作业/笔记.md",
+      content: "md",
+      open: false,
+    });
+    useStore.getState().setSidebarOpen(true);
+    useStore.getState().setHtmlSidebarPeek(true);
+    useStore.getState().openDoc(b.id);
+    expect(useStore.getState().activeId).toBe(b.id);
+    expect(useStore.getState().sidebarOpen).toBe(true);
+    expect(useStore.getState().htmlSidebarPeek).toBe(true);
+
+    useStore.getState().openDoc(md.id);
+    expect(useStore.getState().activeId).toBe(md.id);
+    expect(useStore.getState().sidebarOpen).toBe(false);
+    expect(useStore.getState().htmlSidebarPeek).toBe(false);
+
+    useStore.getState().setSidebarOpen(true);
+    useStore.getState().openDoc(a.id);
+    expect(useStore.getState().sidebarOpen).toBe(true);
+    expect(useStore.getState().htmlSidebarPeek).toBe(false);
+  });
+
   it("surfaces putLibraryDoc / bulkWriteLibrary reject in status", async () => {
     const put = vi.mocked(putLibraryDoc);
     const bulk = vi.mocked(bulkWriteLibrary);

@@ -150,7 +150,7 @@ export type LanghuanState = {
   sidebarPanel: "docs" | "tags" | "stars" | "trash";
   /** HTML preview immersive reading mode (session). */
   htmlImmersive: boolean;
-  /** HTML: temporary full sidebar overlay over content (session). */
+  /** HTML: 点击展开的侧栏浮层（换 HTML 作业时保持；点遮罩或按钮关闭）。 */
   htmlSidebarPeek: boolean;
   /** Scroll percent reported by HTML preview bridge (0–100). Legacy fallback. */
   htmlScrollPercent: number;

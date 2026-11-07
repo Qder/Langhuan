@@ -273,12 +273,15 @@ export const createDocsSlice: StateCreator<
         invalidateInspect();
         set((s) => {
           const tabs = s.openTabs.includes(id) ? s.openTabs : [...s.openTabs, id];
+          const next = s.documents.find((d) => d.id === id);
+          // HTML 预览侧栏是点开的：换下一篇作业不要自动收起。
+          const stayHtmlSidebar = next?.type === "html";
           return {
             activeId: id,
             openTabs: tabs,
-            sidebarOpen: false,
+            sidebarOpen: stayHtmlSidebar ? s.sidebarOpen : false,
             htmlImmersive: false,
-            htmlSidebarPeek: false,
+            htmlSidebarPeek: stayHtmlSidebar ? s.htmlSidebarPeek : false,
             htmlScrollPercent: 0,
             editorCaret: null,
             focusedPane: "primary" as FocusedPane,
