@@ -1,3 +1,4 @@
+mod android_saf;
 mod android_updater;
 mod content;
 mod explain;
@@ -182,6 +183,7 @@ pub fn run() {
     tauri::Builder::default()
         .manage(explain::ExplainState::default())
         .plugin(android_updater::native_bridge_plugin())
+        .plugin(android_saf::native_plugin())
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -217,6 +219,12 @@ pub fn run() {
             android_updater::android_fetch_latest_manifest,
             android_updater::android_download_update,
             android_updater::android_install_update,
+            android_saf::android_saf_pick_tree,
+            android_saf::android_saf_bound,
+            android_saf::android_saf_unbind,
+            android_saf::android_saf_scan,
+            android_saf::android_saf_write_text,
+            android_saf::android_saf_write_bytes,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

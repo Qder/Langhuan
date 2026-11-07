@@ -23,11 +23,14 @@
 
 - 需用户手势授权；权限被系统收回后需重新授权。
 - 句柄存在本机 IndexedDB，换浏览器/清站点数据需重绑。
-- 不做文件监听（无持续 watch）；靠写穿 + 手动「检测外部更改」（mtime/size）确认拉入，或「立即同步」。
+- 不做文件监听（无持续 watch）；靠写穿 + 手动「检测外部更改」（mtime/size）确认拉入，或方向同步（应用 → 本地 / 本地 → 应用）。电脑仍保留「智能双向（冲突保留应用）」。
+- **Android APK**：不走 FSA。`SafPlugin` + `android_saf_*` 用系统文档树授权；同一套方向按钮。平板浏览器仍不支持。真机未验。
 - 双链补全、图谱、搜索语法等知识库能力不在本文件范围，见 [STATUS-tier2-kb.md](./STATUS-tier2-kb.md)（已落地）。
 
 ## 关键文件
 
-- `src/lib/storage/fsSync.ts` — 句柄、扫描、写出、冲突规划
-- `src/components/FsSyncDialog.tsx` — 绑定 / 同步 / 解除
+- `src/lib/storage/fsSync.ts` — 句柄、扫描、写出、冲突规划、方向拉取 `planForcePullFromDisk`
+- `src/lib/storage/folderMirror.ts` — FSA / Android SAF 后端分发
+- `src/lib/android/saf.ts` + Kotlin `SafPlugin` — 安卓选目录
+- `src/components/FsSyncDialog.tsx` — 绑定 / 方向同步 / 解除
 - `src/lib/store.ts` — `fsBoundName` / 写穿钩子

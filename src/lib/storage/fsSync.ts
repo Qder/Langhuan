@@ -960,6 +960,117 @@ export function planSyncIn(
 }
 
 /**
+ * User-picked direction: local folder overwrites the library at matching paths.
+ * Does not delete library-only docs. Never reports conflicts (direction is explicit).
+ */
+export function planForcePullFromDisk(
+  library: Document[],
+  disk: DiskDoc[],
+  index: FsIndex,
+  now = Date.now()
+): {
+  next: Document[];
+  result: SyncInResult;
+} {
+  const nextMap = new Map(library.map((d) => [safeRelPath(d.path), { ...d }]));
+  const byId = new Map(library.map((d) => [d.id, d]));
+  let imported = 0;
+  let updated = 0;
+  let unchanged = 0;
+  const errors: string[] = [];
+
+  for (const file of disk) {
+    const path = safeRelPath(file.path);
+    if (!path) continue;
+    const type = libraryDocTypeFromPath(path);
+    const meta = index.documents[path];
+    const existing = nextMap.get(path);
+
+    if (!existing) {
+      let id = meta?.id;
+      let starred = meta?.starred ?? false;
+      let createdAt = meta?.createdAt ?? file.mtime;
+      if (id && byId.has(id)) {
+        const old = byId.get(id)!;
+        const oldPath = safeRelPath(old.path);
+        if (oldPath !== path && nextMap.get(oldPath)?.id === id) {
+          nextMap.delete(oldPath);
+        }
+        starred = old.starred;
+        createdAt = old.createdAt;
+      } else {
+        id = id || `fs_${Math.random().toString(36).slice(2, 10)}_${now.toString(36)}`;
+      }
+      const doc: Document = {
+        id: id!,
+        path,
+        type,
+        content: file.content,
+        starred,
+        createdAt,
+        updatedAt: file.mtime || now,
+      };
+      nextMap.set(path, doc);
+      byId.set(doc.id, doc);
+      imported += 1;
+      continue;
+    }
+
+    if (existing.content === file.content) {
+      unchanged += 1;
+      continue;
+    }
+
+    nextMap.set(path, {
+      ...existing,
+      content: file.content,
+      type,
+      updatedAt: file.mtime || now,
+      starred: meta?.starred ?? existing.starred,
+    });
+    updated += 1;
+  }
+
+  return {
+    next: Array.from(nextMap.values()),
+    result: { imported, updated, conflicts: [], unchanged, errors },
+  };
+}
+
+/** Directed pull: disk attachments upsert into the library; library-only assets stay. */
+export function planForcePullAssets(
+  library: AssetMeta[],
+  disk: Array<{ path: string; mime: string; size: number; mtime?: number }>,
+  now = Date.now()
+): { assets: AssetMeta[]; upserted: string[] } {
+  const map = new Map(library.map((a) => [safeRelPath(a.path), { ...a }]));
+  const upserted: string[] = [];
+  for (const file of disk) {
+    const path = safeRelPath(file.path);
+    if (!path) continue;
+    const existing = map.get(path);
+    if (!existing) {
+      map.set(path, {
+        id: `fs_asset_${Math.random().toString(36).slice(2, 10)}_${now.toString(36)}`,
+        path,
+        mime: file.mime,
+        size: file.size,
+        createdAt: file.mtime || now,
+      });
+      upserted.push(path);
+      continue;
+    }
+    map.set(path, {
+      ...existing,
+      mime: file.mime || existing.mime,
+      size: file.size,
+    });
+    upserted.push(path);
+  }
+  return { assets: Array.from(map.values()), upserted };
+}
+
+/**
  * Bidirectional sync: pull newer disk files into library (conflicts keep content/),
  * then write full library to disk + refresh index.
  */

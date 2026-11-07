@@ -1,0 +1,11 @@
+[[permission]]
+identifier = "allow-langhuan-android-saf"
+description = "Android 通过 SAF 绑定用户选择的文件夹，并按用户指定方向读写笔记镜像。不访问未授权目录。"
+commands.allow = [
+  "android_saf_pick_tree",
+  "android_saf_bound",
+  "android_saf_unbind",
+  "android_saf_scan",
+  "android_saf_write_text",
+  "android_saf_write_bytes"
+]

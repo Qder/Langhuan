@@ -10,6 +10,8 @@ import {
   markAssetsSynced,
   normalizeFsIndex,
   patchIndexAfterDiskOverwrite,
+  planForcePullAssets,
+  planForcePullFromDisk,
   planSyncIn,
   safeRelPath,
   type DiskDoc,
@@ -74,6 +76,48 @@ describe("planSyncIn", () => {
     const { next, result } = planSyncIn(library, diskFiles, index);
     expect(result.updated).toBe(0);
     expect(next[0].content).toBe("lib");
+  });
+});
+
+describe("planForcePullFromDisk", () => {
+  it("overwrites matching paths and keeps library-only docs", () => {
+    const library: Document[] = [
+      doc({ id: "1", path: "a.md", content: "lib", updatedAt: 9000 }),
+      doc({ id: "2", path: "only-app.md", content: "keep" }),
+    ];
+    const diskFiles: DiskDoc[] = [
+      disk("a.md", "from-disk", 1000),
+      disk("new.md", "hello", 3000),
+    ];
+    const { next, result } = planForcePullFromDisk(
+      library,
+      diskFiles,
+      emptyIndex(),
+      5000
+    );
+    expect(result.conflicts).toEqual([]);
+    expect(result.updated).toBe(1);
+    expect(result.imported).toBe(1);
+    expect(next.find((d) => d.path === "a.md")?.content).toBe("from-disk");
+    expect(next.find((d) => d.path === "only-app.md")?.content).toBe("keep");
+    expect(next.find((d) => d.path === "new.md")?.content).toBe("hello");
+  });
+});
+
+describe("planForcePullAssets", () => {
+  it("upserts disk assets and keeps library-only ones", () => {
+    const library: AssetMeta[] = [
+      { id: "x", path: "pic.png", mime: "image/png", size: 10, createdAt: 1 },
+      { id: "y", path: "keep.gif", mime: "image/gif", size: 2, createdAt: 1 },
+    ];
+    const { assets, upserted } = planForcePullAssets(library, [
+      { path: "pic.png", mime: "image/png", size: 99, mtime: 8 },
+      { path: "new.jpg", mime: "image/jpeg", size: 3, mtime: 9 },
+    ]);
+    expect(upserted.sort()).toEqual(["new.jpg", "pic.png"]);
+    expect(assets.find((a) => a.path === "pic.png")?.size).toBe(99);
+    expect(assets.find((a) => a.path === "keep.gif")?.id).toBe("y");
+    expect(assets.find((a) => a.path === "new.jpg")?.mime).toBe("image/jpeg");
   });
 });
 

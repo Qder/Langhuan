@@ -25,6 +25,12 @@ android {
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
         versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
     }
+    packaging {
+        jniLibs {
+            // AGP 默认未压缩 16KB 对齐 .so，荣耀/华为安装器解析 ZIP 失败，报「没有签名文件」。
+            useLegacyPackaging = true
+        }
+    }
     signingConfigs {
         val keystorePropsFile = rootProject.file("keystore.properties")
         if (keystorePropsFile.exists()) {
@@ -36,6 +42,9 @@ android {
                 storePassword = keystoreProps.getProperty("storePassword")
                 keyAlias = keystoreProps.getProperty("keyAlias")
                 keyPassword = keystoreProps.getProperty("keyPassword")
+                // Honor/Huawei 解析器只认 v1（META-INF/*.RSA）；仅 v2 会报「安装包没有签名文件」。
+                enableV1Signing = true
+                enableV2Signing = true
             }
         }
     }
@@ -53,8 +62,9 @@ android {
             }
         }
         getByName("release") {
+            // AGP 资源优化会在 v1 之后改 META-INF，荣耀/华为解析成「没有签名文件」。
             optimization {
-               enable = true
+               enable = false
             }
             proguardFiles(
                 *fileTree(".") {
@@ -87,6 +97,7 @@ rust {
 }
 
 dependencies {
+    implementation("androidx.documentfile:documentfile:1.0.1")
     implementation("androidx.webkit:webkit:1.14.0")
     implementation("androidx.appcompat:appcompat:1.7.1")
     implementation("androidx.activity:activity-ktx:1.10.1")

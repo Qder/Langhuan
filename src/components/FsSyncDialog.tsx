@@ -9,6 +9,8 @@ import {
   AlertTriangle,
   ScanSearch,
   Check,
+  ArrowUpFromLine,
+  ArrowDownToLine,
 } from "lucide-react";
 import { Dialog } from "./ui/dialog";
 import { Button } from "./ui/button";
@@ -34,9 +36,20 @@ import {
   type ExternalChange,
   type FsIndex,
 } from "@/lib/storage/fsSync";
-import { putAssetBlob, blobToBase64, deleteAssetBlob } from "@/lib/assets/store";
-import { putLibraryAsset, deleteLibraryAsset } from "@/lib/storage/contentApi";
+import { putAssetBlob, deleteAssetBlob } from "@/lib/assets/store";
+import { blobToBase64, putLibraryAsset, deleteLibraryAsset } from "@/lib/storage/contentApi";
 import { relativeTime, cn } from "@/lib/utils";
+import {
+  getSafBound,
+  isAndroidSafAvailable,
+  pickSafTree,
+  unbindSaf,
+} from "@/lib/android/saf";
+import {
+  getMirrorBackend,
+  pullLibraryFromMirror,
+  pushLibraryToMirror,
+} from "@/lib/storage/folderMirror";
 
 const CHANGE_LABEL: Record<ExternalChange["change"], string> = {
   add: "新增",
@@ -60,6 +73,7 @@ export function FsSyncDialog() {
   const [error, setError] = React.useState<string | null>(null);
   const [info, setInfo] = React.useState<string | null>(null);
   const [supported, setSupported] = React.useState(true);
+  const [fsaOk, setFsaOk] = React.useState(false);
   const [permOk, setPermOk] = React.useState<boolean | null>(null);
   const [changes, setChanges] = React.useState<ExternalChange[]>([]);
   const [selected, setSelected] = React.useState<Record<string, boolean>>({});
@@ -81,8 +95,25 @@ export function FsSyncDialog() {
       snapRef.current = null;
       return;
     }
-    setSupported(isFsAccessSupported());
+    const backend = getMirrorBackend();
+    setSupported(backend != null);
+    setFsaOk(isFsAccessSupported());
     void (async () => {
+      if (isAndroidSafAvailable()) {
+        try {
+          const b = await getSafBound();
+          if (b.bound) {
+            setPermOk(b.writable);
+            if (b.name && b.name !== fsBoundName) setFsBoundName(b.name);
+            if (!b.writable) {
+              setInfo("需要重新授权读写权限，请重新绑定文件夹。");
+            }
+            return;
+          }
+        } catch {
+          /* fall through to FSA handle */
+        }
+      }
       const h = await getStoredHandle();
       if (!h) {
         setPermOk(null);
@@ -93,7 +124,7 @@ export function FsSyncDialog() {
       }
       const ok = await ensurePermission(h, "readwrite");
       setPermOk(ok);
-      if (!ok) setInfo("需要重新授权读写权限，点击「立即同步」或重新绑定。");
+      if (!ok) setInfo("需要重新授权读写权限，点击下方同步或重新绑定。");
       if (h.name && h.name !== fsBoundName) setFsBoundName(h.name);
     })();
   }, [open, fsBoundName, setFsBoundName]);
@@ -103,6 +134,34 @@ export function FsSyncDialog() {
     setError(null);
     setInfo(null);
     try {
+      const backend = getMirrorBackend();
+      if (!backend) {
+        setError("当前环境不能绑定文件夹。平板请用琅嬛 APK；电脑请用 Chrome / Edge。");
+        return;
+      }
+      if (backend === "saf") {
+        const bound = await pickSafTree();
+        if (!bound) return;
+        setFsBoundName(bound.name);
+        setPermOk(bound.writable);
+        if (writeAll) {
+          const st = useStore.getState();
+          const out = await pushLibraryToMirror(st.documents, st.assets);
+          const now = Date.now();
+          setFsLastSyncAt(now);
+          setStatus(`已绑定「${bound.name}」并写出 ${out.written} 项`);
+          setInfo(
+            out.errors.length
+              ? `写出 ${out.written} 项，${out.errors.length} 个错误`
+              : `已写出整库 ${out.written} 项到「${bound.name}」`
+          );
+          if (out.errors.length) setError(out.errors.slice(0, 3).join("；"));
+        } else {
+          setStatus(`已绑定本地文件夹「${bound.name}」`);
+          setInfo("已绑定。请点「应用 → 本地」或「本地 → 应用」；不会自动互相同步。");
+        }
+        return;
+      }
       if (!isFsAccessSupported()) {
         setError("当前浏览器不支持 File System Access API（请用 Chrome / Edge）。");
         return;
@@ -130,11 +189,66 @@ export function FsSyncDialog() {
         if (out.errors.length) setError(out.errors.slice(0, 3).join("；"));
       } else {
         setStatus(`已绑定本地文件夹「${handle.name}」`);
-        setInfo("已绑定。保存文档时会写入磁盘；也可点「检测外部更改」或「立即同步」。");
+        setInfo("已绑定。保存文档时会写入磁盘；也可点方向同步，或「检测外部更改」。");
       }
       setPermOk(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "绑定失败");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onPushToLocal = async () => {
+    const ok = window.confirm(
+      "从应用同步到本地：用当前库覆盖文件夹里的同路径文件。文件夹里多出来的文件不会删。确定？"
+    );
+    if (!ok) return;
+    setBusy(true);
+    setError(null);
+    setInfo(null);
+    try {
+      const st = useStore.getState();
+      const out = await pushLibraryToMirror(st.documents, st.assets);
+      const now = Date.now();
+      setFsLastSyncAt(now);
+      const msg = `已从应用同步到本地：写出 ${out.written} 项`;
+      setStatus(msg);
+      setInfo(msg);
+      if (out.errors.length) setError(out.errors.slice(0, 3).join("；"));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "同步失败");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onPullFromLocal = async () => {
+    const ok = window.confirm(
+      "从本地同步到应用：用文件夹覆盖库里的同路径笔记。库里多出来的篇目不会删。确定？"
+    );
+    if (!ok) return;
+    setBusy(true);
+    setError(null);
+    setInfo(null);
+    try {
+      const st = useStore.getState();
+      const pulled = await pullLibraryFromMirror(st.documents, st.assets);
+      applySyncedDocuments(pulled.documents, pulled.assets);
+      const now = Date.now();
+      setFsLastSyncAt(now);
+      const parts = [
+        `新 ${pulled.inn.imported}`,
+        `覆盖 ${pulled.inn.updated}`,
+        `未变 ${pulled.inn.unchanged}`,
+      ];
+      if (pulled.truncated) parts.push("扫描已截断");
+      const msg = `已从本地同步到应用：${parts.join(" · ")}`;
+      setStatus(msg);
+      setInfo(msg);
+      if (pulled.inn.errors.length) setError(pulled.inn.errors.slice(0, 3).join("；"));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "同步失败");
     } finally {
       setBusy(false);
     }
@@ -429,6 +543,13 @@ export function FsSyncDialog() {
     setBusy(true);
     setError(null);
     try {
+      if (isAndroidSafAvailable()) {
+        try {
+          await unbindSaf();
+        } catch {
+          /* still clear local state */
+        }
+      }
       await clearStoredHandle();
       setFsBoundName(null);
       setFsLastSyncAt(null);
@@ -455,8 +576,8 @@ export function FsSyncDialog() {
             本地文件夹同步（可选镜像）
           </h2>
           <p className="mt-1 text-sm text-[var(--muted)]">
-            知识库主数据在仓库根目录 <code className="text-xs">content/</code>
-            。绑定文件夹后可用「检测外部更改」按 mtime/size 对比，确认后再拉入；不做持续
+            知识库主数据在 <code className="text-xs">content/</code>
+            。绑定文件夹后，由你选择方向：应用 → 本地，或本地 → 应用。同路径覆盖来源；另一侧多出来的文件不会删。不做持续
             watch。
           </p>
         </div>
@@ -465,8 +586,8 @@ export function FsSyncDialog() {
           <div className="rounded-xl border border-[var(--accent)]/40 bg-[color-mix(in_srgb,var(--accent)_8%,transparent)] px-3 py-2 text-xs text-[var(--accent)] flex gap-2">
             <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
             <span>
-              当前浏览器不支持此 API（常见于 Safari / Firefox）。请使用最新版 Chrome 或
-              Edge。仍可继续用 zip 备份。
+              当前环境不能绑定文件夹。平板请安装琅嬛 APK 后在本对话框选目录；电脑请用
+              Chrome / Edge。仍可继续用 zip 备份。
             </span>
           </div>
         )}
@@ -519,15 +640,39 @@ export function FsSyncDialog() {
               <Button
                 variant="accent"
                 disabled={busy || !supported}
-                onClick={() => void onDetect()}
+                onClick={() => void onPushToLocal()}
               >
-                <ScanSearch className={cn("h-4 w-4", busy && "animate-pulse")} />
-                检测外部更改
+                <ArrowUpFromLine className={cn("h-4 w-4", busy && "animate-pulse")} />
+                应用 → 本地
               </Button>
-              <Button variant="outline" disabled={busy || !supported} onClick={() => void onSync()}>
-                <RefreshCw className={cn("h-4 w-4", busy && "animate-spin")} />
-                立即同步
+              <Button
+                variant="accent"
+                disabled={busy || !supported}
+                onClick={() => void onPullFromLocal()}
+              >
+                <ArrowDownToLine className={cn("h-4 w-4", busy && "animate-pulse")} />
+                本地 → 应用
               </Button>
+              {fsaOk && (
+                <>
+                  <Button
+                    variant="outline"
+                    disabled={busy || !supported}
+                    onClick={() => void onDetect()}
+                  >
+                    <ScanSearch className={cn("h-4 w-4", busy && "animate-pulse")} />
+                    检测外部更改
+                  </Button>
+                  <Button
+                    variant="outline"
+                    disabled={busy || !supported}
+                    onClick={() => void onSync()}
+                  >
+                    <RefreshCw className={cn("h-4 w-4", busy && "animate-spin")} />
+                    智能双向（冲突保留应用）
+                  </Button>
+                </>
+              )}
               <Button
                 variant="outline"
                 disabled={busy || !supported}
@@ -664,10 +809,10 @@ export function FsSyncDialog() {
         <div className="text-[11px] text-[var(--muted)] leading-relaxed border-t border-[var(--border)] pt-3 space-y-1">
           <p>
             元数据写入 <code className="font-mono">.langhuan/index.json</code>
-            ；正文内标签仍用 Markdown YAML / HTML keywords。两侧都改时默认保留{" "}
-            <code className="font-mono">content/</code>；冲突可显式采用磁盘版（需再确认）。
+            ；正文内标签仍用 Markdown YAML / HTML keywords。方向同步按你点的一侧覆盖同路径；电脑上「智能双向」在两侧都改时仍保留{" "}
+            <code className="font-mono">content/</code>。
           </p>
-          <p>不做持续后台监听；库内删除不会自动删磁盘文件。</p>
+          <p>不做持续后台监听；库内删除不会自动删磁盘文件。安卓绑定走系统文件夹选择，权限在卸载前会记住。</p>
         </div>
       </div>
     </Dialog>

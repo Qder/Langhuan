@@ -122,11 +122,57 @@ if ($Release) {
 & .\gradlew.bat @tasks @skip
 if ($LASTEXITCODE -ne 0) { throw "gradle assemble failed" }
 
+function Resign-ReleaseApk([string]$Apk) {
+  if (-not $Release) { return }
+  if (-not (Test-Path $Apk)) { throw "找不到 $Apk" }
+  $propsPath = Join-Path $Root "src-tauri\gen\android\keystore.properties"
+  $kv = @{}
+  Get-Content $propsPath | ForEach-Object {
+    if ($_ -match "^\s*#" -or $_ -notmatch "=") { return }
+    $k, $v = $_ -split "=", 2
+    $kv[$k.Trim()] = $v.Trim()
+  }
+  $signer = Join-Path $env:ANDROID_HOME "build-tools\36.0.0\apksigner.bat"
+  if (-not (Test-Path $signer)) {
+    $signer = Get-ChildItem (Join-Path $env:ANDROID_HOME "build-tools") -Recurse -Filter apksigner.bat |
+      Sort-Object FullName -Descending | Select-Object -First 1 -ExpandProperty FullName
+  }
+  $out = "$Apk.signed"
+  $env:LANGHUAN_KS_PASS = $kv["storePassword"]
+  $env:LANGHUAN_KEY_PASS = $kv["keyPassword"]
+  try {
+    & $signer sign `
+      --ks $kv["storeFile"] `
+      --ks-key-alias $kv["keyAlias"] `
+      --ks-pass env:LANGHUAN_KS_PASS `
+      --key-pass env:LANGHUAN_KEY_PASS `
+      --v1-signing-enabled true `
+      --v1-signer-name CERT `
+      --v2-signing-enabled true `
+      --v3-signing-enabled false `
+      --v4-signing-enabled false `
+      --out $out `
+      $Apk
+    if ($LASTEXITCODE -ne 0) { throw "apksigner sign failed" }
+    Move-Item -Force $out $Apk
+    & $signer verify --min-sdk-version 23 $Apk
+    if ($LASTEXITCODE -ne 0) { throw "apksigner verify failed" }
+    Write-Host "  resigned v1+v2 $Apk"
+  } finally {
+    Remove-Item Env:LANGHUAN_KS_PASS -ErrorAction SilentlyContinue
+    Remove-Item Env:LANGHUAN_KEY_PASS -ErrorAction SilentlyContinue
+  }
+}
+
 $kind = if ($Release) { "release" } else { "debug" }
 Write-Host "APKs:"
 if ($Abi -eq "all" -or $Abi -eq "arm64") {
-  Write-Host "  src-tauri\gen\android\app\build\outputs\apk\arm64\$kind\app-arm64-$kind.apk"
+  $p = Join-Path $Root "src-tauri\gen\android\app\build\outputs\apk\arm64\$kind\app-arm64-$kind.apk"
+  Write-Host "  $p"
+  Resign-ReleaseApk $p
 }
 if ($Abi -eq "all" -or $Abi -eq "x86_64") {
-  Write-Host "  src-tauri\gen\android\app\build\outputs\apk\x86_64\$kind\app-x86_64-$kind.apk"
+  $p = Join-Path $Root "src-tauri\gen\android\app\build\outputs\apk\x86_64\$kind\app-x86_64-$kind.apk"
+  Write-Host "  $p"
+  Resign-ReleaseApk $p
 }
