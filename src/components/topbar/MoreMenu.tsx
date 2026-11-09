@@ -7,6 +7,7 @@ import {
   Copy,
   Download,
   History,
+  ImagePlus,
   Link2,
   Maximize2,
   MoreHorizontal,
@@ -69,6 +70,7 @@ export function MoreMenu({
   setDeleteOpen,
   setStatus,
   touchIcon,
+  onUploadImage,
 }: {
   active: Document | null;
   viewMode: ViewMode;
@@ -105,6 +107,8 @@ export function MoreMenu({
   setDeleteOpen: (open: boolean) => void;
   setStatus: (msg: string) => void;
   touchIcon: string;
+  /** Markdown: open local image picker and insert (touch-friendly). */
+  onUploadImage?: () => void;
 }) {
   if (!active) return null;
 
@@ -152,6 +156,11 @@ export function MoreMenu({
       >
         <Blend className="h-3.5 w-3.5" /> 混合编辑
       </DropdownItem>
+      {!isHtml && onUploadImage && (
+        <DropdownItem onClick={() => onUploadImage()}>
+          <ImagePlus className="h-3.5 w-3.5" /> 插入图片
+        </DropdownItem>
+      )}
       <DropdownItem onClick={() => toggleStar(active.id)}>
         <Star className="h-3.5 w-3.5" />
         {active.starred ? "取消收藏" : "收藏"}

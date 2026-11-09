@@ -23,6 +23,10 @@ import {
   sanitizeAssetFilename,
 } from "../../assets/paths";
 import {
+  suggestedImageFilename,
+  validateLibraryImageFile,
+} from "../../assets/imageUpload";
+import {
   isImportableImagePath,
   mimeForImportableImage,
 } from "../../importable";
@@ -141,14 +145,19 @@ export const createAssetsSlice: StateCreator<
   ingestImageFile: async (docId, file, filename) => {
         const doc = get().documents.find((d) => d.id === docId);
         if (!doc) return null;
-        const mime = (file as File).type || "image/png";
-        if (!mime.startsWith("image/")) {
-          get().setStatus("仅支持图片附件");
+        const validation = validateLibraryImageFile({
+          type: (file as File).type,
+          name: filename || (file as File).name,
+          size: file instanceof Blob ? file.size : 0,
+        });
+        if (!validation.ok) {
+          get().setStatus(validation.message);
           return null;
         }
+        const mime = validation.mime;
         const name =
           filename ||
-          (file as File).name ||
+          suggestedImageFilename(file as File, mime) ||
           `image.${extFromMime(mime)}`;
         const existing = [
           ...get().documents.map((d) => d.path),

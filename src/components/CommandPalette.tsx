@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Tag, BookOpenCheck, Archive, HeartPulse, Replace, BookmarkPlus, CalendarDays, ClipboardPaste, Columns2, Download, FilePlus2, FileSearch, FileText, FolderOpen, FolderSync, Globe, History, Home, LayoutTemplate, ListTree, Network, Search, Settings2, SlidersHorizontal, Sparkles, Trash2, Maximize2, Blend, Code2, ScanSearch } from "lucide-react";
+import { Tag, BookOpenCheck, ImagePlus, Archive, HeartPulse, Replace, BookmarkPlus, CalendarDays, ClipboardPaste, Columns2, Download, FilePlus2, FileSearch, FileText, FolderOpen, FolderSync, Globe, History, Home, LayoutTemplate, ListTree, Network, Search, Settings2, SlidersHorizontal, Sparkles, Trash2, Maximize2, Blend, Code2, ScanSearch } from "lucide-react";
 import { Dialog } from "./ui/dialog";
 import { useStore } from "@/lib/store";
 import { useIdeStore } from "@/lib/ide/store";
@@ -11,6 +11,7 @@ import { titleOf, cn } from "@/lib/utils";
 import { importClipboardAs } from "@/lib/clipboardImport";
 import { openCreateDocDialog } from "@/lib/createDocDialogBus";
 import { requestToggleToc } from "@/lib/tocPanel";
+import { runLibraryImageUpload } from "@/lib/assets/runImageUpload";
 import { insertTocMarker, planTocInsert } from "@/lib/tocMarker";
 import { SaveSearchDialog } from "./BatchOpsDialogs";
 
@@ -400,6 +401,29 @@ export function CommandPalette({
             return;
           }
           requestToggleToc();
+        }),
+      },
+      {
+        key: "cmd-upload-image",
+        label: "插入图片",
+        hint: "本地上传到附件并写入 Markdown",
+        icon: <ImagePlus className="h-4 w-4 text-[var(--accent)]" />,
+        run: inNotes(() => {
+          const a = getActive();
+          if (!a) {
+            setStatus("请先打开一篇文档");
+            return;
+          }
+          if (a.type !== "md") {
+            setStatus("插入图片仅支持 Markdown");
+            return;
+          }
+          const content = useStore.getState().getContent(a.id);
+          void runLibraryImageUpload({
+            docId: a.id,
+            insertAt: content.length,
+            style: "block",
+          });
         }),
       },
       {

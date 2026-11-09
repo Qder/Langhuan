@@ -76,6 +76,10 @@ import { subscribeScrollSync } from "@/lib/locate/scrollBus";
 import { probeRender, probeSection } from "@/lib/dev/perfProbe";
 import { AssetImage } from "./editor/AssetImage";
 import {
+  resolvePreviewImageInsertAt,
+} from "@/lib/assets/imageUpload";
+import { runLibraryImageUpload } from "@/lib/assets/runImageUpload";
+import {
   headingAtOffset,
   normalizeAnnotation,
   rematchAnnotationWithAnchor,
@@ -957,6 +961,8 @@ export function MarkdownReader({ doc }: { doc: Document }) {
     srcStart?: number;
     srcEnd?: number;
     srcLine?: number;
+    /** Captured before the file picker — exact source insert offset. */
+    insertAt: number;
   } | null>(null);
 
   type InlineEditState =
@@ -2360,27 +2366,30 @@ export function MarkdownReader({ doc }: { doc: Document }) {
     if (!root) return;
     const t = e.target as HTMLElement | null;
     if (t?.closest?.("[data-lh-inline-editor]")) {
-      // Native menu inside the editor
+      // Native menu inside the editor (paste image still works there)
       return;
     }
-    const info = getPreviewSelectionInfo(root);
-    const hasSel = !!(info && !isTrivialSelection(info.text));
     const target = e.target as HTMLElement | null;
     const srcEl = target?.closest?.<HTMLElement>("[data-src-start]");
-    if (!hasSel && !srcEl) {
-      // allow default menu
-      return;
-    }
-    e.preventDefault();
     const srcStart = srcEl ? Number(srcEl.getAttribute("data-src-start")) : undefined;
     const srcEnd = srcEl ? Number(srcEl.getAttribute("data-src-end") || srcStart) : undefined;
     const srcLine = srcEl ? Number(srcEl.getAttribute("data-src-line") || 1) : undefined;
+    const insertAt = resolvePreviewImageInsertAt({
+      root,
+      clientY: e.clientY,
+      srcStart: Number.isFinite(srcStart) ? srcStart : undefined,
+      srcEnd: Number.isFinite(srcEnd) ? srcEnd : undefined,
+      sourceLength: getContent(doc.id).length,
+    });
+    // Always offer 上传图片 on preview paper (gap / block / EOF), not only with a selection.
+    e.preventDefault();
     setMenu({
       x: e.clientX,
       y: e.clientY,
       srcStart: Number.isFinite(srcStart) ? srcStart : undefined,
       srcEnd: Number.isFinite(srcEnd) ? srcEnd : undefined,
       srcLine: Number.isFinite(srcLine) ? srcLine : undefined,
+      insertAt,
     });
   };
 
@@ -2496,6 +2505,20 @@ export function MarkdownReader({ doc }: { doc: Document }) {
           });
           setStatus("已添加划线批注");
           window.getSelection()?.removeAllRanges();
+        },
+      },
+      {
+        id: "upload-image",
+        label: "上传图片",
+        onSelect: () => {
+          const insertAt = menu?.insertAt ?? content.length;
+          const docId = doc.id;
+          // Capture before the async file dialog — never re-read caret afterward.
+          void runLibraryImageUpload({
+            docId,
+            insertAt,
+            style: "block",
+          });
         },
       },
     ];

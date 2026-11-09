@@ -1,12 +1,13 @@
 "use client";
 
 import * as React from "react";
-import { ImageIcon, Trash2 } from "lucide-react";
+import { ImageIcon, ImagePlus, Trash2 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { basename, cn, relativeTime } from "@/lib/utils";
 import { AssetImage } from "./editor/AssetImage";
 import { Dialog } from "./ui/dialog";
 import { Button } from "./ui/button";
+import { runLibraryImageUpload } from "@/lib/assets/runImageUpload";
 
 export function AssetsPanel({ docId }: { docId: string }) {
   const assetsForDoc = useStore((s) => s.assetsForDoc);
@@ -17,19 +18,41 @@ export function AssetsPanel({ docId }: { docId: string }) {
     null
   );
 
-  if (!assets.length) return null;
+  const getContent = useStore((s) => s.getContent);
+  const docType = useStore((s) => s.documents.find((d) => d.id === docId)?.type);
+
+  if (docType && docType !== "md" && !assets.length) return null;
 
   return (
     <div className="mt-2">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center gap-1 rounded-lg px-1 py-1 text-[11px] uppercase tracking-wider text-[var(--muted)] hover:bg-[var(--hover)]"
-      >
-        <ImageIcon className="h-3 w-3" />
-        附件 {assets.length}
-      </button>
-      {open && (
+      <div className="flex items-center gap-1">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="flex min-w-0 flex-1 items-center gap-1 rounded-lg px-1 py-1 text-[11px] uppercase tracking-wider text-[var(--muted)] hover:bg-[var(--hover)]"
+        >
+          <ImageIcon className="h-3 w-3" />
+          附件 {assets.length}
+        </button>
+        {docType === "md" && (
+          <button
+            type="button"
+            aria-label="上传图片"
+            title="上传图片"
+            className="rounded-md p-1 text-[var(--muted)] hover:text-[var(--accent)] hover:bg-[var(--hover)]"
+            onClick={() => {
+              void runLibraryImageUpload({
+                docId,
+                insertAt: getContent(docId).length,
+                style: "block",
+              });
+            }}
+          >
+            <ImagePlus className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
+      {open && assets.length > 0 && (
         <ul className="mt-1 space-y-1.5">
           {assets.map((a) => (
             <li

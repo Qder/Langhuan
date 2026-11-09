@@ -5,6 +5,7 @@ import { Menu, Save, Search } from "lucide-react";
 import { Button } from "./ui/button";
 import { AppModeSwitch } from "./AppModeSwitch";
 import { useStore } from "@/lib/store";
+import { runLibraryImageUpload } from "@/lib/assets/runImageUpload";
 import { useMediaQuery } from "@/lib/useMediaQuery";
 import { basename, cn } from "@/lib/utils";
 import { normalizeHtmlPrefs } from "@/lib/htmlPreviewPrefs";
@@ -295,6 +296,18 @@ export function TopBar() {
             setDeleteOpen={setDeleteOpen}
             setStatus={setStatus}
             touchIcon={touchIcon}
+            onUploadImage={
+              active && active.type === "md"
+                ? () => {
+                    const docId = active.id;
+                    void runLibraryImageUpload({
+                      docId,
+                      insertAt: getContent(docId).length,
+                      style: "block",
+                    });
+                  }
+                : undefined
+            }
           />
 
           <Button

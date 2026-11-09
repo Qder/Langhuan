@@ -33,6 +33,8 @@ import {
 import { safeCoordsAtPos, createRafScrollToOffset } from "./safeCoords";
 import { subscribeScrollSync } from "@/lib/locate/scrollBus";
 import { applyExternalDoc } from "@/lib/editorExternalSync";
+import { PreviewContextMenu, type ContextMenuItem } from "../locate/PreviewContextMenu";
+import { pickLibraryImageFile, validateLibraryImageFile, suggestedImageFilename } from "@/lib/assets/imageUpload";
 import { typewriterBottomPad } from "@/lib/typewriter";
 import { continueLinePrefix } from "@/lib/mdLinePrefix";
 
@@ -87,6 +89,13 @@ export function MdCodeMirror({
     index: number;
     start: number;
   } | null>(null);
+  const [cmMenu, setCmMenu] = React.useState<{
+    x: number;
+    y: number;
+    insertAt: number;
+  } | null>(null);
+  const setCmMenuRef = React.useRef(setCmMenu);
+  setCmMenuRef.current = setCmMenu;
   const unfollowUntil = React.useRef(0);
   const applyingExternal = React.useRef(false);
   const ignoreScrollUntil = React.useRef(0);
@@ -369,6 +378,19 @@ export function MdCodeMirror({
             insertAt += snippet.length;
           }
         })();
+        return true;
+      },
+      contextmenu(event, view) {
+        // Capture click offset before any async picker; keep native CE menus out of CM.
+        event.preventDefault();
+        const pos =
+          view.posAtCoords({ x: event.clientX, y: event.clientY }) ??
+          view.state.selection.main.head;
+        setCmMenuRef.current({
+          x: event.clientX,
+          y: event.clientY,
+          insertAt: pos,
+        });
         return true;
       },
     });
@@ -766,7 +788,60 @@ export function MdCodeMirror({
 
   void viewMode;
 
+  const cmMenuItems = React.useMemo((): ContextMenuItem[] => {
+    if (!cmMenu) return [];
+    return [
+      {
+        id: "upload-image",
+        label: "上传图片",
+        onSelect: () => {
+          const insertAt = cmMenu.insertAt;
+          const docId = doc.id;
+          void (async () => {
+            const file = await pickLibraryImageFile();
+            if (!file) return;
+            const validation = validateLibraryImageFile(file);
+            if (!validation.ok) {
+              setStatus(validation.message);
+              return;
+            }
+            if (!useStore.getState().documents.some((d) => d.id === docId)) {
+              setStatus("文档已关闭，取消插入图片");
+              return;
+            }
+            const blob =
+              file.type && file.type.startsWith("image/")
+                ? file
+                : new File(
+                    [file],
+                    suggestedImageFilename(file, validation.mime),
+                    { type: validation.mime, lastModified: file.lastModified }
+                  );
+            const res = await ingestImageFile(
+              docId,
+              blob,
+              suggestedImageFilename(file, validation.mime)
+            );
+            if (!res) return;
+            const view = viewRef.current;
+            if (!view || !useStore.getState().documents.some((d) => d.id === docId)) {
+              setStatus("文档已关闭，图片已入库但未写入正文");
+              return;
+            }
+            const at = Math.max(0, Math.min(insertAt, view.state.doc.length));
+            view.dispatch({
+              changes: { from: at, to: at, insert: res.snippet },
+              selection: { anchor: at + res.snippet.length },
+            });
+            setStatus(`已插入图片`);
+          })();
+        },
+      },
+    ];
+  }, [cmMenu, doc.id, ingestImageFile, setStatus]);
+
   return (
+
     <div className={cn("relative h-full min-h-0 bg-[var(--bg-elevated)]", className)}>
       <div ref={hostRef} className="h-full min-h-0 lh-cm-host" />
       {slash && slash.items.length > 0 && (
@@ -827,6 +902,14 @@ export function MdCodeMirror({
             </button>
           ))}
         </div>
+      )}
+      {cmMenu && (
+        <PreviewContextMenu
+          x={cmMenu.x}
+          y={cmMenu.y}
+          items={cmMenuItems}
+          onClose={() => setCmMenu(null)}
+        />
       )}
     </div>
   );
