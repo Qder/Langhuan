@@ -170,10 +170,21 @@ describe("backup integrity", () => {
     );
   });
 
-  it("sha256Hex is stable", async () => {
-    const a = await sha256Hex(new Blob([new Uint8Array([1, 2, 3])]));
-    const b = await sha256Hex(new Uint8Array([1, 2, 3]));
+  it("sha256Hex is stable across Blob / Uint8Array / ArrayBuffer / subarray", async () => {
+    const payload = new Uint8Array([1, 2, 3]);
+    const a = await sha256Hex(new Blob([payload]));
+    const b = await sha256Hex(payload);
+    const c = await sha256Hex(payload.buffer.slice(
+      payload.byteOffset,
+      payload.byteOffset + payload.byteLength
+    ));
+    // Non-zero offset view (Node Buffer pools / subarray) must not throw.
+    const padded = new Uint8Array([0xff, 1, 2, 3, 0xff]);
+    const view = padded.subarray(1, 4);
+    const d = await sha256Hex(view);
     expect(a).toBe(b);
+    expect(b).toBe(c);
+    expect(c).toBe(d);
     expect(a).toMatch(/^[a-f0-9]{64}$/);
   });
 });

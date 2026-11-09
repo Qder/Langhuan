@@ -30,14 +30,23 @@ export type BackupIntegrityReport = {
   issues: BackupIntegrityIssue[];
 };
 
+/**
+ * SHA-256 hex digest. Always feeds SubtleCrypto an *owned* ArrayBuffer copy.
+ * Node 20 / CI webcrypto throws ERR_INVALID_ARG_TYPE on some views
+ * (`typedArray.buffer.slice(...)`, Buffer pools, cross-realm buffers).
+ * `new Uint8Array(n)` then `.buffer` is a precise ArrayBuffer BufferSource.
+ */
 export async function sha256Hex(data: ArrayBuffer | Uint8Array | Blob): Promise<string> {
-  const buf =
+  const source =
     data instanceof Blob
-      ? await data.arrayBuffer()
+      ? new Uint8Array(await data.arrayBuffer())
       : data instanceof Uint8Array
-        ? data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength)
-        : data;
-  const hash = await crypto.subtle.digest("SHA-256", buf as ArrayBuffer);
+        ? data
+        : new Uint8Array(data);
+  const copy = new Uint8Array(source.byteLength);
+  copy.set(source);
+  // copy.byteOffset === 0 and copy.byteLength === copy.buffer.byteLength
+  const hash = await crypto.subtle.digest("SHA-256", copy.buffer);
   return [...new Uint8Array(hash)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
