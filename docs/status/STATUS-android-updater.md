@@ -1,6 +1,6 @@
 # Android 应用内更新（侧载 APK）
 
-上次更新：2026-11-06 · 路线 A：自建 `android-latest.json` + HTTPS 下载 + sha256 + FileProvider 安装
+上次更新：2026-11-09 · 路线 A：自建 `android-latest.json` + HTTPS 下载 + sha256 + FileProvider 安装
 
 ## 一句话现状
 
@@ -104,3 +104,10 @@
 - 安装前 sha256 全文件校验。
 - keystore / 密码 **永不进 git**。
 - 不引入账号、不走 Play。
+
+
+## 格式样例（非真实 Release）
+
+仓库内 `docs/status/fixtures/android-latest.example.json` 只演示字段形状。
+**不会**由本切片上传 GitHub Releases，也**不**包含 keystore / 签名密钥。
+Yang 按上文 checklist 用 `npm run updater:android-latest-json` / `scripts/publish-android-release.ps1` 自行发版。

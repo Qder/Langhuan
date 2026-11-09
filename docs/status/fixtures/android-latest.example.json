@@ -1,0 +1,8 @@
+{
+  "versionCode": 2,
+  "versionName": "0.1.0-example",
+  "notes": "示例清单：仅供格式对照。不是真实 Release；勿当作可下载安装包。",
+  "pubDate": "2026-11-09T00:00:00.000Z",
+  "apkUrl": "https://example.invalid/releases/download/v0.1.0-example/app-arm64-release.apk",
+  "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+}

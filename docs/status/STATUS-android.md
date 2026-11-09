@@ -162,7 +162,7 @@ adb install -r src-tauri\gen\android\app\build\outputs\apk\arm64\debug\app-arm64
 2. `adb install -r` 同包 **versionCode=2** → Success；`dumpsys` `versionCode=2` / `versionName=0.1.0`。
 3. 再开：仍是 **文档 7**，状态栏改成「已从 content/ 载入 7 篇」（没有重新 seed）。
 
-**自动更新仍未做。** 用户手动换包：下载新 release APK → `adb install -r` 或文件管理器覆盖安装。实体平板换包 **未验**。
+**应用内更新代码已合入**（设置 → 检查更新 → `android-latest.json` → sha256 → 系统安装器），见 [STATUS-android-updater.md](./STATUS-android-updater.md)。**真机 / 模拟器安装路径未验**；侧载 `adb install -r` 仍可用。GitHub 上是否已有 `android-latest.json` **取决于是否发过 Release**（本仓库不代发密钥/资产）。
 
 ### x86_64 模拟器（非真机）：已验
 
