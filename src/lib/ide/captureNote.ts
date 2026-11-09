@@ -20,6 +20,10 @@ import { formatIdeLink } from "./ideLink";
 
 export const IDE_NOTE_ROOT = "读码笔记";
 export const IDE_SNIPPET_NOTE_NAME = "速记.md";
+/** 讲解空态「使用说明」首句；与落盘说明一起只在 ExplainUsageHelp 展开时显示。 */
+export const IDE_EXPLAIN_USAGE_INTRO =
+  "提问会带上当前文件 / 选区；回复里的路径和代码块可点，跳回源码。";
+
 /** 讲解空态 / 设置里用的落盘说明（2–3 行）。目录约定只这一处。 */
 export const IDE_NOTE_DESTINATION_HINT = [
   "「收入藏书阁」写到 读码笔记/<工程>/YYYY-MM-DD-<文件名>.md；当天同一文件再收入会追加一节，不会新建 -2.md。",

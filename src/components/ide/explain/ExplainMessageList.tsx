@@ -10,7 +10,7 @@ import { ExplainCaptureBar } from "./ExplainCaptureBar";
 import type { ExplainCandidate, SendExplain } from "./types";
 import type { IdeCitation } from "@/lib/ide/citations";
 import type { ExplainFence } from "@/lib/ide/snippetLocate";
-import { IDE_NOTE_DESTINATION_HINT } from "@/lib/ide/captureNote";
+import { ExplainUsageHelp } from "./ExplainUsageHelp";
 import {
   isNearExplainListBottom,
   nextExplainFollowPin,
@@ -98,12 +98,7 @@ export function ExplainMessageList({
         </div>
       ) : messages.length === 0 ? (
         <div className="text-sm text-[var(--muted)] font-ui space-y-2 py-4">
-          <p>提问会带上当前文件 / 选区；回复里的路径和代码块可点，跳回源码。</p>
-          {IDE_NOTE_DESTINATION_HINT.split("\n").map((line) => (
-            <p key={line} className="text-xs leading-relaxed">
-              {line}
-            </p>
-          ))}
+          <ExplainUsageHelp />
           <div className="flex flex-wrap gap-1.5 pt-1">
             {["这个文件在讲什么", "解释当前选区", "这个类和哪个文件有关"].map(
               (hint) => (

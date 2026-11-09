@@ -221,11 +221,27 @@ describe("讲解面板：引用芯片点一下必有结果", () => {
 
 describe("讲解面板：收入藏书阁路径可见", () => {
   it("空态与设置说明落盘目录，气泡旁能展示完整相对路径", () => {
-    expect(listSrc).toContain("IDE_NOTE_DESTINATION_HINT");
+    // 空态不再常驻长文，改由 ExplainUsageHelp 展开同一套落盘说明。
+    expect(listSrc).toContain("ExplainUsageHelp");
+    expect(listSrc).not.toContain("IDE_NOTE_DESTINATION_HINT");
     expect(hintSrc).toContain("IDE_NOTE_DESTINATION_HINT");
     expect(captureBarSrc).toContain("savedPath");
     expect(captureBarSrc).toContain("在藏书阁打开");
     expect(panel).toContain("savedNotes=");
+  });
+});
+
+describe("讲解面板：使用说明可折叠", () => {
+  const helpSrc = read("explain/ExplainUsageHelp.tsx");
+  it("空态用「使用说明」按钮，默认不铺开长文", () => {
+    expect(listSrc).toContain("ExplainUsageHelp");
+    expect(listSrc).not.toContain("提问会带上当前文件");
+    expect(helpSrc).toContain("使用说明");
+    expect(helpSrc).toContain("IDE_EXPLAIN_USAGE_INTRO");
+    expect(helpSrc).toContain("IDE_NOTE_DESTINATION_HINT");
+    expect(helpSrc).toContain('aria-expanded');
+    expect(helpSrc).toContain("Escape");
+    expect(helpSrc).toContain("pointerdown");
   });
 });
 

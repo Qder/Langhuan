@@ -2,6 +2,12 @@
 
 上次更新：2026-11-06
 
+
+## 使用说明折叠（空态）
+
+空态不再常驻「提问会带上… / 收入藏书阁落点」长文，改成「？ 使用说明」按钮；
+再点 / Esc / 点外侧关闭。设置齿轮与快捷提问芯片不变。
+组件：`src/components/ide/explain/ExplainUsageHelp.tsx`。
 产品定位不变：本地读码助教，不引入云同步账号，不做 Cloud Agent。prompt 单一来源仍是 `src/lib/ide/explain.ts`。
 
 ## 方案
