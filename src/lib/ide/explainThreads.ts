@@ -203,7 +203,7 @@ export function applyUpdateLastAssistant(
   threads: IdeExplainThread[],
   activeId: string | undefined,
   content: string,
-  extra?: { mock?: boolean },
+  extra?: { mock?: boolean; failure?: boolean },
   now = Date.now()
 ): { threads: IdeExplainThread[]; activeId: string } {
   const ensured = ensureActiveExplainThread(threads, activeId, now);
@@ -217,6 +217,7 @@ export function applyUpdateLastAssistant(
           content,
           citations: citationsFromMarkdown(content),
           mock: extra?.mock ?? prev[i]!.mock,
+          failure: extra?.failure ?? false,
         };
         break;
       }
@@ -224,6 +225,50 @@ export function applyUpdateLastAssistant(
     return { ...t, messages: prev, updatedAt: now };
   });
   return { threads: threadsNext, activeId: ensured.activeId };
+}
+
+
+/** Update one assistant by id in whichever thread owns it. No-op if gone / wrong role. */
+export function applyUpdateAssistantById(
+  threads: IdeExplainThread[],
+  assistantId: string,
+  content: string,
+  extra?: { mock?: boolean; failure?: boolean },
+  now = Date.now()
+): IdeExplainThread[] {
+  return threads.map((t) => {
+    const idx = t.messages.findIndex((m) => m.id === assistantId);
+    if (idx < 0) return t;
+    const prev = t.messages[idx]!;
+    if (prev.role !== "assistant") return t;
+    const next = [...t.messages];
+    next[idx] = {
+      ...prev,
+      content,
+      citations: citationsFromMarkdown(content),
+      mock: extra?.mock ?? prev.mock,
+      failure: extra?.failure ?? false,
+    };
+    return { ...t, messages: next, updatedAt: now };
+  });
+}
+
+/** Drop a message by id (retry replaces a failed assistant without duplicating the user). */
+export function applyRemoveExplainMessage(
+  threads: IdeExplainThread[],
+  messageId: string,
+  now = Date.now()
+): IdeExplainThread[] {
+  return threads.map((t) => {
+    if (!t.messages.some((m) => m.id === messageId)) return t;
+    const messages = t.messages.filter((m) => m.id !== messageId);
+    return {
+      ...t,
+      messages,
+      updatedAt: now,
+      title: titleFromExplainMessages(messages),
+    };
+  });
 }
 
 export function listExplainThreadsNewestFirst(

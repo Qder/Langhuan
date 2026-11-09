@@ -1,6 +1,6 @@
 # 读码讲解 · 多 thread 会话
 
-上次更新：2026-11-06
+上次更新：2026-11-09
 
 
 ## 使用说明折叠（空态）
@@ -97,28 +97,36 @@ Composer「当前选区」无划词时 `disabled`，title 与旁注都是「先�
 - 无选区：`当前选区` `disabled=true`、`checked=false`、label 含「（先在编辑器划词）」、title 同名。点进编辑器产生选区后：`disabled=false`，点一下即 `checked=true`，旁注消失。
 - 讲解源：本机 IDE 设置里的 Key 是占位的 `sk-fake`（Base URL `127.0.0.1:4010`，服务没起）→ 直接 `fetch failed`，一个芯片都出不来。为验芯片，临时在 `127.0.0.1:4010` 起了个一次性 OpenAI 兼容 SSE stub（不在仓库里），用它固定回复 4 条引用。**这可作为「本机芯片手测」的标准做法**：清 Key 走 mock 只引用当前文件，验不到「找不到 / 同名候选」两种分支。
 
-## 「生成中…」空转（2026-11-06）
+## 「生成中…」空转 / 超时 / 停止 / 重试（2026-11-09 核对）
 
-安卓上连上上游但不吐数据时，`reqwest` 只有 `connect_timeout(15s)`，invoke 永不返回；UI 见 `assistant.content === ""` 就转圈，busy 是本地的、消息 persist，重开面板会留下多轮假忙。
+**根因（2026-11-06 现场）**：安卓连上上游但不吐数据时，早期 `reqwest` 只有 connect timeout，invoke 不回；UI 见空助手就转圈；`busy` 是本地态、消息 persist，重开面板假忙。
 
-| 层 | 行为 |
-| --- | --- |
-| Rust `explain.rs` | 15s 连接超时；整轮 75s。**不再设 read_timeout**：等首包也算 read，带工程正文时 DeepSeek 常 >45s 才吐 token，平板会误报超时。Android：HTTP/1.1 + IPv4 优先 DNS + 不复用连接。 |
-| TS `explainClient` | 桌面 `raceWithDeadline(75s)`；浏览器 fetch 带同等 Abort；Next Route 上游 `AbortSignal.timeout(75s)` |
-| 气泡 | 仅 `busy && 末条空助手` 显示「生成中…」；否则「未生成内容」+ 重试 |
-| `onDone` 空 acc | `finalizeExplainReply` 写成 `（未生成内容）`，不留空串 |
-| 勾了带文件但没打开 | 状态栏「未打开文件，本轮不带正文」，不阻断（勾了「带上工程文件」时改走工程正文，不说这句） |
+**代码现状（相对 tip `d890e71` + 本切片）——多数已在库内，本切片补缺口：**
 
-单测：`explainTimeout.test.ts`、`explainClient.test.ts` 挂死超时、`IdeExplainPanel.contract.test.ts`。
+| 层 | 行为（代码） | 本机验证 |
+| --- | --- | --- |
+| Rust `explain.rs` | `CONNECT=20s`；`FIRST_BYTE=120s`；`READ_IDLE=90s`；**不设整轮 read_timeout**。`ide_explain_cancel` 按 request_id 取消。超时中文：「连接 … 超时，检查网络或 Base URL」。Android：HTTP/1.1 + IPv4 优先 + 不复用连接。 | 单测常量窗口在 `explain.rs`；本环境若无 `cargo`/`rustc` 则未跑 |
+| TS `explainTimeout` / `explainClient` | 首包 120s / 空闲 90s / 整轮 300s（`createExplainWatchdog`）。浏览器 fetch 走 watchdog；桌面 invoke 首包 race + 整轮 300s + abort 时 `ide_explain_cancel`；**aborted 后忽略 channel 晚到消息** | `explainTimeout.test.ts`、`explainClient.test.ts`、`explainReliability.test.ts` |
+| 气泡 spinner | `assistantBubbleKind`：仅 `busy && 末条空助手` →「生成中…」；重开后 busy=false →「未生成内容」+ 重试，**不复活僵尸转圈** | 单测 + 契约；**未做物理安卓 / GUI 手测**（本机浏览器 localhost 曾 ERR_FAILED 即使 HTTP200） |
+| 按 id 写入 | `updateExplainAssistant` / `applyUpdateAssistantById`；`genRef`+`liveRef` 绑定 session+assistantId；切 thread / stop / unmount 后晚到 delta/error **不写错泡** | 单测 threads；UI 路径靠 gen 门闩 |
+| 停止 | AbortController +（桌面）`ide_explain_cancel`；保留已刷出的部分正文；gen++ 丢弃晚回调 | 单测 cancel；未 GUI |
+| 空成功 / 失败 | `finalizeExplainReply` → `（未生成内容）`；错误 `（中文）` + `failure:true`；按钮「重试」 | 单测 |
+| 重试 | 删失败助手 id，**不重复 push 同句 user**；prior 先滤 failure/EMPTY/超时括号句，且 skipUser 时从 prior 历史去掉尾部同句 user | `explainReliability.test.ts` + `useExplainSend` |
+| prior | `isExplainNonModelAssistant` + `selectExplainPriorMessages` 不喂占位/失败给模型 | 单测 |
+| 勾了带文件但没打开 | 状态栏「未打开文件，本轮不带正文」，不阻断 | 既有 |
 
-电脑浏览器通、APK 超时：浏览器走 Next `fetch`（可吃系统代理），APK 走 Rust `reqwest`。Android：HTTP/1.1、IPv4 优先、去掉读空闲误杀；工程正文安卓上限 8 份 / 24k。**必须重打并安装 APK**（旧包仍是 45s 空闲超时）。
+**默认值（勿再写 75s）**：首包 120s · 读空闲 90s · 整轮上限 300s · 连接 20s（Rust）。这是「真挂死才杀」，不是杀健康长答。
+
+单测：`explainTimeout.test.ts`、`explainClient.test.ts`、`explainReliability.test.ts`、契约 `IdeExplainPanel.contract.test.ts`。
+
+电脑浏览器通、APK 超时：浏览器走 Next `fetch`（可吃系统代理），APK 走 Rust `reqwest`。工程正文安卓上限 8 份 / 24k。旧 APK 若仍是 45s/75s 窗口需重打安装——**本切片不声称物理安卓已验**。
 
 ## 流式中打开文件
 
 生成中 **busy 只锁 Composer 发送**（以及停止按钮）。`openFile` / 资源树 / Tab / `useExplainJump` 没有 busy 门闩，点引用不会 abort 当前流。
 
 - **粘性滚动**：仅当钉在底部时跟随新 token；列表 `pointerdown` 或上滚则暂停；滚回底部后恢复。本轮结束若人还在看早段，不强制拽回底部。
-- **重渲**：助手气泡 `memo`；delta 约 80ms 合并一次 `updateLastAssistant`；引用芯片用 `cite.index` 当 key。
+- **重渲**：助手气泡 `memo`；delta 约 80ms 合并一次，经 `updateExplainAssistant(id)`（按 id，避免切 thread / 停写后写错泡）；引用芯片用 `cite.index` 当 key。
 - **窄屏抽屉半高、遮罩不盖顶栏**：默认 62dvh，抓手可加到 92dvh；遮罩只在加高档出现，半高时顶栏 Tab /
   编辑器可点。引用芯片跳转成功后加高档自动收成半高，开的文件立刻可见。规则在
   `src/lib/ide/explainSheet.ts`，外壳 `explain/ExplainSheet.tsx`。**手测清单见 STATUS-ide-panel-layers.md。**

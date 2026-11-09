@@ -2,14 +2,14 @@
 export const EXPLAIN_DELTA_FLUSH_MS = 80;
 
 export function createExplainDeltaFlusher(
-  flush: (text: string, extra?: { mock?: boolean }) => void,
+  flush: (text: string, extra?: { mock?: boolean; failure?: boolean }) => void,
   intervalMs = EXPLAIN_DELTA_FLUSH_MS
 ) {
   let pending: string | null = null;
-  let extra: { mock?: boolean } | undefined;
+  let extra: { mock?: boolean; failure?: boolean } | undefined;
   let timer: ReturnType<typeof setTimeout> | null = null;
 
-  const fire = (text: string, info?: { mock?: boolean }) => {
+  const fire = (text: string, info?: { mock?: boolean; failure?: boolean }) => {
     flush(text, info);
   };
 
@@ -27,7 +27,7 @@ export function createExplainDeltaFlusher(
         if (t != null) fire(t, info);
       }, intervalMs);
     },
-    now(text: string, info?: { mock?: boolean }) {
+    now(text: string, info?: { mock?: boolean; failure?: boolean }) {
       if (timer != null) {
         clearTimeout(timer);
         timer = null;

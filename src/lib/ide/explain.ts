@@ -7,6 +7,7 @@ import { parseIdeCitations, normalizeIdeRelPath } from "./citations";
 import type { IdeFsEntry, IdeFolderSession } from "./ideFs";
 import { isLikelyTextPath } from "./ideFs";
 import { shouldIgnoreName } from "./ignore";
+import { EMPTY_EXPLAIN_REPLY } from "./explainTimeout";
 
 export const IDE_EXPLAIN_MAX_FULL_LINES = 400;
 export const IDE_EXPLAIN_CONTEXT_PAD = 80;
@@ -97,6 +98,8 @@ export type IdeExplainMessage = {
   /** Files sent with this turn — used to locate fences after reload. */
   files?: IdeExplainFilePayload[];
   mock?: boolean;
+  /** Transport/empty failure bubble — never feed back as model prior. */
+  failure?: boolean;
   createdAt: number;
 };
 
@@ -287,18 +290,52 @@ function clipExplainPriorContent(text: string, max = IDE_EXPLAIN_PRIOR_CHARS_MAX
 }
 
 /**
+ * 运输层占位 / 错误气泡：不该再喂给模型当「上一答」。
+ * - 空串 / 「（未生成内容）」
+ * - 助手失败写成的全角括号短句（超时、401、网络失败…）
+ * - 显式 failure 标记（新写入）
+ */
+export function isExplainNonModelAssistant(
+  content: string,
+  flags?: { failure?: boolean; mock?: boolean }
+): boolean {
+  if (flags?.failure) return true;
+  const t = String(content ?? "").trim();
+  if (!t) return true;
+  if (t === EMPTY_EXPLAIN_REPLY) return true;
+  // Error bubbles from useExplainSend: `（${msg}）`
+  if (
+    t.startsWith("（") &&
+    t.endsWith("）") &&
+    t.length <= 400 &&
+    /(超时|失败|未生成|无效|未授权|网络|Base URL|API Key|通道不可用)/i.test(t)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
  * 从面板历史抽出要给模型的 prior（只要对话文本，不要 files 正文）。
- * 跳过空助手气泡（本轮刚 push、还在流式）。截到 MODEL_PRIOR_MAX 条。
+ * 跳过空助手、失败占位；截到 MODEL_PRIOR_MAX 条。
  */
 export function selectExplainPriorMessages(
-  history: Array<{ role?: string; content?: string } | IdeExplainMessage>,
+  history: Array<{ role?: string; content?: string; failure?: boolean } | IdeExplainMessage>,
   max = IDE_EXPLAIN_MODEL_PRIOR_MAX
 ): ExplainChatMessage[] {
   const cleaned: ExplainChatMessage[] = [];
   for (const item of history) {
     const role = item?.role;
     if (role !== "user" && role !== "assistant") continue;
-    const content = clipExplainPriorContent(String(item?.content ?? ""));
+    const raw = String(item?.content ?? "");
+    if (role === "assistant") {
+      const failure =
+        typeof item === "object" && item && "failure" in item
+          ? !!(item as { failure?: boolean }).failure
+          : false;
+      if (isExplainNonModelAssistant(raw, { failure })) continue;
+    }
+    const content = clipExplainPriorContent(raw);
     if (!content) continue;
     cleaned.push({ role, content });
   }

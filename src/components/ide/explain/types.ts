@@ -9,7 +9,11 @@ export type ExplainCandidate = {
 
 export type SendExplain = (
   preset?: string,
-  opts?: { includeFile?: boolean; includeSelection?: boolean }
+  opts?: {
+    includeFile?: boolean;
+    includeSelection?: boolean;
+    retryAssistantId?: string;
+  }
 ) => Promise<void>;
 
 export type JumpCite = (c: IdeCitation) => void;

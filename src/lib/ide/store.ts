@@ -56,8 +56,10 @@ import {
 import {
   applyClearActiveExplainThread,
   applyPushExplainMessage,
+  applyRemoveExplainMessage,
   applyStartExplainThread,
   applySwitchExplainThread,
+  applyUpdateAssistantById,
   applyUpdateLastAssistant,
   ensureActiveExplainThread,
   messagesOfActiveExplainThread,
@@ -212,7 +214,18 @@ type IdeState = {
   /** Rehydrate / 打开工程: lift legacy single-list messages into threads if missing. */
   backfillExplainThreads: () => void;
   pushExplainMessage: (msg: IdeExplainMessage) => void;
-  updateLastAssistant: (content: string, extra?: { mock?: boolean }) => void;
+  updateLastAssistant: (
+    content: string,
+    extra?: { mock?: boolean; failure?: boolean }
+  ) => void;
+  /** Bind stream paints to a specific assistant bubble (ignores wrong/stale id). */
+  updateExplainAssistant: (
+    assistantId: string,
+    content: string,
+    extra?: { mock?: boolean; failure?: boolean }
+  ) => void;
+  /** Drop one bubble (retry removes failed assistant without duplicating the user). */
+  removeExplainMessage: (messageId: string) => void;
   setExplainSettings: (patch: Partial<IdeExplainSettings>) => void;
   requestExplainSelection: () => boolean;
   clearPendingExplainRequest: () => void;
@@ -479,6 +492,44 @@ export const useIdeStore = create<IdeState>()(
             )
           )
         );
+      },
+
+      updateExplainAssistant: (assistantId, content, extra) => {
+        const id = get().session?.id;
+        if (!id) return;
+        set((s) => {
+          const threads = applyUpdateAssistantById(
+            threadsForSession(s, id),
+            assistantId,
+            content,
+            extra
+          );
+          return writeExplainPack(s, id, {
+            threads,
+            activeId:
+              s.explainActiveThreadIdBySession[id] ??
+              threads[0]?.id ??
+              "",
+          });
+        });
+      },
+
+      removeExplainMessage: (messageId) => {
+        const id = get().session?.id;
+        if (!id) return;
+        set((s) => {
+          const threads = applyRemoveExplainMessage(
+            threadsForSession(s, id),
+            messageId
+          );
+          return writeExplainPack(s, id, {
+            threads,
+            activeId:
+              s.explainActiveThreadIdBySession[id] ??
+              threads[0]?.id ??
+              "",
+          });
+        });
       },
 
       openFolder: async () => {

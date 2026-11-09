@@ -127,7 +127,7 @@ async function streamViaTauri(
 
   const channel = new Channel<DesktopEvent>();
   channel.onmessage = (ev) => {
-    if (finished) return;
+    if (finished || req.signal.aborted) return;
     if (ev.type === "delta") {
       sawByte = true;
       handlers.onDelta(ev.text);

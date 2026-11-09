@@ -39,7 +39,6 @@ export function useExplainSend({
   const children = useIdeStore((s) => s.children);
   const setStatus = useIdeStore((s) => s.setStatus);
   const pushExplainMessage = useIdeStore((s) => s.pushExplainMessage);
-  const updateLastAssistant = useIdeStore((s) => s.updateLastAssistant);
   const explainSettings = useIdeStore((s) => s.explainSettings);
 
   const [question, setQuestion] = React.useState("");
@@ -51,13 +50,31 @@ export function useExplainSend({
   const [isMock, setIsMock] = React.useState(false);
   const abortRef = React.useRef<AbortController | null>(null);
   const sendRef = React.useRef<SendExplain>(async () => {});
+  /** Bumps on stop / new send so late stream events cannot paint the wrong bubble. */
+  const genRef = React.useRef(0);
+  const liveRef = React.useRef<{
+    gen: number;
+    sessionId: string;
+    assistantId: string;
+  } | null>(null);
   const flusherRef = React.useRef<ReturnType<typeof createExplainDeltaFlusher> | null>(
     null
+  );
+  const paintAssistant = React.useCallback(
+    (text: string, extra?: { mock?: boolean; failure?: boolean }) => {
+      const live = liveRef.current;
+      if (!live) return;
+      if (live.gen !== genRef.current) return;
+      const s = useIdeStore.getState();
+      if (s.session?.id !== live.sessionId) return;
+      s.updateExplainAssistant(live.assistantId, text, extra);
+    },
+    []
   );
   const getFlusher = () => {
     if (!flusherRef.current) {
       flusherRef.current = createExplainDeltaFlusher((text, extra) => {
-        useIdeStore.getState().updateLastAssistant(text, extra);
+        paintAssistant(text, extra);
       });
     }
     return flusherRef.current;
@@ -66,7 +83,10 @@ export function useExplainSend({
   const activeTab = tabs.find((t) => t.path === activePath) || null;
 
   const stop = () => {
+    // Keep partial text; invalidate generation so late deltas/errors are ignored.
     getFlusher().flushPending();
+    genRef.current += 1;
+    liveRef.current = null;
     abortRef.current?.abort();
     abortRef.current = null;
     setBusy(false);
@@ -74,7 +94,12 @@ export function useExplainSend({
 
   const send = async (
     preset?: string,
-    opts?: { includeFile?: boolean; includeSelection?: boolean }
+    opts?: {
+      includeFile?: boolean;
+      includeSelection?: boolean;
+      /** Retry a failed/empty assistant without duplicating the user turn. */
+      retryAssistantId?: string;
+    }
   ) => {
     if (!session) {
       setStatus("请先打开文件夹");
@@ -82,6 +107,11 @@ export function useExplainSend({
     }
     const q = (preset ?? question).trim();
     if (!q || busy) return;
+
+    if (opts?.retryAssistantId) {
+      // Drop the failed/empty assistant so prior + UI don't keep the placeholder.
+      useIdeStore.getState().removeExplainMessage(opts.retryAssistantId);
+    }
 
     const useFile = opts?.includeFile ?? includeFile;
     const useSel = opts?.includeSelection ?? includeSelection;
@@ -203,18 +233,29 @@ export function useExplainSend({
     }
 
     // 必须在 push 本轮气泡之前快照：否则会把空助手气泡和本轮 user 再塞进 prior。
-    const prior = selectExplainPriorMessages(
-      useIdeStore.getState().explainBySession[session.id] ?? []
-    );
+    let historyForPrior =
+      useIdeStore.getState().explainBySession[session.id] ?? [];
+    const last = historyForPrior[historyForPrior.length - 1];
+    const skipUser =
+      !!opts?.retryAssistantId &&
+      last?.role === "user" &&
+      last.content.trim() === q;
+    if (skipUser) {
+      // Panel keeps this user bubble; prior must not also include it.
+      historyForPrior = historyForPrior.slice(0, -1);
+    }
+    const prior = selectExplainPriorMessages(historyForPrior);
 
-    const userMsg: IdeExplainMessage = {
-      id: newId(),
-      role: "user",
-      content: q,
-      createdAt: Date.now(),
-    };
+    if (!skipUser) {
+      const userMsg: IdeExplainMessage = {
+        id: newId(),
+        role: "user",
+        content: q,
+        createdAt: Date.now(),
+      };
+      pushExplainMessage(userMsg);
+    }
     const assistantId = newId();
-    pushExplainMessage(userMsg);
     pushExplainMessage({
       id: assistantId,
       role: "assistant",
@@ -229,6 +270,12 @@ export function useExplainSend({
 
     const ac = new AbortController();
     abortRef.current = ac;
+    const gen = ++genRef.current;
+    liveRef.current = {
+      gen,
+      sessionId: session.id,
+      assistantId,
+    };
 
     // 桌面版没有 Next Route Handler，但可以直连用户自己配置的 OpenAI 兼容
     // 端点（Rust `ide_explain`）。prompt / mock 仍来自 explain.ts，两条通路
@@ -248,13 +295,18 @@ export function useExplainSend({
         },
         {
           onDelta: (text) => {
+            if (liveRef.current?.gen !== gen) return;
             acc += text;
             getFlusher().schedule(acc);
           },
           onDone: ({ mock }) => {
+            if (liveRef.current?.gen !== gen) return;
             setIsMock(mock);
             const text = finalizeExplainReply(acc);
-            getFlusher().now(text, { mock });
+            getFlusher().now(text, {
+              mock,
+              failure: !acc.trim(),
+            });
             // Citations snapshot so chips survive a reload.
             void citationsFromMarkdown(text);
           },
@@ -262,19 +314,34 @@ export function useExplainSend({
       );
     } catch (e) {
       if (ac.signal.aborted) {
-        getFlusher().flushPending();
+        // Intentional stop: keep partial text already flushed; ignore late errors.
+        if (liveRef.current?.gen === gen) getFlusher().flushPending();
         setStatus("已停止生成");
-      } else {
+      } else if (liveRef.current?.gen === gen) {
         getFlusher().cancel();
         const msg = e instanceof Error ? e.message : String(e);
-        updateLastAssistant(`（${msg}）`);
+        paintAssistant(`（${msg}）`, { failure: true });
         setStatus(msg);
       }
     } finally {
+      if (liveRef.current?.gen === gen) {
+        liveRef.current = null;
+      }
       abortRef.current = null;
       setBusy(false);
     }
   };
+
+  // Unmount / panel close mid-stream: drop busy and ignore late paints.
+  React.useEffect(() => {
+    return () => {
+      genRef.current += 1;
+      liveRef.current = null;
+      abortRef.current?.abort();
+      abortRef.current = null;
+      flusherRef.current?.cancel();
+    };
+  }, []);
 
   // send 只属于事件/副作用：把 ref 赋值放进 effect，渲染期间不碰 ref
   // （React Compiler: react-hooks/refs）。

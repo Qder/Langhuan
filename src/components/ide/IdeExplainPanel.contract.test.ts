@@ -323,6 +323,18 @@ describe("讲解面板：生成中不再空转", () => {
     expect(timeoutSrc).toContain("检查网络或 Base URL");
     expect(timeoutSrc).not.toMatch(/sk-/);
   });
+
+  it("按 id 写入、重试不重复 user、首包/空闲门闩、abort 丢弃晚到事件", () => {
+    expect(sendSrc).toContain("retryAssistantId");
+    expect(sendSrc).toContain("updateExplainAssistant");
+    expect(sendSrc).toContain("removeExplainMessage");
+    expect(sendSrc).toContain("genRef");
+    expect(listSrc).toContain("retryAssistantId");
+    expect(timeoutSrc).toContain("EXPLAIN_FIRST_BYTE_TIMEOUT_MS");
+    expect(timeoutSrc).toContain("EXPLAIN_READ_IDLE_TIMEOUT_MS");
+    expect(timeoutSrc).toContain("createExplainWatchdog");
+    expect(clientSrc).toContain("req.signal.aborted");
+  });
 });
 
 describe("讲解面板：桌面通路", () => {

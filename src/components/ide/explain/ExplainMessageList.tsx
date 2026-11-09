@@ -143,7 +143,10 @@ export function ExplainMessageList({
               for (let j = i - 1; j >= 0; j -= 1) {
                 const prev = messages[j];
                 if (prev?.role === "user" && prev.content.trim()) {
-                  void onSend(prev.content.trim());
+                  // Replace this failed assistant; do not push a second user turn.
+                  void onSend(prev.content.trim(), {
+                    retryAssistantId: m.id,
+                  });
                   return;
                 }
               }
