@@ -1,5 +1,5 @@
 /**
- * @vitest-environment jsdom
+ * @vitest-environment node
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import JSZip from "jszip";
@@ -172,13 +172,15 @@ describe("backup integrity", () => {
 
   it("sha256Hex is stable across Blob / Uint8Array / ArrayBuffer / subarray", async () => {
     const payload = new Uint8Array([1, 2, 3]);
+    // Must not throw (CI Node 20 previously rejected SubtleCrypto ArrayBuffer args).
     const a = await sha256Hex(new Blob([payload]));
     const b = await sha256Hex(payload);
-    const c = await sha256Hex(payload.buffer.slice(
-      payload.byteOffset,
-      payload.byteOffset + payload.byteLength
-    ));
-    // Non-zero offset view (Node Buffer pools / subarray) must not throw.
+    const c = await sha256Hex(
+      payload.buffer.slice(
+        payload.byteOffset,
+        payload.byteOffset + payload.byteLength
+      )
+    );
     const padded = new Uint8Array([0xff, 1, 2, 3, 0xff]);
     const view = padded.subarray(1, 4);
     const d = await sha256Hex(view);
@@ -186,5 +188,15 @@ describe("backup integrity", () => {
     expect(b).toBe(c);
     expect(c).toBe(d);
     expect(a).toMatch(/^[a-f0-9]{64}$/);
+    // Known SHA-256 of bytes 01 02 03 (node createHash / SubtleCrypto agree)
+    expect(a).toBe(
+      "039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81"
+    );
+  });
+
+  it("sha256Hex does not throw on digest path (Node createHash or SubtleCrypto view)", async () => {
+    await expect(sha256Hex(new Uint8Array([0]))).resolves.toMatch(/^[a-f0-9]{64}$/);
+    await expect(sha256Hex(new ArrayBuffer(0))).resolves.toMatch(/^[a-f0-9]{64}$/);
+    await expect(sha256Hex(new Blob([]))).resolves.toMatch(/^[a-f0-9]{64}$/);
   });
 });

@@ -31,23 +31,52 @@ export type BackupIntegrityReport = {
 };
 
 /**
- * SHA-256 hex digest. Always feeds SubtleCrypto an *owned* ArrayBuffer copy.
- * Node 20 / CI webcrypto throws ERR_INVALID_ARG_TYPE on some views
- * (`typedArray.buffer.slice(...)`, Buffer pools, cross-realm buffers).
- * `new Uint8Array(n)` then `.buffer` is a precise ArrayBuffer BufferSource.
+ * SHA-256 hex digest (notes/images/annotations integrity).
+ *
+ * Node 20 + vitest/jsdom: `crypto.subtle.digest` rejects **cross-realm ArrayBuffers**
+ * (e.g. `jsdomUint8Array.buffer`) with ERR_INVALID_ARG_TYPE — exact CI failure.
+ * TypedArray views can work, but `createHash('sha256')` is the reliable Node path.
+ * Browser: SubtleCrypto with a copied Uint8Array view (never pass `.buffer` alone).
  */
 export async function sha256Hex(data: ArrayBuffer | Uint8Array | Blob): Promise<string> {
-  const source =
-    data instanceof Blob
-      ? new Uint8Array(await data.arrayBuffer())
-      : data instanceof Uint8Array
-        ? data
-        : new Uint8Array(data);
-  const copy = new Uint8Array(source.byteLength);
-  copy.set(source);
-  // copy.byteOffset === 0 and copy.byteLength === copy.buffer.byteLength
-  const hash = await crypto.subtle.digest("SHA-256", copy.buffer);
+  const bytes = await bytesForDigest(data);
+
+  if (typeof process !== "undefined" && process.versions?.node) {
+    try {
+      const { createHash } = await import("node:crypto");
+      return createHash("sha256").update(Buffer.from(bytes)).digest("hex");
+    } catch {
+      try {
+        const { createHash } = await import("crypto");
+        return createHash("sha256").update(Buffer.from(bytes)).digest("hex");
+      } catch {
+        /* fall through to SubtleCrypto */
+      }
+    }
+  }
+
+  const subtle = globalThis.crypto?.subtle;
+  if (!subtle) {
+    throw new Error("SHA-256 不可用（无 SubtleCrypto / node crypto）");
+  }
+  // Pass ArrayBufferView — do NOT pass bytes.buffer (cross-realm AB fails on Node 20).
+  const hash = await subtle.digest("SHA-256", bytes as BufferSource);
   return [...new Uint8Array(hash)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** Own copy so subarray / Buffer-pool offsets cannot leak into the digest. */
+async function bytesForDigest(
+  data: ArrayBuffer | Uint8Array | Blob
+): Promise<Uint8Array> {
+  if (data instanceof Blob) {
+    return new Uint8Array(await data.arrayBuffer());
+  }
+  if (data instanceof Uint8Array) {
+    const copy = new Uint8Array(data.byteLength);
+    copy.set(data);
+    return copy;
+  }
+  return new Uint8Array(data);
 }
 
 export function emptyIntegrityReport(): BackupIntegrityReport {
