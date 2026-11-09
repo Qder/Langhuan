@@ -11,6 +11,7 @@ export function AssetImage({
   alt,
   title,
   className,
+  style,
 }: {
   assetId: string;
   /** Vault-relative path — when set, loads from content library. */
@@ -18,6 +19,7 @@ export function AssetImage({
   alt?: string;
   title?: string;
   className?: string;
+  style?: React.CSSProperties;
 }) {
   const [src, setSrc] = React.useState<string | null>(() =>
     path && !isTauriRuntime() ? libraryFileUrl(path) : null
@@ -58,6 +60,7 @@ export function AssetImage({
       src={src}
       alt={alt || ""}
       title={title}
+      style={style}
       className={className}
       onError={() => {
         if (path) {

@@ -75,6 +75,8 @@ import { PreviewContextMenu, type ContextMenuItem } from "./locate/PreviewContex
 import { subscribeScrollSync } from "@/lib/locate/scrollBus";
 import { probeRender, probeSection } from "@/lib/dev/perfProbe";
 import { AssetImage } from "./editor/AssetImage";
+import { MdImageEditDialog } from "./MdImageEditDialog";
+import { parseLhWidth, widthToCss } from "@/lib/assets/mdImageEdit";
 import {
   resolvePreviewImageInsertAt,
 } from "@/lib/assets/imageUpload";
@@ -422,6 +424,15 @@ function MdPreviewImage({
   title?: string;
   docPath: string;
 }) {
+  const [editOpen, setEditOpen] = React.useState(false);
+  const width = parseLhWidth(title);
+  const widthCss = widthToCss(width);
+  const imgStyle = widthCss
+    ? ({ width: widthCss, maxWidth: "100%", height: "auto" } as React.CSSProperties)
+    : undefined;
+  const docId = useStore(
+    (s) => s.documents.find((d) => d.path === docPath)?.id ?? null
+  );
   // Shape for useShallow: primitives only (no Document/array identity).
   const resolved = useStore(
     useShallow((s) => {
@@ -436,39 +447,77 @@ function MdPreviewImage({
       return { kind: "missing" as const, path: r.path, reason: r.reason };
     })
   );
+  const hrefHint =
+    src ||
+    (resolved.kind === "asset" || resolved.kind === "data" || resolved.kind === "missing"
+      ? resolved.path
+      : "") ||
+    "";
+  const canEdit = !!docId && (resolved.kind === "asset" || resolved.kind === "data" || resolved.kind === "missing");
+  const editDialog =
+    canEdit && docId ? (
+      <MdImageEditDialog
+        open={editOpen}
+        onClose={() => setEditOpen(false)}
+        docId={docId}
+        hrefHint={hrefHint}
+        initialAlt={alt || ""}
+        initialWidth={width}
+      />
+    ) : null;
+
   if (resolved.kind === "external" || resolved.kind === "data") {
     return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={resolved.src}
-        alt={alt || ""}
-        title={title}
-        className="lh-md-img"
-      />
+      <>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={resolved.src}
+          alt={alt || ""}
+          title={title || "点击编辑说明与宽度"}
+          className="lh-md-img cursor-pointer"
+          style={imgStyle}
+          onClick={() => canEdit && setEditOpen(true)}
+        />
+        {editDialog}
+      </>
     );
   }
   if (resolved.kind === "asset") {
     return (
-      <AssetImage
-        assetId={resolved.assetId}
-        path={resolved.path}
-        alt={alt || ""}
-        title={title}
-        className="lh-md-img"
-      />
+      <>
+        <button
+          type="button"
+          className="block max-w-full border-0 bg-transparent p-0 cursor-pointer text-left"
+          title="点击编辑说明与宽度"
+          onClick={() => setEditOpen(true)}
+        >
+          <AssetImage
+            assetId={resolved.assetId}
+            path={resolved.path}
+            alt={alt || ""}
+            title={title}
+            className="lh-md-img"
+            style={imgStyle}
+          />
+        </button>
+        {editDialog}
+      </>
     );
   }
   return (
-    <span
-      className="lh-broken-img"
-      title={resolved.reason}
-      role="img"
-      aria-label={alt || "缺失图片"}
-    >
-      <span className="lh-broken-img-label">图片未找到</span>
-      <span className="lh-broken-img-path">{resolved.path || "(空路径)"}</span>
-      <span className="lh-broken-img-reason">{resolved.reason}</span>
-    </span>
+    <>
+      <button
+        type="button"
+        className="lh-broken-img text-left w-full"
+        title={(resolved.reason || "") + "（点击可改说明）"}
+        onClick={() => canEdit && setEditOpen(true)}
+      >
+        <span className="lh-broken-img-label">图片未找到</span>
+        <span className="lh-broken-img-path">{resolved.path || "(空路径)"}</span>
+        <span className="lh-broken-img-reason">{resolved.reason}</span>
+      </button>
+      {editDialog}
+    </>
   );
 }
 
