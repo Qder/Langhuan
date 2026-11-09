@@ -7,6 +7,19 @@ import type { ReadingPrefs } from "../readingPrefs";
 import type { QuizDoc } from "../quiz";
 import { getTags } from "../tags";
 import { getAssetBlob, putAssetBlob, base64ToBlob, blobToBase64 } from "../assets/store";
+import {
+  reportDigestMismatches,
+  reportMissingAssets,
+  sha256Hex,
+  verifyBackupPayload,
+  type BackupIntegrityReport,
+} from "./backupIntegrity";
+
+export {
+  formatBackupIntegritySummary,
+  verifyBackupPayload,
+  type BackupIntegrityReport,
+} from "./backupIntegrity";
 
 export const BACKUP_MANIFEST_VERSION = 2;
 
@@ -32,6 +45,8 @@ export type BackupManifest = {
   annotations?: Annotation[];
   readingPrefs?: ReadingPrefs;
   quizDocs?: QuizDoc[];
+  /** Optional asset id → sha-256 hex written at export time. */
+  assetDigests?: Record<string, string>;
 };
 
 export type BackupPayload = {
@@ -48,6 +63,20 @@ function safeZipPath(path: string): string {
 }
 
 export async function buildLibraryZip(payload: BackupPayload): Promise<Blob> {
+  const { blob } = await buildLibraryZipDetailed(payload);
+  return blob;
+}
+
+export type BackupBuildResult = {
+  blob: Blob;
+  report: BackupIntegrityReport;
+  missingAssetBlobs: string[];
+};
+
+/** Export with integrity report (missing IDB blobs listed). */
+export async function buildLibraryZipDetailed(
+  payload: BackupPayload
+): Promise<BackupBuildResult> {
   const zip = new JSZip();
   const folder = zip.folder("langhuan-backup")!;
   const docsMeta: BackupManifest["documents"] = [];
@@ -86,17 +115,25 @@ export async function buildLibraryZip(payload: BackupPayload): Promise<Blob> {
   }
 
   const assets = payload.assets || [];
+  const assetDigests: Record<string, string> = {};
+  const missingAssetBlobs: string[] = [];
   for (const a of assets) {
     const blob = await getAssetBlob(a.id);
-    if (!blob) continue;
-    const rel = safeZipPath(a.path);
-    folder.file(`files/${rel}`, blob);
+    if (!blob) {
+      missingAssetBlobs.push(a.path);
+      continue;
+    }
+    folder.file(`files/${safeZipPath(a.path)}`, blob);
+    try {
+      assetDigests[a.id] = await sha256Hex(blob);
+    } catch {
+      /* optional */
+    }
   }
 
   if (payload.annotations?.length) {
     folder.file("annotations.json", JSON.stringify(payload.annotations, null, 2));
   }
-
   if (payload.quizDocs?.length) {
     folder.file(
       "quiz.json",
@@ -124,10 +161,29 @@ export async function buildLibraryZip(payload: BackupPayload): Promise<Blob> {
     annotations: payload.annotations,
     readingPrefs: payload.readingPrefs,
     quizDocs: payload.quizDocs,
+    assetDigests: Object.keys(assetDigests).length ? assetDigests : undefined,
   };
   folder.file("manifest.json", JSON.stringify(manifest, null, 2));
+  const out = await zip.generateAsync({ type: "blob", compression: "DEFLATE" });
 
-  return zip.generateAsync({ type: "blob", compression: "DEFLATE" });
+  const logical = verifyBackupPayload(payload);
+  const issues = [
+    ...logical.issues,
+    ...missingAssetBlobs.map((path) => ({
+      kind: "missing-asset-blob" as const,
+      message: `导出时找不到图片二进制「${path}」`,
+      path,
+    })),
+  ];
+  const report: BackupIntegrityReport = {
+    ok: issues.length === 0,
+    documents: payload.documents.length,
+    assetsListed: assets.length,
+    assetsRestored: assets.length - missingAssetBlobs.length,
+    annotations: payload.annotations?.length || 0,
+    issues,
+  };
+  return { blob: out, report, missingAssetBlobs };
 }
 
 export function downloadBlob(blob: Blob, filename: string): void {
@@ -327,6 +383,63 @@ export async function parseLibraryZip(file: Blob): Promise<BackupPayload> {
     throw new Error("压缩包中没有可导入的 .md / .html / 图片文件");
   }
   return { documents, trash: [], assets };
+}
+
+
+export type BackupParseResult = {
+  payload: BackupPayload;
+  report: BackupIntegrityReport;
+};
+
+/** Parse + integrity: missing zip assets, digest mismatch, empty docs, orphan anns. */
+export async function parseLibraryZipDetailed(
+  file: Blob
+): Promise<BackupParseResult> {
+  const zip = await JSZip.loadAsync(file);
+  const names = Object.keys(zip.files);
+  const manifestName = names.find(
+    (n) => n === "manifest.json" || n.endsWith("/manifest.json")
+  );
+
+  // Reuse parseLibraryZip for payload assembly (puts blobs).
+  const payload = await parseLibraryZip(file);
+  let report = verifyBackupPayload(payload);
+
+  if (manifestName) {
+    try {
+      const raw = await zip.files[manifestName].async("string");
+      const manifest = JSON.parse(raw) as BackupManifest;
+      const listed = manifest.assets || [];
+      const restoredIds = new Set((payload.assets || []).map((a) => a.id));
+      const missing = reportMissingAssets(listed, restoredIds);
+      const actualDigests: Record<string, string> = {};
+      for (const a of payload.assets || []) {
+        const blob = await getAssetBlob(a.id);
+        if (!blob) continue;
+        try {
+          actualDigests[a.id] = await sha256Hex(blob);
+        } catch {
+          /* optional */
+        }
+      }
+      const digestIssues = reportDigestMismatches(
+        manifest.assetDigests || {},
+        actualDigests
+      );
+      report = {
+        ok: report.issues.length + missing.length + digestIssues.length === 0,
+        documents: payload.documents.length,
+        assetsListed: listed.length,
+        assetsRestored: restoredIds.size,
+        annotations: payload.annotations?.length || 0,
+        issues: [...report.issues, ...missing, ...digestIssues],
+      };
+    } catch {
+      /* keep logical report */
+    }
+  }
+
+  return { payload, report };
 }
 
 // re-export helpers used by tests / tooling

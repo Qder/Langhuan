@@ -6,10 +6,11 @@ import { Dialog } from "./ui/dialog";
 import { Button } from "./ui/button";
 import { useStore } from "@/lib/store";
 import {
-  buildLibraryZip,
+  buildLibraryZipDetailed,
   defaultBackupFilename,
   downloadBlob,
-  parseLibraryZip,
+  formatBackupIntegritySummary,
+  parseLibraryZipDetailed,
 } from "@/lib/storage/backup";
 import { BACKUP_REMIND_DAYS } from "@/lib/storage/constants";
 import { relativeTime, cn } from "@/lib/utils";
@@ -29,11 +30,13 @@ export function BackupDialog() {
   const [mode, setMode] = React.useState<"merge" | "replace">("merge");
   const [pendingFile, setPendingFile] = React.useState<File | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+  const [integrityNote, setIntegrityNote] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     if (!open) {
       setPendingFile(null);
       setError(null);
+      setIntegrityNote(null);
       setBusy(false);
       setMode("merge");
     }
@@ -43,11 +46,17 @@ export function BackupDialog() {
     setBusy(true);
     setError(null);
     try {
-      const blob = await buildLibraryZip(exportPayload());
+      const { blob, report } = await buildLibraryZipDetailed(exportPayload());
       downloadBlob(blob, defaultBackupFilename());
       const now = Date.now();
       setLastBackupAt(now);
-      setStatus(`已导出全库备份（${documents.length} 篇）`);
+      const summary = formatBackupIntegritySummary(report);
+      setIntegrityNote(summary);
+      setStatus(
+        report.ok
+          ? `已导出全库备份（${report.documents} 篇 · ${report.assetsRestored} 图 · ${report.annotations} 批注）`
+          : `已导出备份（有缺漏）· ${summary}`
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : "导出失败");
     } finally {
@@ -60,8 +69,14 @@ export function BackupDialog() {
     setBusy(true);
     setError(null);
     try {
-      const payload = await parseLibraryZip(pendingFile);
+      const { payload, report } = await parseLibraryZipDetailed(pendingFile);
       importLibrary(payload, mode);
+      const summary = formatBackupIntegritySummary(report);
+      setStatus(
+        report.ok
+          ? `已恢复（${report.documents} 篇 · ${report.assetsRestored} 图 · ${report.annotations} 批注）`
+          : `已恢复（校验有问题）· ${summary}`
+      );
       setPendingFile(null);
       setOpen(false);
     } catch (e) {
@@ -86,7 +101,7 @@ export function BackupDialog() {
             备份与恢复
           </h2>
           <p className="mt-1 text-sm text-[var(--muted)]">
-            导出 zip 保留目录结构；导入时可选择合并或整库替换。数据现已存于 IndexedDB。
+            导出 zip 含笔记、图片附件与划线批注；导入时校验完整性（缺图 / 校验和 / 空笔记 / 悬空批注）。可选合并或整库替换。
           </p>
         </div>
 
@@ -112,6 +127,9 @@ export function BackupDialog() {
           <div className="mt-1 text-[var(--muted)]">
             当前库内 {documents.length} 篇 · 回收站 {trash.length} 篇
           </div>
+          {integrityNote && (
+            <div className="mt-1 text-[var(--muted)] break-words">{integrityNote}</div>
+          )}
         </div>
 
         <div className="flex flex-col gap-2">
