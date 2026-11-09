@@ -12,6 +12,7 @@ import {
   isCaretAtVisualBlockStart,
   mountIsolatedVisualHost,
   placeCaretPlain,
+  registerVisualEdit,
   splitVisualAtCaret,
   type SplitResult,
 } from "@/lib/previewVisualCaret";
@@ -93,10 +94,19 @@ export function InlineVisualBlockEditor({
 
   React.useLayoutEffect(() => {
     committedRef.current = false;
+    // Suppression belonged to the previous session; its timers are cancelled.
+    if (suppressBlurRef) suppressBlurRef.current = false;
     const mounted = mountIsolatedVisualHost(anchorEl);
     if (!mounted) return;
     const { host: el, dispose } = mounted;
     hostRef.current = el;
+    const initialHtml = el.innerHTML;
+    let composing = false;
+    let blurPending = false;
+    let blurTimer: number | undefined;
+    // Each effect owns its own lifetime; a retired blur timer must never commit
+    // into a newly opened block that happens to reuse this React component.
+    let retired = false;
 
     if (caretAt != null) {
       placeCaretPlain(el, caretAt);
@@ -111,11 +121,20 @@ export function InlineVisualBlockEditor({
         element: el,
       });
 
-    const finishCommit = () => {
-      if (committedRef.current) return;
+    const take = () => {
+      if (composing) return { composing: true as const };
+      const slice = serializeNow();
       committedRef.current = true;
-      onCommitRef.current(serializeNow());
+      return { slice };
     };
+    const finishCommit = (): boolean => {
+      if (retired || committedRef.current) return true;
+      const snapshot = take();
+      if ("composing" in snapshot) return false;
+      onCommitRef.current(snapshot.slice);
+      return true;
+    };
+    const unregister = registerVisualEdit(docId, anchorEl, { take, flush: finishCommit });
 
     const finishCancel = () => {
       if (committedRef.current) return;
@@ -154,15 +173,32 @@ export function InlineVisualBlockEditor({
       }
     };
 
+    const mergeBackward = (e: Event) => {
+      const sel = el.ownerDocument.getSelection();
+      if (!sel?.isCollapsed || !isCaretAtVisualBlockStart(el)) return;
+      // At a boundary, never let Android's beforeinput mutate the outer article.
+      e.preventDefault();
+      e.stopPropagation();
+      if (onMergePrevRef.current?.(serializeNow())) markHandled();
+    };
+
     const onBeforeInput = (e: InputEvent) => {
+      if (composing || e.isComposing || !e.cancelable) return;
+      if (e.inputType === "deleteContentBackward") {
+        mergeBackward(e);
+        return;
+      }
       if (e.inputType !== "insertParagraph") return;
       // insertLineBreak = Shift+Enter soft break — leave to the browser.
       e.preventDefault();
       e.stopPropagation();
-      performSplit();
+      if (blockType === "tableCell") finishCommit();
+      else performSplit();
     };
 
     const onKeyDown = (e: KeyboardEvent) => {
+      // Enter/Escape/arrows during Chinese IME belong to the candidate window.
+      if (composing || e.isComposing || e.keyCode === 229) return;
 
       if (e.key === "Escape") {
         e.preventDefault();
@@ -182,9 +218,6 @@ export function InlineVisualBlockEditor({
       // Enter → hard-split (Shift+Enter keeps browser soft <br>)
       // Table cells: commit in place (splitting would break the GFM row).
       if (e.key === "Enter" && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
-        if ((e as KeyboardEvent & { isComposing?: boolean }).isComposing || e.keyCode === 229) {
-          return;
-        }
         e.preventDefault();
         e.stopPropagation();
         if (blockType === "tableCell") {
@@ -199,21 +232,7 @@ export function InlineVisualBlockEditor({
       // Backspace at *true* block start → merge previous visual.
       // Mid-block / unknown selection: let the browser delete in place (no jump).
       if (e.key === "Backspace" && !e.metaKey && !e.ctrlKey && !e.altKey) {
-        if ((e as KeyboardEvent & { isComposing?: boolean }).isComposing || e.keyCode === 229) {
-          return;
-        }
-        const sel = el.ownerDocument?.getSelection?.() || window.getSelection();
-        if (!sel || !sel.isCollapsed) return; // selection delete = native
-        if (!isCaretAtVisualBlockStart(el)) return;
-        e.preventDefault();
-        e.stopPropagation();
-        const serialized = serializeNow();
-        const handler = onMergePrevRef.current;
-        if (handler && handler(serialized)) {
-          markHandled();
-          return;
-        }
-        // Boundary / no prev: swallow so we do not jump; stay put.
+        mergeBackward(e);
         return;
       }
 
@@ -290,14 +309,22 @@ export function InlineVisualBlockEditor({
     };
 
     const onBlur = () => {
-      window.setTimeout(() => {
+      window.clearTimeout(blurTimer);
+      blurTimer = window.setTimeout(() => {
+        if (retired || committedRef.current) return;
         if (suppressBlurRef?.current) {
           suppressBlurRef.current = false;
           return;
         }
-        if (committedRef.current) return;
-        finishCommit();
+        blurPending = !finishCommit();
       }, 0);
+    };
+    const onCompositionStart = () => { composing = true; };
+    const onCompositionEnd = () => {
+      composing = false;
+      // Some WebViews emit the final input after compositionend. Let that edit
+      // settle before a pending blur serializes the live DOM.
+      if (blurPending) onBlur();
     };
 
     const onPaste = (e: ClipboardEvent) => {
@@ -337,8 +364,21 @@ export function InlineVisualBlockEditor({
     el.addEventListener("keydown", onKeyDown, true);
     el.addEventListener("paste", onPaste, true);
     el.addEventListener("blur", onBlur);
+    el.addEventListener("compositionstart", onCompositionStart);
+    el.addEventListener("compositionend", onCompositionEnd);
 
     return () => {
+      window.clearTimeout(blurTimer);
+      unregister();
+      // A mode/tab switch can unmount before blur. Preserve changed DOM once;
+      // unchanged StrictMode setup/cleanup must not create a phantom edit.
+      if (!committedRef.current && el.innerHTML !== initialHtml) {
+        composing = false;
+        finishCommit();
+      }
+      retired = true;
+      el.removeEventListener("compositionstart", onCompositionStart);
+      el.removeEventListener("compositionend", onCompositionEnd);
       el.removeEventListener("beforeinput", onBeforeInput, true);
       el.removeEventListener("keydown", onKeyDown, true);
       el.removeEventListener("paste", onPaste, true);

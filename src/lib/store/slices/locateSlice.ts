@@ -1,5 +1,6 @@
 "use client";
 
+import { flushVisualEdit } from "../../previewVisualCaret";
 import type { StateCreator } from "zustand";
 import type { LanghuanState } from "../types";
 import { publishScrollBus } from "@/lib/locate/scrollBus";
@@ -45,6 +46,11 @@ export const createLocateSlice: StateCreator<
   syncScrollByDoc: {},
   scrollSyncEvent: null,
   setViewMode: (m) => {
+        const active = get().activeId;
+        if (active && m !== get().viewMode && !flushVisualEdit(active)) {
+          get().setStatus("请先完成输入法组词，再切换视图");
+          return;
+        }
         const prev = get().viewMode;
         const pending = get().pendingReveal;
         // Opening source/split with a memorized preview locate: bump nonce so

@@ -1,3 +1,4 @@
+import { registerVisualEdit } from "./previewVisualCaret";
 /**
  * Behavior + shape snapshots for useStore.
  * Lock current external shape/actions before/while splitting into slices.
@@ -1012,6 +1013,61 @@ describe("store behavior snapshots", () => {
     expect(useStore.getState().status?.message).not.toContain("已保存");
     expect(useStore.getState().isDirty(doc.id)).toBe(true);
     expect(useStore.getState().getContent(doc.id)).toBe("body v3");
+  });
+
+  it("saveDocNow flushes the focused visual session before snapshot/persist", async () => {
+    const doc = useStore.getState().createDoc({
+      type: "md", path: "visual-save.md", content: "原文。你好，我是打算", open: false,
+    });
+    await vi.waitFor(() => expect(vi.mocked(putLibraryDoc)).toHaveBeenCalled());
+    const unregister = registerVisualEdit(doc.id, {} as HTMLElement, {
+      take: () => ({ slice: "原文。" }),
+      flush: () => { useStore.getState().setDraft(doc.id, "原文。"); return true; },
+    });
+    try {
+      const result = await useStore.getState().saveDocNow(doc.id);
+      expect(result.ok).toBe(true);
+      expect(useStore.getState().documents.find((d) => d.id === doc.id)?.content).toBe("原文。");
+      expect(vi.mocked(putLibraryDoc)).toHaveBeenLastCalledWith(
+        expect.objectContaining({ id: doc.id, content: "原文。" }), undefined
+      );
+      expect(useStore.getState().getContent(doc.id)).not.toContain("你好，我是打算");
+      expect(useStore.getState().isDirty(doc.id)).toBe(false);
+    } finally { unregister(); }
+  });
+
+  it("save and view changes refuse unfinished composition instead of saving stale source", async () => {
+    const doc = useStore.getState().createDoc({
+      type: "md", path: "composing.md", content: "原文", open: true,
+    });
+    useStore.setState({ viewMode: "preview" });
+    const unregister = registerVisualEdit(doc.id, {} as HTMLElement, {
+      take: () => ({ composing: true }), flush: () => false,
+    });
+    try {
+      const result = await useStore.getState().saveDocNow(doc.id);
+      expect(result.ok).toBe(false);
+      expect(result.message).toContain("输入法");
+      useStore.getState().setViewMode("source");
+      expect(useStore.getState().viewMode).toBe("preview");
+    } finally { unregister(); }
+  });
+
+  it("view switch flushes source and document navigation sees the visual draft as dirty", () => {
+    const a = useStore.getState().createDoc({ type: "md", path: "a-visual.md", content: "旧内容", open: true });
+    const b = useStore.getState().createDoc({ type: "md", path: "b-visual.md", content: "别篇", open: false });
+    useStore.setState({ viewMode: "preview" });
+    const unregister = registerVisualEdit(a.id, {} as HTMLElement, {
+      take: () => ({ slice: "新内容" }),
+      flush: () => { useStore.getState().setDraft(a.id, "新内容"); return true; },
+    });
+    try {
+      useStore.getState().setViewMode("source");
+      expect(useStore.getState().getContent(a.id)).toBe("新内容");
+      useStore.getState().requestOpenDoc(b.id);
+      expect(useStore.getState().pendingNav).toEqual({ kind: "doc", id: b.id });
+      expect(useStore.getState().activeId).toBe(a.id);
+    } finally { unregister(); }
   });
 
   it("saveDocNow keeps 已是最新 for an unchanged body", async () => {

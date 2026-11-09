@@ -1,5 +1,6 @@
 "use client";
 
+import { flushVisualEdit } from "../../previewVisualCaret";
 import type { StateCreator } from "zustand";
 import type { Document, FocusedPane } from "../../types";
 import { applyDocMeta, getDocMeta } from "../../docMeta";
@@ -378,6 +379,12 @@ export const createDocsSlice: StateCreator<
   saveDocNow: async (id, opts) => {
         const target = id || get().activeId;
         if (!target) return { ok: false, message: "没有可保存的文档" };
+        // A visual CE session can still own unsaved DOM when save wins the blur race.
+        if (!flushVisualEdit(target)) {
+          const message = "请先完成输入法组词，再保存";
+          get().setStatus(message);
+          return { ok: false, message };
+        }
         const content = get().getContent(target);
         const prev = get().documents.find((d) => d.id === target);
         const name = prev ? basename(prev.path) : "";

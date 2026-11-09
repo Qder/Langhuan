@@ -114,7 +114,6 @@ import {
   isVisualEditableType,
   parseMarkdownFence,
   previewBlockEditMode,
-  serializeVisualBlock,
   type VisualBlockType,
 } from "@/lib/mdVisualSerialize";
 import {
@@ -122,6 +121,7 @@ import {
   isMergeBoundaryType,
   mergeVisualSlices,
   removeOrphanVisualHosts,
+  takeVisualEdit,
   type SplitResult,
 } from "@/lib/previewVisualCaret";
 
@@ -935,7 +935,9 @@ export function MarkdownReader({ doc }: { doc: Document }) {
   const viewMode = useStore((s) => s.viewMode);
   const wide = useMediaQuery("(min-width: 1280px)");
   probeRender("MarkdownReader");
-  const content = getContent(doc.id);
+  // Subscribe to the authoritative source itself. Selecting only the stable
+  // getContent function missed draft-only changes (notably split/source edits).
+  const content = useStore((s) => s.getContent(doc.id));
   const fmOffset = React.useMemo(() => frontmatterOffset(content), [content]);
   const fmLineOffset = React.useMemo(() => frontmatterLineOffset(content), [content]);
   const body = React.useMemo(() => parseFrontmatter(content).body, [content]);
@@ -1116,6 +1118,14 @@ export function MarkdownReader({ doc }: { doc: Document }) {
         if (opts?.openNext) pendingOpenRef.current = opts.openNext;
         return;
       }
+      // The React anchor is hidden and deliberately unchanged during visual edits.
+      // A click elsewhere may beat delayed blur: consume the LIVE session first.
+      let visualText: string | undefined;
+      if (ed.kind === "block" && ed.mode === "visual" && opts?.text == null) {
+        const snapshot = takeVisualEdit(ed.el);
+        if (snapshot && "composing" in snapshot) return;
+        visualText = snapshot?.slice;
+      }
       // Consume session immediately so blur/click cannot double-apply replaceRange
       // (which painted twin blockquote cards when offsets were applied twice).
       inlineEditRef.current = null;
@@ -1173,18 +1183,9 @@ export function MarkdownReader({ doc }: { doc: Document }) {
         return;
       }
 
-      let writeText = opts?.text ?? ed.text;
-      if (
-        opts?.text == null &&
-        ed.kind === "block" &&
-        ed.mode === "visual"
-      ) {
-        writeText = serializeVisualBlock({
-          originalSlice: ed.text,
-          blockType: ed.blockType,
-          element: ed.el,
-        });
-      }
+      // With no mounted session (interrupted remount), keep the source slice;
+      // never serialize its stale hidden React anchor as if it were live input.
+      const writeText = opts?.text ?? visualText ?? ed.text;
       const after = replaceRange(cur, ed.start, ed.end, writeText);
       captureScroll();
       if (after !== cur) {

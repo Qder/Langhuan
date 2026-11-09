@@ -677,6 +677,38 @@ export function hideVisualAnchorsBySrcRange(
   return hidden;
 }
 
+// Live DOM belongs to the edit session, never to its hidden React anchor.
+// Parent click/save paths must consume this session before the asynchronous blur.
+export type VisualEditSnapshot = { slice: string } | { composing: true };
+type PendingVisualEdit = {
+  take: () => VisualEditSnapshot;
+  flush: () => boolean;
+};
+const visualEditsByAnchor = new WeakMap<HTMLElement, PendingVisualEdit>();
+const visualEditsByDoc = new Map<string, PendingVisualEdit>();
+
+export function registerVisualEdit(
+  docId: string,
+  anchor: HTMLElement,
+  session: PendingVisualEdit
+): () => void {
+  visualEditsByAnchor.set(anchor, session);
+  visualEditsByDoc.set(docId, session);
+  return () => {
+    if (visualEditsByAnchor.get(anchor) === session) visualEditsByAnchor.delete(anchor);
+    if (visualEditsByDoc.get(docId) === session) visualEditsByDoc.delete(docId);
+  };
+}
+
+export function takeVisualEdit(anchor: HTMLElement): VisualEditSnapshot | undefined {
+  return visualEditsByAnchor.get(anchor)?.take();
+}
+
+/** Flush synchronously before save takes its source snapshot (including Ctrl+S). */
+export function flushVisualEdit(docId: string): boolean {
+  return visualEditsByDoc.get(docId)?.flush() ?? true;
+}
+
 export function mountIsolatedVisualHost(
   anchorEl: HTMLElement
 ): IsolatedVisualHost | null {
