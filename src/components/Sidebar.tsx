@@ -68,6 +68,8 @@ import { isIdeNoteRootFolder } from "@/lib/ide/captureNote";
 import { blobToBase64 } from "@/lib/storage/contentApi";
 import { isAndroidWebView } from "@/lib/platform";
 import { parseLibraryNotesZip } from "@/lib/importLibraryZip";
+import { ReadingProgressMark } from "./ReadingProgressMark";
+import { subscribeReadingProgress } from "@/lib/readingProgress";
 
 type TreeNode = FolderTreeNode;
 
@@ -142,6 +144,12 @@ function FileTree({
   const deep = depth > 3;
 
   const moveFolder = useStore((s) => s.moveFolder);
+  const [, setProgressTick] = React.useState(0);
+  React.useEffect(
+    () => subscribeReadingProgress(() => setProgressTick((n) => n + 1)),
+    []
+  );
+
 
   const onDropToFolder = async (folderPath: string, e: React.DragEvent) => {
     e.preventDefault();
@@ -349,6 +357,7 @@ function FileTree({
                 <FileText className="h-3.5 w-3.5 text-[var(--muted)] shrink-0" />
               )}
               <span className="truncate font-ui min-w-0 flex-1">{titleOf(f.name)}</span>
+              <ReadingProgressMark path={f.path} />
               {f.starred && (
                 <Star
                   className="h-3 w-3 shrink-0 fill-[var(--gold)] text-[var(--gold)]"

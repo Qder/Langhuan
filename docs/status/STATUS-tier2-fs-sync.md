@@ -16,7 +16,7 @@
 2. 侧栏底栏文件夹图标，或 ⌘K →「本地文件夹同步」。
 3. **绑定并写出整库** → 选空目录 → 应看到与库内路径一致的 `.md`/`.html` 以及 `.langhuan/index.json`。
 4. 在琅嬛里改一篇 → 保存（或等自动保存）→ 用编辑器打开磁盘文件，内容应已更新。
-5. 在磁盘上新增 `.md` / 图片 → 回琅嬛点 **检测外部更改** → 确认拉入 → `content/` 出现；两侧都改的条目保持 content/ 并标冲突。
+5. 在磁盘上新增 `.md` / 图片 / 笔记引用的 pdf → 回琅嬛点 **检测外部更改** 或 **本地 → 应用** → 确认拉入后附件进 IDB + content/；超限或未引用的无关二进制会跳过并说明。两侧都改的条目保持 content/ 并标冲突。
 6. **解除绑定** 后 IndexedDB 数据仍在；Safari/Firefox 应看到不支持提示。
 
 ## 已知限制
@@ -24,12 +24,14 @@
 - 需用户手势授权；权限被系统收回后需重新授权。
 - 句柄存在本机 IndexedDB，换浏览器/清站点数据需重绑。
 - 不做文件监听（无持续 watch）；靠写穿 + 手动「检测外部更改」（mtime/size）确认拉入，或方向同步（应用 → 本地 / 本地 → 应用）。电脑仍保留「智能双向（冲突保留应用）」。
+- 「本地 → 应用」/检测外部更改会把新图片和合理范围内（或笔记已引用）的常见附件扫进附件库；忽略 `node_modules` / `.git` 等，单文件 8MB、合计 64MB、最多 2000 个附件，超限如实说明。这不是保存写穿。
 - **Android APK**：不走 FSA。`SafPlugin` + `android_saf_*` 用系统文档树授权；同一套方向按钮。平板浏览器仍不支持。真机未验。
 - 双链补全、图谱、搜索语法等知识库能力不在本文件范围，见 [STATUS-tier2-kb.md](./STATUS-tier2-kb.md)（已落地）。
 
 ## 关键文件
 
 - `src/lib/storage/fsSync.ts` — 句柄、扫描、写出、冲突规划、方向拉取 `planForcePullFromDisk`
+- `src/lib/storage/syncInAssets.ts` — 扫入哪些附件、忽略规则、上限与跳过原因
 - `src/lib/storage/folderMirror.ts` — FSA / Android SAF 后端分发
 - `src/lib/android/saf.ts` + Kotlin `SafPlugin` — 安卓选目录
 - `src/components/FsSyncDialog.tsx` — 绑定 / 方向同步 / 解除

@@ -26,6 +26,32 @@ export type ScrollMemoryEntry = {
 
 type ScrollMemoryMap = Record<string, ScrollMemoryEntry>;
 
+type ScrollMemoryListener = () => void;
+const listeners = new Set<ScrollMemoryListener>();
+
+/** 本页写入后通知文库列表等订阅方；跨标签页另走 storage 事件。 */
+export function subscribeScrollMemory(listener: ScrollMemoryListener): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+function notifyScrollMemory(): void {
+  for (const listener of listeners) {
+    try {
+      listener();
+    } catch {
+      /* 订阅方自己的错误不影响记忆写入 */
+    }
+  }
+}
+
+/** 只读整份 map，给文库列表一次画出已有进度。 */
+export function readScrollMemoryMap(): Record<string, ScrollMemoryEntry> {
+  return readMap();
+}
+
 function storage(): Storage | null {
   try {
     if (typeof localStorage === "undefined") return null;
@@ -77,6 +103,7 @@ function writeMap(map: ScrollMemoryMap): void {
   if (!s) return;
   try {
     s.setItem(MD_SCROLL_STORAGE_KEY, JSON.stringify(map));
+    notifyScrollMemory();
   } catch {
     // 配额满 / 隐私模式：阅读位置丢了不影响阅读，静默放弃。
   }

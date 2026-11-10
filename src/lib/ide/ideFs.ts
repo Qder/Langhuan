@@ -3,7 +3,7 @@
 import { get, set, del } from "idb-keyval";
 import { isFsAccessSupported, ensurePermission } from "@/lib/storage/fsSync";
 import { isTauriRuntime } from "@/lib/storage/contentApi";
-import { isAndroidWebView } from "@/lib/platform";
+import { isAndroidWebView, isTauriAndroidRuntime } from "@/lib/platform";
 import { shouldIgnoreName } from "./ignore";
 
 export const IDE_HANDLE_KEY_PREFIX = "langhuan-ide-handle:";
@@ -38,14 +38,19 @@ export type IdeFsCapability = {
    * Primary open path when canPickFolder is false.
    */
   canImportZip: boolean;
-  /** canPickFolder || canImportZip */
+  /**
+   * Android APK one-shot SAF folder → same IndexedDB sandbox as zip.
+   * Never set this by flipping canPickFolder: showDirectoryPicker still NPEs.
+   */
+  canImportSafFolder: boolean;
+  /** canPickFolder || canImportZip || canImportSafFolder */
   canOpenProject: boolean;
   /**
    * When neither open path works (SSR). Otherwise empty — use folderHint for
-   * the Android / no-FSA case so UI can still offer zip import.
+   * the Android / no-FSA case so UI can still offer zip / SAF import.
    */
   unsupportedHint: string;
-  /** Extra copy when folder pick is unavailable but zip import is. */
+  /** Extra copy when folder pick is unavailable but zip / SAF import is. */
   folderHint: string;
 };
 
@@ -56,43 +61,64 @@ function isSandboxBackend(session: IdeFolderSession): boolean {
   );
 }
 
-export function getIdeFsCapability(): IdeFsCapability {
-  if (typeof window === "undefined") {
+export type IdeFsCapabilityInput = {
+  hasWindow: boolean;
+  fsAccess: boolean;
+  tauriAndroid: boolean;
+  androidWebView: boolean;
+  tauriRuntime: boolean;
+};
+
+export function ideFsCapabilityFrom(env: IdeFsCapabilityInput): IdeFsCapability {
+  if (!env.hasWindow) {
     return {
       canPickFolder: false,
       canImportZip: false,
+      canImportSafFolder: false,
       canOpenProject: false,
       unsupportedHint: "服务端渲染中，请在浏览器打开。",
       folderHint: "",
     };
   }
   const canImportZip = true;
-  if (isFsAccessSupported()) {
+  if (env.fsAccess) {
     return {
       canPickFolder: true,
       canImportZip,
+      canImportSafFolder: false,
       canOpenProject: true,
       unsupportedHint: "",
       folderHint: "",
     };
   }
-  if (isAndroidWebView()) {
-    // Android WebView 名义上有 showDirectoryPicker，但真调用会让 Tauri 的
-    // showFilePicker 在 intent.type 为 null 时 NPE，进程被杀。
-    // 不假装能选目录；改走「导入工程 zip」沙箱。
+  if (env.tauriAndroid) {
+    // 只用 SafPlugin 的 ACTION_OPEN_DOCUMENT_TREE，绝不调用 showDirectoryPicker。
     return {
       canPickFolder: false,
       canImportZip,
+      canImportSafFolder: true,
       canOpenProject: true,
       unsupportedHint: "",
       folderHint:
-        "安卓不能选择整文件夹（系统选择器不支持目录授权）。请把工程打成 zip 后点「导入工程 zip」；导入落在应用沙箱，不会写入笔记库的 content/。",
+        "可「选择文件夹」导入到应用沙箱（与 zip 相同的忽略规则和上限）。编辑保存在沙箱，不会自动写回原文件夹，也不会写入笔记库 content/。也可继续导入 zip。",
     };
   }
-  if (isTauriRuntime()) {
+  if (env.androidWebView) {
     return {
       canPickFolder: false,
       canImportZip,
+      canImportSafFolder: false,
+      canOpenProject: true,
+      unsupportedHint: "",
+      folderHint:
+        "当前是浏览器，不能选择整文件夹。请用琅嬛 Android 应用的「选择文件夹」，或把工程打成 zip 导入。导入落在应用沙箱，不会写入笔记库 content/。",
+    };
+  }
+  if (env.tauriRuntime) {
+    return {
+      canPickFolder: false,
+      canImportZip,
+      canImportSafFolder: false,
       canOpenProject: true,
       unsupportedHint: "",
       folderHint:
@@ -102,11 +128,22 @@ export function getIdeFsCapability(): IdeFsCapability {
   return {
     canPickFolder: false,
     canImportZip,
+    canImportSafFolder: false,
     canOpenProject: true,
     unsupportedHint: "",
     folderHint:
       "当前环境不能选择文件夹。可「导入工程 zip」，或换用支持目录选择的 Chrome / Edge。",
   };
+}
+
+export function getIdeFsCapability(): IdeFsCapability {
+  return ideFsCapabilityFrom({
+    hasWindow: typeof window !== "undefined",
+    fsAccess: isFsAccessSupported(),
+    tauriAndroid: isTauriAndroidRuntime(),
+    androidWebView: isAndroidWebView(),
+    tauriRuntime: isTauriRuntime(),
+  });
 }
 
 function handleKey(id: string): string {
@@ -218,7 +255,7 @@ export async function listIdeDir(
   if (isSandboxBackend(session)) {
     const { loadSandboxProject, listSandboxDir } = await import("./sandboxFs");
     const project = await loadSandboxProject(session.id);
-    if (!project) throw new Error("沙箱工程已丢失，请重新导入 zip");
+    if (!project) throw new Error("沙箱工程已丢失，请重新选择文件夹或导入 zip");
     return listSandboxDir(project, relDir);
   }
   if (!session.handle) throw new Error("无目录句柄");
@@ -249,7 +286,7 @@ export async function readIdeFile(
   if (isSandboxBackend(session)) {
     const { loadSandboxProject, readSandboxFile } = await import("./sandboxFs");
     const project = await loadSandboxProject(session.id);
-    if (!project) throw new Error("沙箱工程已丢失，请重新导入 zip");
+    if (!project) throw new Error("沙箱工程已丢失，请重新选择文件夹或导入 zip");
     return readSandboxFile(project, relPath);
   }
   if (!session.handle) throw new Error("无目录句柄");
@@ -266,7 +303,7 @@ export async function writeIdeFile(
   if (isSandboxBackend(session)) {
     const { loadSandboxProject, writeSandboxFile } = await import("./sandboxFs");
     const project = await loadSandboxProject(session.id);
-    if (!project) throw new Error("沙箱工程已丢失，请重新导入 zip");
+    if (!project) throw new Error("沙箱工程已丢失，请重新选择文件夹或导入 zip");
     await writeSandboxFile(project, relPath, content);
     return;
   }

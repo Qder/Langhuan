@@ -11,14 +11,15 @@ import {
   pendingLinkLocation,
 } from "@/lib/ide/pendingLink";
 import { IdeImportZipButton } from "./IdeImportZipButton";
+import { IdeImportFolderButton } from "./IdeImportFolderButton";
 
 /**
  * Shown on the 读码 welcome screen when a note's `[[ide:…]]` link arrived with
  * no project open. The link itself is persisted, so this banner survives a
  * reload instead of the click being a one-shot status flash.
  *
- * Ways out: reopen the guessed project, open a folder (desktop), or import zip
- * (Android). Dismissing forgets the link.
+ * Ways out: reopen the guessed project, open a folder (desktop), pick a system
+ * folder (Android APK), or import zip. Dismissing forgets the link.
  */
 export function IdePendingLinkBanner() {
   const pending = useIdeStore((s) => s.pendingIdeLink);
@@ -87,7 +88,7 @@ export function IdePendingLinkBanner() {
             </p>
           ) : (
             <p className="text-xs font-ui text-[var(--muted)]">
-              还不确定属于哪个工程，打开文件夹或导入 zip 试试。
+              还不确定属于哪个工程，打开文件夹、选择文件夹或导入 zip 试试。
             </p>
           )}
         </div>
@@ -128,9 +129,21 @@ export function IdePendingLinkBanner() {
             {guess ? "换个文件夹…" : "打开文件夹…"}
           </Button>
         )}
+        {cap.canImportSafFolder && (
+          <IdeImportFolderButton
+            variant={guess || cap.canPickFolder ? "ghost" : "accent"}
+            size="sm"
+            className="gap-1.5"
+            label={guess ? "选择别的文件夹…" : "选择文件夹"}
+          />
+        )}
         {cap.canImportZip && (
           <IdeImportZipButton
-            variant={cap.canPickFolder || guessCanOpen ? "ghost" : "accent"}
+            variant={
+              cap.canPickFolder || cap.canImportSafFolder || guessCanOpen
+                ? "ghost"
+                : "accent"
+            }
             size="sm"
             label={guess ? "导入别的 zip…" : "导入工程 zip"}
           />

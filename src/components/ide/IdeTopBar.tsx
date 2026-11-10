@@ -25,6 +25,7 @@ import {
   IdeImportZipHost,
   triggerIdeImportZipPicker,
 } from "./IdeImportZipButton";
+import { IdeImportFolderButton } from "./IdeImportFolderButton";
 
 export function IdeTopBar({
   onToggleExplorer,
@@ -49,11 +50,13 @@ export function IdeTopBar({
   const isDirty = useIdeStore((s) => s.isDirty);
   const saveFile = useIdeStore((s) => s.saveFile);
   const openFolder = useIdeStore((s) => s.openFolder);
+  const importSafFolderProject = useIdeStore((s) => s.importSafFolderProject);
   const closeProject = useIdeStore((s) => s.closeProject);
   const isLg = useMediaQuery(IDE_WIDE_QUERY);
   // Android WebView：目录选择会 NPE；改走 zip 导入。桌面仍可选文件夹。
   const cap = getIdeFsCapability();
   const canPickFolder = cap.canPickFolder;
+  const canImportSafFolder = cap.canImportSafFolder;
   const canImportZip = cap.canImportZip;
 
   const dirty = activePath ? isDirty(activePath) : false;
@@ -134,6 +137,13 @@ export function IdeTopBar({
           <FolderOpen className="h-3.5 w-3.5" />
           <span>打开文件夹</span>
         </Button>
+      ) : canImportSafFolder ? (
+        <IdeImportFolderButton
+          variant="accent"
+          size="sm"
+          className="gap-1.5 shrink-0 max-lg:h-11 max-lg:px-3"
+          label="选择文件夹"
+        />
       ) : canImportZip ? (
         <IdeImportZipButton
           variant="accent"
@@ -170,6 +180,13 @@ export function IdeTopBar({
                 <FolderOpen className="h-3.5 w-3.5" /> 打开文件夹…
               </DropdownItem>
             )}
+            {canImportSafFolder && (
+              <DropdownItem
+                onClick={() => void importSafFolderProject()}
+              >
+                <FolderOpen className="h-3.5 w-3.5" /> 选择文件夹…
+              </DropdownItem>
+            )}
             {canImportZip && (
               <DropdownItem onClick={() => triggerIdeImportZipPicker()}>
                 导入工程 zip…
@@ -199,12 +216,19 @@ export function IdeTopBar({
                 <FolderOpen className="h-3.5 w-3.5" /> 打开文件夹…
               </DropdownItem>
             )}
+            {canImportSafFolder && (
+              <DropdownItem
+                onClick={() => void importSafFolderProject()}
+              >
+                <FolderOpen className="h-3.5 w-3.5" /> 选择文件夹…
+              </DropdownItem>
+            )}
             {canImportZip && (
               <DropdownItem onClick={() => triggerIdeImportZipPicker()}>
                 导入工程 zip…
               </DropdownItem>
             )}
-            {!canPickFolder && !canImportZip && (
+            {!canPickFolder && !canImportZip && !canImportSafFolder && (
               <DropdownItem disabled onClick={() => void openFolder()}>
                 <FolderOpen className="h-3.5 w-3.5" /> 无法打开工程
               </DropdownItem>

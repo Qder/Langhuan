@@ -21,6 +21,7 @@ import {
   buildIndexAfterExternalPull,
   clearStoredHandle,
   collectExternalSnapshot,
+  formatAssetSkipSummary,
   detectExternalChanges,
   ensurePermission,
   getStoredHandle,
@@ -245,7 +246,7 @@ export function FsSyncDialog() {
       if (pulled.truncated) parts.push("扫描已截断");
       const msg = `已从本地同步到应用：${parts.join(" · ")}`;
       setStatus(msg);
-      setInfo(msg);
+      setInfo(pulled.assetSkipSummary ? `${msg}。${pulled.assetSkipSummary}` : msg);
       if (pulled.inn.errors.length) setError(pulled.inn.errors.slice(0, 3).join("；"));
     } catch (e) {
       setError(e instanceof Error ? e.message : "同步失败");
@@ -272,7 +273,7 @@ export function FsSyncDialog() {
         setError("未获得文件夹读写权限，请重新授权或重新绑定");
         return;
       }
-      const snap = await collectExternalSnapshot(handle);
+      const snap = await collectExternalSnapshot(handle, useStore.getState().documents);
       snapRef.current = snap;
       const st = useStore.getState();
       const list = detectExternalChanges(
@@ -291,11 +292,20 @@ export function FsSyncDialog() {
       }
       setSelected(sel);
       setExpanded({});
+      const skipText = formatAssetSkipSummary(
+        snap.skippedAssets,
+        snap.truncatedAssets
+      );
       if (!list.length) {
-        setInfo("未发现外部更改（按 mtime/size 对比）。");
+        setInfo(
+          skipText
+            ? `未发现外部更改（按 mtime/size 对比）。${skipText}`
+            : "未发现外部更改（按 mtime/size 对比）。"
+        );
       } else {
         setInfo(
-          `发现 ${list.length} 项外部更改。冲突默认保留 content/，请勾选后确认拉入。`
+          `发现 ${list.length} 项外部更改。冲突默认保留 content/，请勾选后确认拉入。` +
+            (skipText ? ` ${skipText}` : "")
         );
       }
     } catch (e) {

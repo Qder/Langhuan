@@ -58,6 +58,7 @@ describe("buildTree empty folders", () => {
     expect(tree.children.get("空夹")!.docs).toEqual([]);
     expect(tree.children.get("已有")!.children.has("子空夹")).toBe(true);
     expect(tree.children.get("已有")!.docs.map((d) => d.name)).toEqual(["a.md"]);
+    expect(tree.children.get("已有")!.docs[0].path).toBe("已有/a.md");
   });
 });
 

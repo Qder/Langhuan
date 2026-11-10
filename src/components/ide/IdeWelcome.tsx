@@ -9,6 +9,7 @@ import { relativeTime } from "@/lib/utils";
 import { IdeRecentFiles } from "./IdeRecentFiles";
 import { IdePendingLinkBanner } from "./IdePendingLinkBanner";
 import { IdeImportZipButton } from "./IdeImportZipButton";
+import { IdeImportFolderButton } from "./IdeImportFolderButton";
 
 export function IdeWelcome() {
   const recent = useIdeStore((s) => s.recent);
@@ -35,9 +36,16 @@ export function IdeWelcome() {
         {cap.canOpenProject ? (
           <div className="space-y-3">
             <div className="flex flex-wrap items-center gap-2">
+              {cap.canImportSafFolder && (
+                <IdeImportFolderButton variant="accent" size="lg" />
+              )}
               {cap.canImportZip && (
                 <IdeImportZipButton
-                  variant={cap.canPickFolder ? "secondary" : "accent"}
+                  variant={
+                    cap.canPickFolder || cap.canImportSafFolder
+                      ? "secondary"
+                      : "accent"
+                  }
                   size="lg"
                 />
               )}
@@ -80,7 +88,7 @@ export function IdeWelcome() {
           </h2>
           {recent.length === 0 ? (
             <p className="text-sm text-[var(--muted)]">
-              暂无记录。打开文件夹或导入 zip 后会出现在这里。
+              暂无记录。打开文件夹、选择文件夹或导入 zip 后会出现在这里。
             </p>
           ) : (
             <ul className="space-y-1.5">

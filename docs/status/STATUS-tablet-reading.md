@@ -1,9 +1,8 @@
 # 平板阅读 / 读码体验补齐（2026-11-10）
 
-状态：源码已实现、自动验证；未推送 / 未发 Release / 未打 APK / 未真机验收。
-保留已有 `6a42d47`（专注时间/电量）、`e38c1d5`（设置长说明默认收起）、
-`11a0bdc`（讲解调宽/全屏、选区入口、生成阶段取消重试、ZIP 详情/GBK、版本说明）、
-`9ece229`（阅读位置重试、讲解草稿、软键盘避让），未改写历史。
+状态：源码已实现、自动验证；本轮未发 Release / 未打 APK / 未真机验收。
+`9ece229` 与 `cef81ac` 已推到 `main`。本轮在其后继续三项：同步扫入附件、
+文库阅读进度、读码安卓选文件夹。未改写历史。未做屏幕常亮，也未做保存自动写穿。
 
 ## 五项实现与入口
 
@@ -62,6 +61,22 @@
    跳转标志也不会再追上来。恢复期间抑制 preview→editor 同步，避免把编辑器拽走。
    无记录或记录在顶部则保持载入后的顶部，不虚构进度。
 
+## 本轮三项（同步扫入附件 / 文库阅读进度 / 读码选文件夹）
+
+1. **文件夹同步扫入附件**：在「本地 → 应用」和「检测外部更改」通路上，把新出现的图片（含 ico）
+   以及笔记已引用、或位于 `assets`/`figs`/`images`/`img`/`attachments`/`static`/`media`
+   下的 pdf 扫进附件库（AssetMeta + IDB blob + content/）。忽略 `node_modules`、`.git`、
+   `__MACOSX` 等；单文件 8MB、合计 64MB、最多 2000 个，超限在结果里如实说明。
+   不吸入可执行文件或未引用的无关二进制。**保存仍不会自动写到绑定文件夹。**
+2. **文库阅读进度**：侧栏文件树对已有 `lh.mdScroll` 记录的篇章显示细进度条和百分比。
+   无记录或比例低于 2% 不显示，避免虚构「读完」或 0%。改名/删除仍走原 `rename`/`forget`。
+   进度不进 zustand、不升 store 版本。标记 `pointer-events-none`，不挡住点开文档。
+3. **读码选择文件夹（Android APK）**：欢迎页 / 顶栏 / 待跳转横幅增加「选择文件夹」。
+   走现有 `SafPlugin` 的 `ACTION_OPEN_DOCUMENT_TREE`（不是 `showDirectoryPicker`，避免 NPE/SIGSEGV）。
+   一次性扫描后导入与 zip 相同的 IndexedDB 沙箱，复用忽略规则、2MB/40MB/3000 上限和导入详情。
+   **不改写藏书阁已绑定的 SAF 树**，不把工程写入 `content/`，编辑保存在沙箱、不写回原文件夹。
+   桌面仍走 FSA「打开文件夹」。平板浏览器没有 SAF 时只提示，不假装成功。
+
 ## 自动验收
 
 - `useReaderScrollMemory.test.tsx`：首帧高度 0 稍后再恢复；预览关开且位置被清零后按记录还原。
@@ -84,9 +99,15 @@
   2053 passed + 1 expected fail。`9ece229` 在本机 Node **24.22.1** 为 188 个测试文件，
   2074 passed + 1 expected fail。本轮同样在 Node **24.22.1** 执行 `npm run check`，
   typecheck 通过，lint 0 errors / 80 条既有 warnings（无新增），
-  190 个测试文件，2093 passed + 1 expected fail。已知 expected fail 仍为 HTML golden
-  的 `offset in whitespace between blocks`，非新增缺陷。`npm run build` 通过，仅保留原有 metadata.themeColor 警告。
-- 未改 Rust/Kotlin，无本轮 Rust 编译需求。未改签名、版本号或凭证。
+  190 个测试文件，2093 passed + 1 expected fail。本轮（同步扫入附件 / 文库进度 / 读码选文件夹）
+  同样在 Node **24.22.1** 执行 `npm run check`：typecheck 通过，lint 0 errors / 80 条既有
+  warnings（无新增 error），194 个测试文件，2114 passed + 1 expected fail。已知 expected fail
+  仍为 HTML golden 的 `offset in whitespace between blocks`，非新增缺陷。`npm run build` 通过，
+  仅保留原有 metadata.themeColor 警告。
+- 本轮新增：`syncInAssets.test.ts`、`readingProgress.test.ts`、`ReadingProgressMark.test.tsx`、
+  `ideFs.capability.test.ts`、`importEntriesToSandbox` / `pickAndScanSafProject` 用例。
+  本轮改了 Kotlin `SafPlugin`（藏书阁扫入 ico/pdf、读码一次性选目录）和 Rust
+  `android_saf_pick_and_scan_project`；未改签名、版本号或凭证。
 
 ## 真机 / GUI 未验（必须在后续安装了本轮源码的新包后验证）
 
@@ -100,3 +121,6 @@
 - ZIP 中文名来自真实 Windows 压缩软件的 GBK/UTF-8 包，导入详情可触控滚动。
 - 原生 versionName/code 与系统安装信息一致；覆盖升级后一次提示，退出重进不再弹，底栏/设置可重看。
 - 真实 API 首包、流式、超时/取消以及 Android ZIP 工程端到端均未连接验证，不可宣称已通过。
+- 绑定文件夹后在外部新增图片 / 引用的 pdf，「本地 → 应用」或检测拉入后预览与附件库是否可见；超大或 node_modules 内文件应被跳过并说明。
+- 文库列表对已读篇章显示进度，未读或仍在开头的篇章不显示；点行仍能打开文档。
+- 安卓读码「选择文件夹」导入小工程后树可见、打开源码、杀进程后最近工程可恢复；编辑后原文件夹不应被改写；藏书阁已绑定的同步文件夹不应被这次选择替换。取消选择或在浏览器里不应假装导入成功。

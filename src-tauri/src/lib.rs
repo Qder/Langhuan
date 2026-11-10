@@ -223,6 +223,7 @@ pub fn run() {
             android_saf::android_saf_bound,
             android_saf::android_saf_unbind,
             android_saf::android_saf_scan,
+            android_saf::android_saf_pick_and_scan_project,
             android_saf::android_saf_write_text,
             android_saf::android_saf_write_bytes,
         ])

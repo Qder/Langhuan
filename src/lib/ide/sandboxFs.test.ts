@@ -14,6 +14,7 @@ vi.mock("idb-keyval", () => ({
 
 import {
   IDE_SANDBOX_ID_PREFIX,
+  importEntriesToSandbox,
   importZipToSandbox,
   listSandboxDir,
   normalizeZipEntryPath,
@@ -172,5 +173,45 @@ describe("ZIP 中文名与逐文件导入报告", () => {
     const result = await importZipToSandbox(await zip.generateAsync({ type: "uint8array" }), "no-text.zip");
     expect(result.ok).toBe(false);
     expect(result.skippedFiles).toEqual([{ path: "image.png", reason: "非文本文件类型" }]);
+  });
+});
+
+describe("importEntriesToSandbox", () => {
+  it("imports text files, strips a single root, and reports skips", async () => {
+    const result = await importEntriesToSandbox(
+      [
+        { path: "campus-food/src/Main.java", content: "class Main {}" },
+        { path: "campus-food/README.md", content: "# food" },
+        { path: "campus-food/logo.png", content: "not-text" },
+        { path: "campus-food/node_modules/pkg/index.js", content: "ignored" },
+      ],
+      "campus-food",
+      { priorSkipped: [{ path: "campus-food/build/out.js", reason: "忽略目录或文件规则" }] }
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.project.name).toBe("campus-food");
+    expect(Object.keys(result.project.files).sort()).toEqual([
+      "README.md",
+      "src/Main.java",
+    ]);
+    expect(result.project.pathLabel).toContain("文件夹");
+    expect(result.skippedFiles).toEqual(
+      expect.arrayContaining([
+        { path: "campus-food/build/out.js", reason: "忽略目录或文件规则" },
+        { path: "logo.png", reason: "非文本文件类型" },
+        { path: "campus-food/node_modules/pkg/index.js", reason: "忽略目录或文件规则" },
+      ])
+    );
+  });
+
+  it("fails honestly when nothing usable remains", async () => {
+    const result = await importEntriesToSandbox(
+      [{ path: "app/logo.png", content: "bin" }],
+      "app"
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toMatch(/没有可预览的文本源码/);
   });
 });

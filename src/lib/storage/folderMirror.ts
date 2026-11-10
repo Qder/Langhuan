@@ -14,6 +14,7 @@ import {
 import {
   buildIndexFromDocuments,
   collectExternalSnapshot,
+  formatAssetSkipSummary,
   getStoredHandle,
   isFsAccessSupported,
   planForcePullAssets,
@@ -26,6 +27,7 @@ import {
   type SyncInResult,
   type SyncOutResult,
 } from "./fsSync";
+import { planIngestibleDiskAssets } from "./syncInAssets";
 import { FS_INDEX_DIR, FS_INDEX_FILE } from "./constants";
 import { normalizeNewlines } from "../utils";
 
@@ -38,6 +40,7 @@ export type DirectedPullResult = {
   assets: AssetMeta[];
   inn: SyncInResult;
   truncated: boolean;
+  assetSkipSummary: string;
 };
 
 export function getMirrorBackend(): MirrorBackend | null {
@@ -177,6 +180,7 @@ export async function pullLibraryFromMirror(
     assets: {},
   };
   let truncated = false;
+  const priorSkips: { path: string; reason: string }[] = [];
 
   if (backend === "saf") {
     const scan = await scanSafTree();
@@ -186,13 +190,26 @@ export async function pullLibraryFromMirror(
   } else if (backend === "fsa") {
     const handle = await getStoredHandle();
     if (!handle) throw new Error("未绑定文件夹");
-    const snap = await collectExternalSnapshot(handle);
+    const snap = await collectExternalSnapshot(handle, documents);
     diskDocs = snap.docs;
     diskAssets = snap.assets;
     index = snap.index;
+    truncated = snap.truncatedAssets;
+    priorSkips.push(...snap.skippedAssets);
   } else {
     throw new Error("当前环境不能读取本地文件夹");
   }
+
+  const ingest = planIngestibleDiskAssets(
+    diskAssets.map((a) => ({ path: a.path, size: a.size, mtime: a.mtime })),
+    [...documents, ...diskDocs]
+  );
+  const accepted = new Set(ingest.accepted.map((a) => a.path));
+  diskAssets = diskAssets.filter((a) => accepted.has(a.path));
+  const assetSkipSummary = formatAssetSkipSummary(
+    [...priorSkips, ...ingest.skipped],
+    truncated || ingest.truncated
+  );
 
   const planned = planForcePullFromDisk(documents, diskDocs, index);
   const pulledAssets = planForcePullAssets(
@@ -243,10 +260,14 @@ export async function pullLibraryFromMirror(
     }
   }
 
+  if (backend === "fsa") {
+    truncated = truncated || ingest.truncated;
+  }
   return {
     documents: planned.next,
     assets: pulledAssets.assets,
     inn: planned.result,
     truncated,
+    assetSkipSummary,
   };
 }

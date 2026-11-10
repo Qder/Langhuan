@@ -1,6 +1,6 @@
 # Tauri 2 Android APK（debug + 可分发 release）
 
-上次更新：2026-11-07 · 藏书阁 SAF 方向同步（应用 ↔ 本地，用户选方向）
+上次更新：2026-11-10 · 读码可一次性选择系统文件夹导入沙箱；藏书阁同步可扫入新图片/引用附件
 
 ## 一句话现状
 
@@ -10,9 +10,9 @@
 - **分发**：`npm run android:apk:release` 打 **release + strip `.so` + 本机 keystore 签名**。不要走 Play 商店。
 - **应用内更新**：设置 →「检查更新」拉 `android-latest.json` → 下载 APK → sha256 → 系统安装器（见 [STATUS-android-updater.md](./STATUS-android-updater.md)）。**真机未验**；仍可用 `adb install -r`。Windows updater **不复用**到 APK。
 - **藏书阁导入（安卓）**：侧栏 / 首页仍可用 **「导入笔记 zip」**。另：侧栏文件夹图标「本地文件夹同步」在 **APK** 里走系统 SAF 选目录（持久权限），由用户点 **应用 → 本地** 或 **本地 → 应用**（同路径覆盖来源；另一侧多出来的不删）。平板浏览器仍不能选目录，请用 APK 或 zip。
-- **读码（安卓）**：系统不能整目录授权 → 欢迎页主按钮是 **「导入工程 zip」**（解压进应用 IndexedDB 沙箱，**不写** `content/`）。桌面仍「打开文件夹」。杀进程后可从「最近工程」恢复沙箱工程（最多 6 个）。读码工程 **不走** 藏书阁 SAF 镜像。
+- **读码（安卓 APK）**：欢迎页 / 顶栏可 **「选择文件夹」**（`SafPlugin` 一次性选目录并扫描，导入 IndexedDB 沙箱，**不写** `content/`，**不写回**原文件夹，也**不改写**藏书阁已绑定的 SAF 树）。仍可「导入工程 zip」。桌面仍「打开文件夹」。杀进程后可从「最近工程」恢复沙箱工程（最多 6 个）。平板**浏览器**没有 SAF，不能选目录，请用 APK 或 zip。绝不调用 `showDirectoryPicker`（会 NPE / 杀进程）。
 - **md「目录」叠层**：窄屏/平板顶栏点「目录」曾被 `<header overflow-hidden>` 裁切，看起来像压在正文下一层。`TocPopover` 已改为 `fixed` + `z-[70]`（与阅读设置弹层同思路）。重打 APK 后验收；桌面浏览器同修。
-- **未做**：Play 上架、读码原生选目录、终端、LSP、Cloud Agent。藏书阁 SAF 方向同步代码已做，**真机未验**。换包也可继续侧载；in-app 更新见 STATUS-android-updater（真机未验）。
+- **未做**：Play 上架、读码对原文件夹的活绑定/写回、终端、LSP、Cloud Agent。藏书阁 SAF 方向同步与读码选文件夹代码已做，**真机未验**。换包也可继续侧载；in-app 更新见 STATUS-android-updater（真机未验）。
 
 ## 本机前置（Windows 优先）
 
@@ -212,30 +212,35 @@ P0 代码 tip：**`f0d3d3a`**（`fix(android): keep the note shell from dying on
 | 本地库读写 | Next API → 仓库 `content/` | Rust → 便携/`app_data` | Rust → **应用私有目录** |
 | 首次 seed 示例 md | 有 | 有 | 有 |
 | HTML 项目导入 / CSS·JS 索引 | **唯一支持** | 明确不支持 | **同样不支持**（`desktopProjectsUnsupported`） |
-| 系统文件夹选择 / 双向同步 | File System Access | 不支持 | 藏书阁：SAF 选目录 + **方向同步**（应用→本地 / 本地→应用）；读码仍 zip 沙箱。平板 **浏览器** 仍不能选目录 |
-| 读码打开工程 | 选文件夹（FSA）或导入 zip | 选文件夹（FSA） | **导入 zip → IndexedDB 沙箱**（`sandbox:` 会话）；最近工程可恢复 |
+| 系统文件夹选择 / 双向同步 | File System Access | 不支持 | 藏书阁：SAF 选目录 + **方向同步**（应用→本地 / 本地→应用）；读码：一次性 SAF 选目录或 zip → 沙箱。平板 **浏览器** 仍不能选目录 |
+| 读码打开工程 | 选文件夹（FSA）或导入 zip | 选文件夹（FSA） | **选择文件夹（一次性 SAF）或导入 zip → IndexedDB 沙箱**（`sandbox:` 会话）；最近工程可恢复；编辑不写回原文件夹 |
 | 读码讲解 | Next `/api/ide/explain`，可读 `.env.local` | Rust `ide_explain`，只用设置里的 Key | 同桌面：Rust 管道；没填 Key 是本地示例 |
 | 自动更新 | 无 | Windows：设置里检查更新（见 [STATUS-updater.md](./STATUS-updater.md)） | **已做代码**（见 [STATUS-android-updater.md](./STATUS-android-updater.md)）；**真机未验**；Play 不做 |
 | 商店 / 正式签名 | — | 未签名 NSIS/MSI | debug：调试密钥；**release：本机 keystore 侧载签名（非 Play）** |
 | 终端 / LSP / 插件市场 | 产品不做 | 不做 | 不做 |
 
-## 读码：安卓导入工程 zip（沙箱）
+## 读码：安卓导入工程（沙箱）
 
-**路线 B**（本回合）：不假装 FSA 可用。用户把课件工程打成 `.zip` → 应用内选择文件 → `JSZip` 解压 → 文本文件进 IndexedDB（`langhuan-ide-sandbox:*`）→ `IdeFolderSession.backend = "sandbox"`，资源树 / 打开文件 / 讲解走同一套 `listIdeDir` / `readIdeFile`。
+不假装 WebView 的 FSA / `showDirectoryPicker` 可用（会 NPE 杀进程）。Android APK 可：
+
+1. **选择文件夹**（一次性 SAF：`android_saf_pick_and_scan_project` / `SafPlugin.pickAndScanProject`）→ 扫描文本文件 → IndexedDB 沙箱。
+2. **导入工程 zip** → `JSZip` 解压 → 同一套沙箱。
+
+`IdeFolderSession.backend = "sandbox"`，资源树 / 打开文件 / 讲解走同一套 `listIdeDir` / `readIdeFile`。
 
 | 项 | 说明 |
 | --- | --- |
-| 入口 | 欢迎页 / 顶栏「导入 zip」；更多菜单「导入工程 zip…」 |
+| 入口 | 欢迎页 / 顶栏「选择文件夹」或「导入 zip」；更多菜单同样两项 |
 | 忽略 | `node_modules`、`.git`、`build`、`dist` 等（`ignore.ts`） |
 | 上限 | ≤3000 文件、单文件 ≤2MB、合计文本 ≤40MB；超限截断并 status 提示 |
 | 单根目录 | zip 内若全在 `campus-food/…` 下，会剥掉这一层当工程根 |
 | 持久化 | 沙箱正文在 IDB；「最近工程」最多 6 条；杀进程后点最近可再开 |
 | 不写 | **不会**把工程写进 `content/` 或笔记库 |
-| 未做 | 原生 SAF 选目录、从系统文件夹同步回写磁盘 zip |
+| 未做 | 活绑定原文件夹并写回；从系统文件夹同步回写磁盘 zip |
 
-实现：`src/lib/ide/sandboxFs.ts`、`ideFs.ts`（backend 分支）、`store.importZipProject`、`IdeImportZipButton` / `IdeWelcome`。
+实现：`src/lib/ide/sandboxFs.ts`（`importZipToSandbox` / `importEntriesToSandbox`）、`ideFs.ts`（`canImportSafFolder`，Android 上 **canPickFolder 仍为 false**）、`store.importSafFolderProject` / `importZipProject`、`IdeImportFolderButton` / `IdeImportZipButton` / `IdeWelcome`。Kotlin 一次性扫描**不会**写入藏书阁 `KEY_URI`，扫完释放临时权限。
 
-Yang 验收：本机 `npm run android:apk:release` → 装平板 → 读码 → 导入小工程 zip → 树可见 → 打开 `.java`/`.md` → 杀进程再开「最近工程」。
+Yang 验收：本机 `npm run android:apk:release` → 装平板 → 读码 →「选择文件夹」导入小工程（或仍导入 zip）→ 树可见 → 打开 `.java`/`.md` → 杀进程再开「最近工程」。确认原文件夹未被改写，藏书阁已绑定目录仍在。
 
 
 ## 藏书阁：安卓导入笔记 zip
@@ -260,7 +265,7 @@ Yang 验收：本机 `npm run android:apk:release` → 装平板 → 读码 → 
 ## 已知限制
 
 - 讲解 Key：只来自 IDE 设置（IndexedDB）。Android 包**不读**开发机 `.env.local`。没填就是本地示例讲解，不是联网失败。
-- 导入的沙箱工程只在本机 IDB；清应用数据会丢。编辑保存写回沙箱，不写回原始 zip / 磁盘文件夹。
+- 导入的沙箱工程只在本机 IDB；清应用数据会丢。编辑保存写回沙箱，不写回原始 zip / 磁盘文件夹。选择文件夹是一次性导入，不是活绑定。
 - 藏书阁「本地文件夹同步」在 APK 用 SAF；保存笔记仍先写应用私有 `content/`，不会自动写穿到绑定目录。要点「应用 → 本地」才覆盖文件夹。反过来「本地 → 应用」会覆盖库内同路径。**真机未验**。
 - 系统返回：`MainActivity` 把 back 改成进后台，避免 wry 拆 WebView SIGSEGV。划掉任务才是退出。
 - 图片预览仍是 base64 `data:` URL。

@@ -4,6 +4,13 @@ import { get, set, del } from "idb-keyval";
 import type { AssetMeta, Document } from "../types";
 import { libraryDocTypeFromPath } from "../importable";
 import { FS_HANDLE_KEY, FS_INDEX_DIR, FS_INDEX_FILE } from "./constants";
+import {
+  formatAssetSkipSummary,
+  mimeForSyncAsset,
+  planIngestibleDiskAssets,
+  shouldIgnoreSyncName,
+  type AssetScanSkip,
+} from "./syncInAssets";
 import { safeRelPath } from "./pathSanitize";
 import { normalizeNewlines } from "../utils";
 import { directoryPickerSupported } from "../platform";
@@ -49,6 +56,22 @@ export type DiskAsset = {
   size: number;
   blob: Blob;
   mime: string;
+};
+
+export type { AssetScanSkip };
+
+export type DiskAssetScan = {
+  assets: DiskAsset[];
+  skipped: AssetScanSkip[];
+  truncated: boolean;
+};
+
+export type ExternalSnapshot = {
+  docs: DiskDoc[];
+  assets: DiskAsset[];
+  index: FsIndex;
+  skippedAssets: AssetScanSkip[];
+  truncatedAssets: boolean;
 };
 
 export type ExternalChangeKind = "add" | "modify" | "delete" | "conflict";
@@ -237,7 +260,7 @@ export async function scanDiskDocs(root: FileSystemDirectoryHandle): Promise<Dis
   const out: DiskDoc[] = [];
   const walk = async (dir: FileSystemDirectoryHandle, prefix: string) => {
     for await (const [name, entry] of dir.entries()) {
-      if (name.startsWith(".")) continue;
+      if (shouldIgnoreSyncName(name)) continue;
       if (entry.kind === "file") {
         if (!/\.(md|html|htm|txt)$/i.test(name)) continue;
         const file = await (entry as FileSystemFileHandle).getFile();
@@ -256,7 +279,7 @@ export async function scanDiskDocs(root: FileSystemDirectoryHandle): Promise<Dis
           size: file.size,
         });
       } else if (entry.kind === "directory") {
-        if (name === FS_INDEX_DIR || name === "node_modules" || name === ".git") continue;
+        if (shouldIgnoreSyncName(name)) continue;
         await walk(
           entry as FileSystemDirectoryHandle,
           prefix ? `${prefix}/${name}` : name
@@ -268,8 +291,6 @@ export async function scanDiskDocs(root: FileSystemDirectoryHandle): Promise<Dis
   return out;
 }
 
-
-const IMAGE_RE = /\.(png|jpe?g|gif|webp|bmp|avif)$/i;
 
 function utf8Size(text: string): number {
   if (typeof TextEncoder !== "undefined") {
@@ -278,34 +299,36 @@ function utf8Size(text: string): number {
   return unescape(encodeURIComponent(text)).length;
 }
 
-/** Recursively list image files under root (skip dot / .langhuan). */
-export async function scanDiskAssets(root: FileSystemDirectoryHandle): Promise<DiskAsset[]> {
-  const out: DiskAsset[] = [];
+/**
+ * Recursively list candidate attachment files under root (images / pdf, etc.).
+ * Blobs are only read after {@link planIngestibleDiskAssets} accepts a path.
+ */
+export async function scanDiskAssets(
+  root: FileSystemDirectoryHandle,
+  docs: Array<{ path: string; content: string }> = []
+): Promise<DiskAssetScan> {
+  const candidates: Array<{ path: string; size: number; mtime: number; file: File }> = [];
+  const skipped: AssetScanSkip[] = [];
   const walk = async (dir: FileSystemDirectoryHandle, prefix: string) => {
     for await (const [name, entry] of dir.entries()) {
-      if (name.startsWith(".")) continue;
+      if (shouldIgnoreSyncName(name)) continue;
       if (entry.kind === "file") {
-        if (!IMAGE_RE.test(name)) continue;
-        const file = await (entry as FileSystemFileHandle).getFile();
         const rel = prefix ? `${prefix}/${name}` : name;
-        const mime =
-          file.type ||
-          (name.toLowerCase().endsWith(".png")
-            ? "image/png"
-            : name.toLowerCase().endsWith(".webp")
-              ? "image/webp"
-              : name.toLowerCase().endsWith(".gif")
-                ? "image/gif"
-                : "image/jpeg");
-        out.push({
-          path: rel,
-          mtime: file.lastModified,
-          size: file.size,
-          blob: file,
-          mime,
-        });
+        try {
+          const file = await (entry as FileSystemFileHandle).getFile();
+          candidates.push({
+            path: rel,
+            size: file.size,
+            mtime: file.lastModified,
+            file,
+          });
+        } catch (e) {
+          skipped.push({
+            path: rel,
+            reason: `读取失败：${e instanceof Error ? e.message : String(e)}`,
+          });
+        }
       } else if (entry.kind === "directory") {
-        if (name === FS_INDEX_DIR || name === "node_modules" || name === ".git") continue;
         await walk(
           entry as FileSystemDirectoryHandle,
           prefix ? `${prefix}/${name}` : name
@@ -314,8 +337,27 @@ export async function scanDiskAssets(root: FileSystemDirectoryHandle): Promise<D
     }
   };
   await walk(root, "");
-  return out;
+  const planned = planIngestibleDiskAssets(candidates, docs);
+  const accepted = new Map(planned.accepted.map((a) => [a.path, a]));
+  const assets: DiskAsset[] = [];
+  for (const c of candidates) {
+    if (!accepted.has(c.path)) continue;
+    assets.push({
+      path: c.path,
+      mtime: c.mtime,
+      size: c.size,
+      blob: c.file,
+      mime: mimeForSyncAsset(c.path, c.file.type),
+    });
+  }
+  return {
+    assets,
+    skipped: [...skipped, ...planned.skipped],
+    truncated: planned.truncated,
+  };
 }
+
+export { formatAssetSkipSummary };
 
 /**
  * Compare bound folder vs library using mtime/size (no continuous watch).
@@ -642,14 +684,21 @@ export function patchIndexAfterDiskOverwrite(
 }
 
 export async function collectExternalSnapshot(
-  root: FileSystemDirectoryHandle
-): Promise<{ docs: DiskDoc[]; assets: DiskAsset[]; index: FsIndex }> {
-  const [docs, assets, index] = await Promise.all([
+  root: FileSystemDirectoryHandle,
+  libraryDocs: Array<{ path: string; content: string }> = []
+): Promise<ExternalSnapshot> {
+  const [docs, index] = await Promise.all([
     scanDiskDocs(root),
-    scanDiskAssets(root),
     readIndex(root),
   ]);
-  return { docs, assets, index };
+  const scanned = await scanDiskAssets(root, [...libraryDocs, ...docs]);
+  return {
+    docs,
+    assets: scanned.assets,
+    index,
+    skippedAssets: scanned.skipped,
+    truncatedAssets: scanned.truncated,
+  };
 }
 
 export function emptyIndex(): FsIndex {

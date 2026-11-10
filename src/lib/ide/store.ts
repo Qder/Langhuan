@@ -17,11 +17,13 @@ import {
 } from "./ideFs";
 import {
   clearSandboxProject,
+  importEntriesToSandbox,
   importZipToSandbox,
   isSandboxSessionId,
   loadSandboxProject,
   sessionFromSandbox,
 } from "./sandboxFs";
+import { pickAndScanSafProject } from "@/lib/android/saf";
 import {
   IDE_RECENT_MAX,
   pushRecentProject,
@@ -170,6 +172,12 @@ export type IdeState = {
    * Does not write into content/.
    */
   importZipProject: (file: File | ArrayBuffer | Uint8Array, sourceName?: string) => Promise<boolean>;
+  /**
+   * Android APK: pick a system folder via SAF and import text files into the
+   * same IndexedDB sandbox as zip. Does not bind over 藏书阁, does not write
+   * content/, and does not write back to the original folder.
+   */
+  importSafFolderProject: () => Promise<boolean>;
   openRecent: (id: string) => Promise<boolean>;
   /**
    * Open a cross-project recent file: same project opens in place, other
@@ -615,6 +623,66 @@ export const useIdeStore = create<IdeState>()(
         return true;
       },
 
+      importSafFolderProject: async () => {
+        const cap = getIdeFsCapability();
+        if (!cap.canImportSafFolder) {
+          set({
+            status:
+              cap.folderHint ||
+              "当前环境不能选择系统文件夹。请用琅嬛 Android 应用，或改用「导入工程 zip」。",
+          });
+          return false;
+        }
+        if (get().anyDirty()) {
+          const dirty = get().tabs.find((t) => get().isDirty(t.path));
+          if (dirty) {
+            set({
+              pendingClose: { path: dirty.path, after: "none" },
+              status: "请先处理未保存的文件，再导入工程",
+            });
+            return false;
+          }
+        }
+        set({ status: "正在选择文件夹…", importReport: null });
+        let scan;
+        try {
+          scan = await pickAndScanSafProject();
+        } catch (e) {
+          set({
+            status: e instanceof Error ? e.message : "选择文件夹失败",
+            importReport: null,
+          });
+          return false;
+        }
+        if (!scan) {
+          set({ status: null });
+          return false;
+        }
+        set({ status: "正在导入文件夹…" });
+        const result = await importEntriesToSandbox(scan.files, scan.name, {
+          priorSkipped: scan.skipped,
+          priorTruncated: scan.truncated,
+        });
+        if (!result.ok) {
+          set({ status: result.error, importReport: result.skippedFiles ?? null });
+          return false;
+        }
+        const session = sessionFromSandbox(result.project);
+        rememberSession(set, get, session);
+        const notes: string[] = [];
+        if (result.skipped > 0) notes.push(`跳过 ${result.skipped} 个文件（可查看详情）`);
+        if (result.truncated) notes.push("工程过大，已截断部分文件");
+        set({
+          importReport: result.skippedFiles,
+          status: notes.length
+            ? `已导入「${session.name}」（${notes.join("；")}）。编辑保存在沙箱，不会写回原文件夹。`
+            : `已导入「${session.name}」。编辑保存在沙箱，不会写回原文件夹。`,
+        });
+        await get().ensureDirListed("");
+        await get().consumePendingIdeLink();
+        return true;
+      },
+
       openRecent: async (id) => {
         const meta = get().recent.find((r) => r.id === id);
         if (!meta) {
@@ -625,7 +693,7 @@ export const useIdeStore = create<IdeState>()(
           const project = await loadSandboxProject(id);
           if (!project) {
             set((s) => ({
-              status: "沙箱工程已丢失，请重新「导入工程 zip」",
+              status: "沙箱工程已丢失，请重新「选择文件夹」或「导入工程 zip」",
               recent: removeRecentProject(s.recent, id),
               recentFiles: pruneRecentFilesForSession(s.recentFiles, id),
             }));

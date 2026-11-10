@@ -76,6 +76,35 @@ pub struct SafScan {
     pub skipped: i32,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SafProjectFile {
+    pub path: String,
+    #[serde(default)]
+    pub content: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SafProjectSkip {
+    pub path: String,
+    #[serde(default)]
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SafProjectScan {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub files: Vec<SafProjectFile>,
+    #[serde(default)]
+    pub skipped: Vec<SafProjectSkip>,
+    #[serde(default)]
+    pub truncated: bool,
+}
+
 #[cfg(target_os = "android")]
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -172,6 +201,24 @@ pub async fn android_saf_scan(app: AppHandle) -> Result<SafScan, String> {
     }
 }
 
+
+#[tauri::command]
+pub async fn android_saf_pick_and_scan_project(app: AppHandle) -> Result<SafProjectScan, String> {
+    #[cfg(target_os = "android")]
+    {
+        bridge(&app)?
+            .0
+            .run_mobile_plugin_async::<SafProjectScan>("pickAndScanProject", ())
+            .await
+            .map_err(|e| e.to_string())
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = app;
+        Err("仅 Android 应用支持选择工程文件夹".into())
+    }
+}
+
 #[tauri::command]
 pub async fn android_saf_write_text(
     app: AppHandle,
@@ -243,6 +290,15 @@ mod tests {
         let raw = r#"{"docs":[],"assets":[]}"#;
         let scan: SafScan = serde_json::from_str(raw).unwrap();
         assert!(scan.docs.is_empty());
+        assert!(!scan.truncated);
+    }
+
+    #[test]
+    fn project_scan_defaults() {
+        let raw = r#"{"name":"demo","files":[],"skipped":[]}"#;
+        let scan: SafProjectScan = serde_json::from_str(raw).unwrap();
+        assert_eq!(scan.name, "demo");
+        assert!(scan.files.is_empty());
         assert!(!scan.truncated);
     }
 }

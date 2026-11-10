@@ -51,7 +51,7 @@ export function pruneEmptyFolders(
 export type FolderTreeNode = {
   name: string;
   path: string;
-  docs: { id: string; name: string; type: string; starred?: boolean }[];
+  docs: { id: string; name: string; path: string; type: string; starred?: boolean }[];
   /** 项目里不是文档的文件（css/js/图片…），只展示、不进正文索引。 */
   files: { name: string; path: string }[];
   children: Map<string, FolderTreeNode>;
@@ -97,6 +97,7 @@ export function buildTree(
     node.docs.push({
       id: d.id,
       name: parts[parts.length - 1],
+      path: d.path.replace(/\\/g, "/"),
       type: d.type,
       starred: d.starred,
     });
