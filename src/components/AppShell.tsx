@@ -4,36 +4,11 @@ import { useAutomaticBackup } from "@/lib/useAutomaticBackup";
 import * as React from "react";
 import { useStore } from "@/lib/store"
 import { applyThemeToDocument } from "@/lib/theme";
-import { cn } from "@/lib/utils";
-import { Sidebar } from "./Sidebar";
-import { TopBar } from "./TopBar";
-import { StatusBar } from "./StatusBar";
-import { HomeView } from "./HomeView";
-import { DualDocLayout } from "./DocWorkspace";
-import { TabBar } from "./TabBar";
-import { CommandPalette } from "./CommandPalette";
-import { ReadingProgress } from "./ReadingProgress";
-import { BackupDialog } from "./BackupDialog";
-import { FsSyncDialog } from "./FsSyncDialog";
-import { VersionHistoryDialog } from "./VersionHistoryDialog";
-import { DirtyNavDialog } from "./DirtyNavDialog";
-import { BackupReminder } from "./BackupReminder";
-import { KnowledgeGraphDialog } from "./KnowledgeGraphDialog";
-import { PropsPanelDialog } from "./PropsPanelDialog";
-import { ClipUrlDialog } from "./ClipUrlDialog";
-import { TemplateDialog } from "./TemplateDialog";
-import { ExportDialog } from "./ExportDialog";
-import { QuizReviewDialog } from "./QuizReviewDialog";
-import { LinkHealthDialog } from "./LinkHealthDialog";
-import { FindReplaceDialog } from "./FindReplaceDialog";
-import { ShortcutsDialog } from "./ShortcutsDialog";
-import { SettingsDialog } from "./SettingsDialog";
-import { FindInFileBar } from "./FindInFileBar";
-import { CreateDocDialogHost } from "./CreateDocDialog";
 import { openCreateDocDialog } from "@/lib/createDocDialogBus";
-import { RegisterSW } from "./pwa/RegisterSW";
 import { IdeShell } from "./ide/IdeShell";
-import { MdFocusExitButton } from "./MdFocusExitButton";
+import { NotesLibraryShell } from "./NotesLibraryShell";
+import { NoteCodeWorkbench } from "./NoteCodeWorkbench";
+import { LibraryOverlays } from "./LibraryOverlays";
 import { AUTOSAVE_DEBOUNCE_MS } from "@/lib/storage/constants";
 import {
   claimShortcut,
@@ -49,7 +24,7 @@ export function AppShell() {
   useAutomaticBackup();
   const hydrated = useStore((s) => s.hydrated);
   const appMode = useStore((s) => s.appMode);
-  const activeId = useStore((s) => s.activeId);
+  const studySplitEnabled = useStore((s) => s.studySplitEnabled);
   const setHydrated = useStore((s) => s.setHydrated);
   const setCommandOpen = useStore((s) => s.setCommandOpen);
   const setSidebarOpen = useStore((s) => s.setSidebarOpen);
@@ -342,47 +317,23 @@ export function AppShell() {
     );
   }
 
+  if (studySplitEnabled) {
+    return (
+      <>
+        <NoteCodeWorkbench />
+        <LibraryOverlays includeCommandPalette={false} />
+      </>
+    );
+  }
+
   if (appMode === "ide") {
     return <IdeShell />;
   }
 
-  const active = getActive();
-  const immersiveHtml = htmlImmersive && active?.type === "html";
-  const focusMd = mdFocusMode && active?.type === "md";
-  const chromeHidden = immersiveHtml || focusMd;
-
   return (
-    <div className={cn("h-dvh flex overflow-hidden text-[var(--fg)] relative", focusMd && "md-focus-mode")}>
-      {!chromeHidden && <Sidebar />}
-      <div className="flex-1 flex flex-col min-w-0 relative">
-        {activeId && !chromeHidden && <ReadingProgress />}
-        {!chromeHidden && <TopBar />}
-        {!chromeHidden && <TabBar />}
-        <main className="flex-1 min-h-0 overflow-hidden">
-          {activeId ? <DualDocLayout /> : <HomeView />}
-        </main>
-        {focusMd && <MdFocusExitButton />}
-        {!chromeHidden && <StatusBar />}
-      </div>
-      <CommandPalette />
-      <BackupDialog />
-      <FsSyncDialog />
-      <VersionHistoryDialog />
-      <DirtyNavDialog />
-      <BackupReminder />
-      <KnowledgeGraphDialog />
-      <PropsPanelDialog />
-      <ClipUrlDialog />
-      <TemplateDialog />
-      <ExportDialog />
-      <QuizReviewDialog />
-      <LinkHealthDialog />
-      <FindReplaceDialog />
-      <ShortcutsDialog />
-      <SettingsDialog />
-      <FindInFileBar />
-      <CreateDocDialogHost />
-      <RegisterSW />
+    <div className="h-dvh flex overflow-hidden text-[var(--fg)] relative">
+      <NotesLibraryShell className="flex-1 min-w-0" />
+      <LibraryOverlays />
     </div>
   );
 }

@@ -28,6 +28,16 @@ import {
 import { parseLibraryNotesZip } from "@/lib/importLibraryZip";
 import { pickLibraryFolderImport } from "@/lib/importLibraryFolder";
 import { isAndroidWebView } from "@/lib/platform";
+import {
+  pickContinueReading,
+  recentNotesByUpdatedAt,
+} from "@/lib/continueReading";
+import {
+  formatReadingPercent,
+  subscribeReadingProgress,
+  visibleReadingPercent,
+} from "@/lib/readingProgress";
+import { readScrollMemoryMap } from "@/lib/scrollMemory";
 
 export function HomeView() {
   const documents = useStore((s) => s.documents);
@@ -54,7 +64,16 @@ export function HomeView() {
   const tags = collectTagCounts(documents);
   const words = documents.reduce((n, d) => n + countWords(d.type === "html" ? stripHtml(d.content) : d.content), 0);
   const backlinks = countAllBacklinks(documents);
-  const recent = [...documents].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 8);
+  const recent = recentNotesByUpdatedAt(documents, 8);
+  const [progressTick, setProgressTick] = React.useState(0);
+  React.useEffect(() => subscribeReadingProgress(() => setProgressTick((n) => n + 1)), []);
+  const continueDoc = React.useMemo(() => {
+    void progressTick;
+    return pickContinueReading(documents, readScrollMemoryMap());
+  }, [documents, progressTick]);
+  const continuePercent = continueDoc
+    ? visibleReadingPercent(readScrollMemoryMap()[continueDoc.path])
+    : null;
   const starred = documents.filter((d) => d.starred);
   const quizBadge = React.useMemo(() => {
     const b = reviewBadgeCount(quizDocs, new Set(documents.map((d) => d.id)));
@@ -248,6 +267,34 @@ export function HomeView() {
             </div>
           </section>
         ) : (
+          <>
+          {continueDoc && (
+            <section className="space-y-3">
+              <h2 className="font-serif text-xl font-semibold">继续阅读</h2>
+              <button
+                type="button"
+                onClick={() => openDoc(continueDoc.id)}
+                className="card-surface hover-lift w-full text-left p-4 md:p-5 flex flex-col gap-2 min-h-[88px]"
+                aria-label={`继续阅读 ${titleOf(continueDoc.path)}`}
+              >
+                <div className="font-serif text-lg font-semibold truncate">
+                  {titleOf(continueDoc.path)}
+                </div>
+                <p className="text-sm text-[var(--muted)] line-clamp-2">
+                  {continueDoc.type === "html"
+                    ? stripHtml(continueDoc.content)
+                    : mdExcerpt(continueDoc.content, 120)}
+                </p>
+                <div className="text-[11px] text-[var(--muted)] flex items-center gap-2">
+                  {continuePercent != null && (
+                    <span>已读 {formatReadingPercent(continuePercent)}</span>
+                  )}
+                  <span>从上次阅读位置继续</span>
+                </div>
+              </button>
+            </section>
+          )}
+
           <section className="space-y-3">
             <h2 className="font-serif text-xl font-semibold">最近编辑</h2>
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -294,6 +341,7 @@ export function HomeView() {
               })}
             </div>
           </section>
+          </>
         )}
 
         {starred.length > 0 && (

@@ -72,6 +72,8 @@ import { rehypeCallout } from "@/lib/rehypeCallout";
 import { proseWidthForZoom } from "@/lib/readingPrefs";
 import { rehypeToc } from "@/lib/rehypeToc";
 import { PreviewContextMenu, type ContextMenuItem } from "./locate/PreviewContextMenu";
+import { SelectionFloatBar } from "./locate/SelectionFloatBar";
+import { ANNOTATE_SELECTION_EVENT } from "@/lib/annotateSelectionBus";
 import { subscribeScrollSync } from "@/lib/locate/scrollBus";
 import { probeRender, probeSection } from "@/lib/dev/perfProbe";
 import { AssetImage } from "./editor/AssetImage";
@@ -2409,6 +2411,87 @@ export function MarkdownReader({ doc }: { doc: Document }) {
     yieldTo: !!pendingPreviewLocate,
   });
 
+
+  const [selBar, setSelBar] = React.useState<{
+    top: number;
+    left: number;
+    bottom: number;
+    right: number;
+  } | null>(null);
+
+  const annotateCurrentSelection = React.useCallback(() => {
+    const root = articleRef.current;
+    if (!root) return false;
+    const info = getPreviewSelectionInfo(root);
+    if (!info || isTrivialSelection(info.text)) {
+      setStatus("请先选中一段文字");
+      return false;
+    }
+    const result = locateInMarkdown({
+      source: content,
+      selectedText: info.text,
+      startBlock: info.startBlock,
+      endBlock: info.endBlock,
+      anchorPlainOffset: info.anchorPlainOffset,
+    });
+    addAnnotation({
+      docId: doc.id,
+      path: docPath,
+      quote: info.text,
+      start: result.start,
+      end: result.end,
+      plainOffset: result.start,
+      source: content,
+      heading: headingAtOffset(content, result.start),
+      note: "",
+    });
+    setStatus("已添加划线批注");
+    window.getSelection()?.removeAllRanges();
+    setSelBar(null);
+    return true;
+  }, [addAnnotation, content, doc.id, docPath, setStatus]);
+
+  React.useEffect(() => {
+    const onAnnotate = () => {
+      if (viewMode !== "preview") {
+        setStatus("请先在预览中选中一段文字");
+        return;
+      }
+      annotateCurrentSelection();
+    };
+    window.addEventListener(ANNOTATE_SELECTION_EVENT, onAnnotate);
+    return () => window.removeEventListener(ANNOTATE_SELECTION_EVENT, onAnnotate);
+  }, [annotateCurrentSelection, setStatus, viewMode]);
+
+  React.useEffect(() => {
+    if (viewMode !== "preview") {
+      setSelBar(null);
+      return;
+    }
+    const update = () => {
+      const root = articleRef.current;
+      if (!root) {
+        setSelBar(null);
+        return;
+      }
+      const info = getPreviewSelectionInfo(root);
+      if (!info || isTrivialSelection(info.text) || !info.rect || info.rect.width === 0) {
+        setSelBar(null);
+        return;
+      }
+      const r = info.rect;
+      setSelBar({ top: r.top, left: r.left, bottom: r.bottom, right: r.right });
+    };
+    document.addEventListener("selectionchange", update);
+    document.addEventListener("mouseup", update);
+    document.addEventListener("touchend", update);
+    return () => {
+      document.removeEventListener("selectionchange", update);
+      document.removeEventListener("mouseup", update);
+      document.removeEventListener("touchend", update);
+    };
+  }, [viewMode, doc.id]);
+
   const summary = body.replace(/^#.+$/m, "").replace(/\s+/g, " ").trim().slice(0, 80);
 
   const onContextMenu = (e: React.MouseEvent) => {
@@ -2527,34 +2610,7 @@ export function MarkdownReader({ doc }: { doc: Document }) {
         id: "annotate",
         label: "划线批注",
         onSelect: () => {
-          const root = articleRef.current;
-          if (!root) return;
-          const info = getPreviewSelectionInfo(root);
-          if (!info || isTrivialSelection(info.text)) {
-            setStatus("请先选中一段文字");
-            return;
-          }
-          const result = locateInMarkdown({
-            source: content,
-            selectedText: info.text,
-            startBlock: info.startBlock,
-            endBlock: info.endBlock,
-            anchorPlainOffset: info.anchorPlainOffset,
-          });
-          addAnnotation({
-            docId: doc.id,
-            path: docPath,
-            quote: info.text,
-            start: result.start,
-            end: result.end,
-            plainOffset: result.start,
-            source: content,
-            // 记下所在小节：以后这一节被删/改名，就别再按偏移硬找了。
-            heading: headingAtOffset(content, result.start),
-            note: "",
-          });
-          setStatus("已添加划线批注");
-          window.getSelection()?.removeAllRanges();
+          annotateCurrentSelection();
         },
       },
       {
@@ -2940,6 +2996,13 @@ export function MarkdownReader({ doc }: { doc: Document }) {
 
       {menu && (
         <PreviewContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={() => setMenu(null)} />
+      )}
+      {selBar && !menu && viewMode === "preview" && (
+        <SelectionFloatBar
+          rect={selBar}
+          onLocate={() => runLocate()}
+          onAnnotate={() => annotateCurrentSelection()}
+        />
       )}
 
     </div>

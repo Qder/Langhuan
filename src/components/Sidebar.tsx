@@ -447,6 +447,7 @@ export function Sidebar() {
   const sidebarOpen = useStore((s) => s.sidebarOpen);
   const setSidebarOpen = useStore((s) => s.setSidebarOpen);
   const sidebarWidth = useStore((s) => s.sidebarWidth);
+  const forceDrawer = useStore((s) => s.studySplitEnabled);
   const setSidebarWidth = useStore((s) => s.setSidebarWidth);
   const openDocRaw = useStore((s) => s.requestOpenDoc);
   const openDoc = (id: string) => {
@@ -1662,7 +1663,7 @@ export function Sidebar() {
 
   const rail = (
     <div
-      className="hidden lg:flex h-full w-14 shrink-0 flex-col items-center gap-1 border-r border-[var(--chrome-border)] bg-[var(--chrome)] lg:shadow-[var(--chrome-shadow)] py-2"
+      className={cn(forceDrawer ? "hidden" : "hidden lg:flex", "h-full w-14 shrink-0 flex-col items-center gap-1 border-r border-[var(--chrome-border)] bg-[var(--chrome)] lg:shadow-[var(--chrome-shadow)] py-2")}
     >
       <button
         type="button"
@@ -1727,9 +1728,9 @@ export function Sidebar() {
       {/* HTML: 56px icon rail (does not squeeze when overlay opens) */}
       {htmlRail ? (
         <>
-          <div className="relative z-[60] hidden lg:flex h-full">{rail}</div>
+          <div className={cn("relative z-[60] h-full", forceDrawer ? "hidden" : "hidden lg:flex")}>{rail}</div>
           {htmlSidebarPeek && (
-            <div className="fixed inset-y-0 left-14 right-0 z-50 hidden lg:flex">
+            <div className={cn("fixed inset-y-0 left-14 right-0 z-50", forceDrawer ? "hidden" : "hidden lg:flex")}>
               <div
                 className="h-full shadow-2xl animate-enter"
                 style={{ width: sidebarWidth }}
@@ -1747,13 +1748,13 @@ export function Sidebar() {
       ) : htmlImmersive ? null : (
         <>
           <div
-            className="hidden lg:flex h-full shrink-0 overflow-hidden"
+            className={cn("h-full shrink-0 overflow-hidden", forceDrawer ? "hidden" : "hidden lg:flex")}
             style={{ width: sidebarWidth, minWidth: sidebarWidth, maxWidth: sidebarWidth }}
           >
             {panel}
           </div>
           <ResizeGutter
-            className="hidden lg:flex"
+            className={forceDrawer ? "hidden" : "hidden lg:flex"}
             axis="horizontal"
             label="调整侧栏宽度"
             value={sidebarWidth}
@@ -1768,7 +1769,7 @@ export function Sidebar() {
       )}
 
       {sidebarOpen && !htmlImmersive && (
-        <div className="lg:hidden fixed inset-0 z-50 flex">
+        <div className={cn("fixed inset-0 z-50 flex", !forceDrawer && "lg:hidden")}>
           <div className="absolute inset-0 bg-black/40" onClick={() => setSidebarOpen(false)} aria-hidden />
           <div
             className="relative z-10 h-full w-[min(86vw,320px)] max-w-[360px] animate-enter shadow-2xl"

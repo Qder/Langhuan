@@ -32,7 +32,7 @@ export function SelectionFloatBar({
         aria-label="定位源码"
         title="在源码中定位"
         onClick={onLocate}
-        className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium text-[var(--accent)] hover:bg-[color-mix(in_srgb,var(--accent)_12%,transparent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--card)]"
+        className="inline-flex items-center gap-1.5 rounded-full min-h-11 px-3 py-2 text-sm font-medium text-[var(--accent)] hover:bg-[color-mix(in_srgb,var(--accent)_12%,transparent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--card)]"
       >
         <LocateFixed className="h-3.5 w-3.5" aria-hidden />
         定位源码
@@ -43,7 +43,7 @@ export function SelectionFloatBar({
           aria-label="划线批注"
           title="划线并添加批注（不改正文）"
           onClick={onAnnotate}
-          className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium text-[var(--gold)] hover:bg-[color-mix(in_srgb,var(--gold)_14%,transparent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--gold)]/50"
+          className="inline-flex items-center gap-1.5 rounded-full min-h-11 px-3 py-2 text-sm font-medium text-[var(--gold)] hover:bg-[color-mix(in_srgb,var(--gold)_14%,transparent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--gold)]/50"
         >
           <Highlighter className="h-3.5 w-3.5" aria-hidden />
           划线批注

@@ -46,7 +46,7 @@ import {
   clampIdeExplorerWidth,
 } from "@/lib/ide/ideSplit";
 
-export function IdeShell() {
+export function IdeShell({ embedded = false }: { embedded?: boolean } = {}) {
   const session = useIdeStore((s) => s.session);
   const activePath = useIdeStore((s) => s.activePath);
   const explorerOpen = useIdeStore((s) => s.explorerOpen);
@@ -339,7 +339,7 @@ export function IdeShell() {
   );
 
   return (
-    <div className="h-dvh flex flex-col overflow-hidden text-[var(--fg)] relative">
+    <div className={cn(embedded ? "h-full" : "h-dvh", "flex flex-col overflow-hidden text-[var(--fg)] relative")}>
       <IdeTopBar
         onToggleExplorer={toggleExplorer}
         onToggleExplain={toggleExplain}

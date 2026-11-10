@@ -11,6 +11,11 @@ import {
 import { DEFAULT_READING_PREFS, normalizeReadingPrefs } from "../../readingPrefs";
 import { DEFAULT_HTML_PREVIEW_PREFS, normalizeHtmlPrefs } from "../../htmlPreviewPrefs";
 import type { LanghuanState } from "../types";
+import {
+  clampNoteCodeSplitRatio,
+  NOTE_CODE_SPLIT_DEFAULT,
+  type StudyPaneFocus,
+} from "../../workbenchLayout";
 
 type UiSliceKeys =
   | "hydrated"
@@ -52,6 +57,10 @@ type UiSliceKeys =
   | "lastBackupAt"
   | "fsBoundName"
   | "fsLastSyncAt"
+  | "studySplitEnabled"
+  | "noteCodeSplitRatio"
+  | "studyCodePath"
+  | "studyPaneFocus"
   | "setHydrated"
   | "setTheme"
   | "setAppMode"
@@ -97,7 +106,11 @@ type UiSliceKeys =
   | "setAutosaveEnabled"
   | "setLastBackupAt"
   | "setFsBoundName"
-  | "setFsLastSyncAt";
+  | "setFsLastSyncAt"
+  | "setStudySplitEnabled"
+  | "setNoteCodeSplitRatio"
+  | "setStudyCodePath"
+  | "setStudyPaneFocus";
 
 export type UiSlice = Pick<LanghuanState, UiSliceKeys>;
 
@@ -146,6 +159,10 @@ export const createUiSlice: StateCreator<
   lastBackupAt: null,
   fsBoundName: null,
   fsLastSyncAt: null,
+  studySplitEnabled: false,
+  noteCodeSplitRatio: NOTE_CODE_SPLIT_DEFAULT,
+  studyCodePath: null,
+  studyPaneFocus: "notes",
   setHydrated: (v) => set({ hydrated: v }),
   setAppMode: (m) => {
         set({ appMode: m === "ide" ? "ide" : "notes" });
@@ -277,4 +294,24 @@ export const createUiSlice: StateCreator<
   setLastBackupAt: (t) => set({ lastBackupAt: t }),
   setFsBoundName: (name) => set({ fsBoundName: name }),
   setFsLastSyncAt: (t) => set({ fsLastSyncAt: t }),
+  setStudySplitEnabled: (v) => {
+        const enabled = !!v;
+        const focus: StudyPaneFocus =
+          get().appMode === "ide" ? "code" : "notes";
+        set({
+          studySplitEnabled: enabled,
+          studyPaneFocus: enabled ? focus : get().studyPaneFocus,
+        });
+        get().setStatus(enabled ? "已开启笔记与源码并排" : "已关闭并排");
+      },
+  setNoteCodeSplitRatio: (r) =>
+        set({ noteCodeSplitRatio: clampNoteCodeSplitRatio(r) }),
+  setStudyCodePath: (path) => set({ studyCodePath: path || null }),
+  setStudyPaneFocus: (p) => {
+        const focus: StudyPaneFocus = p === "code" ? "code" : "notes";
+        set({
+          studyPaneFocus: focus,
+          appMode: focus === "code" ? "ide" : "notes",
+        });
+      },
 });

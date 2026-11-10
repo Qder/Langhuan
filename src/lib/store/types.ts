@@ -23,6 +23,7 @@ import type { BridgeElementNode } from "../locate/types";
 import type { JsFileIndex } from "../locate/jsIndex";
 import type { StorageUsage } from "../storage/usage";
 import type { BackupPayload } from "../storage/backup";
+import type { StudyPaneFocus } from "../workbenchLayout";
 import type { TabCloseMode } from "../tabClose";
 import type { ProjectMeta } from "../project";
 import type { ProjectPickedFile } from "../importProject";
@@ -433,6 +434,11 @@ export type LanghuanState = {
   focusedPane: FocusedPane;
   /** Dual-doc split ratio for primary pane (0.2–0.8). */
   docSplitRatio: number;
+  /** Persist note+code workbench across orientation / reopen (device UI prefs). */
+  studySplitEnabled: boolean;
+  noteCodeSplitRatio: number;
+  studyCodePath: string | null;
+  studyPaneFocus: StudyPaneFocus;
   /** Multi-select in file tree. */
   treeSelection: string[];
   /** Whether tree shows checkboxes / batch mode. */
@@ -453,6 +459,10 @@ export type LanghuanState = {
   setSecondaryId: (id: string | null) => void;
   setFocusedPane: (p: FocusedPane) => void;
   setDocSplitRatio: (r: number) => void;
+  setStudySplitEnabled: (v: boolean) => void;
+  setNoteCodeSplitRatio: (r: number) => void;
+  setStudyCodePath: (path: string | null) => void;
+  setStudyPaneFocus: (p: StudyPaneFocus) => void;
   openInSplit: (id: string) => void;
   toggleDocSplit: () => void;
   setTreeSelection: (ids: string[]) => void;

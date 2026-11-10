@@ -90,6 +90,10 @@ export const useStore = create<LanghuanState>()(
         pinnedTabs: s.pinnedTabs,
         secondaryId: s.secondaryId,
         docSplitRatio: s.docSplitRatio,
+        studySplitEnabled: s.studySplitEnabled,
+        noteCodeSplitRatio: s.noteCodeSplitRatio,
+        studyCodePath: s.studyCodePath,
+        studyPaneFocus: s.studyPaneFocus,
         customShortcuts: s.customShortcuts,
       }),
       version: 9,
@@ -151,6 +155,12 @@ export const useStore = create<LanghuanState>()(
         if (!Array.isArray(p.pinnedTabs)) p.pinnedTabs = [];
         if (!("secondaryId" in p)) p.secondaryId = null;
         if (typeof p.docSplitRatio !== "number") p.docSplitRatio = 0.5;
+        if (typeof p.studySplitEnabled !== "boolean") p.studySplitEnabled = false;
+        if (typeof p.noteCodeSplitRatio !== "number") p.noteCodeSplitRatio = 0.5;
+        else p.noteCodeSplitRatio = Math.min(0.72, Math.max(0.28, p.noteCodeSplitRatio));
+        if (p.studyCodePath != null && typeof p.studyCodePath !== "string") p.studyCodePath = null;
+        if (!("studyCodePath" in p)) p.studyCodePath = null;
+        if (p.studyPaneFocus !== "code" && p.studyPaneFocus !== "notes") p.studyPaneFocus = "notes";
         if (!p.syncScrollByDoc || typeof p.syncScrollByDoc !== "object") p.syncScrollByDoc = {};
         p.customShortcuts = normalizeShortcuts(
           (p.customShortcuts as Partial<ShortcutMap>) || {}

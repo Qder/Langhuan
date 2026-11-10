@@ -190,12 +190,13 @@ export function DocActions({
   onToggleStar: () => void;
 }) {
   return (
-    <div className="relative hidden lg:flex items-center gap-1">
+    <div className="relative flex items-center gap-1 shrink-0">
       {showTocButton && (
         <Button
           ref={tocBtnRef}
           variant={tocOpen ? "secondary" : "ghost"}
           size="sm"
+          className="max-lg:min-h-11 max-lg:px-3"
           aria-label="目录"
           aria-expanded={tocOpen}
           onClick={onToggleToc}

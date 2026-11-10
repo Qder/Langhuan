@@ -8,6 +8,11 @@ import { HtmlReader } from "./HtmlReader";
 import { SourceEditor } from "./SourceEditor";
 import { MixedMdView } from "./editor/MixedMdView";
 import { ResizeGutter } from "./ui/ResizeGutter";
+import { useMediaQuery } from "@/lib/useMediaQuery";
+import {
+  STUDY_LANDSCAPE_QUERY,
+  dualDocFlexDirection,
+} from "@/lib/workbenchLayout";
 
 /**
  * Keep the preview reader mounted across preview ↔ split so large HTML
@@ -218,16 +223,35 @@ export function DualDocLayout() {
   const docSplitRatio = useStore((s) => s.docSplitRatio);
   const setDocSplitRatio = useStore((s) => s.setDocSplitRatio);
   const containerRef = React.useRef<HTMLDivElement>(null);
+  const landscape = useMediaQuery(STUDY_LANDSCAPE_QUERY);
+  const [paneWidth, setPaneWidth] = React.useState<number | undefined>(undefined);
+  const axis = dualDocFlexDirection(
+    landscape ? "landscape" : "portrait",
+    paneWidth
+  );
+  const vertical = axis === "column";
+
+  React.useLayoutEffect(() => {
+    const el = containerRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => {
+      setPaneWidth(el.getBoundingClientRect().width);
+    });
+    ro.observe(el);
+    setPaneWidth(el.getBoundingClientRect().width);
+    return () => ro.disconnect();
+  }, [activeId, secondaryId]);
 
   const onDelta = React.useCallback(
     (deltaPx: number) => {
       const el = containerRef.current;
       if (!el) return;
-      const total = el.getBoundingClientRect().width;
+      const rect = el.getBoundingClientRect();
+      const total = vertical ? rect.height : rect.width;
       if (total <= 0) return;
       setDocSplitRatio(useStore.getState().docSplitRatio + deltaPx / total);
     },
-    [setDocSplitRatio]
+    [setDocSplitRatio, vertical]
   );
 
   if (!activeId) return null;
@@ -236,16 +260,22 @@ export function DualDocLayout() {
   }
 
   return (
-    <div ref={containerRef} className="h-full min-h-0 flex flex-row">
+    <div
+      ref={containerRef}
+      className={cn("h-full min-h-0 flex", vertical ? "flex-col" : "flex-row")}
+    >
       <div
-        className="min-h-0 overflow-hidden border-r border-[var(--border)]"
+        className={cn(
+          "min-h-0 overflow-hidden",
+          vertical ? "border-b border-[var(--border)]" : "border-r border-[var(--border)]"
+        )}
         style={{ flex: `${docSplitRatio} 1 0%` }}
       >
         <DocWorkspace docId={activeId} />
       </div>
       <ResizeGutter
-        className="w-2 cursor-col-resize self-stretch"
-        axis="horizontal"
+        className={vertical ? "h-2 cursor-row-resize self-stretch" : "w-2 cursor-col-resize self-stretch"}
+        axis={vertical ? "vertical" : "horizontal"}
         label="调整文档分屏"
         value={Math.round(docSplitRatio * 100)}
         min={20}

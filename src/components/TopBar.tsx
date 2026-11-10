@@ -4,6 +4,10 @@ import * as React from "react";
 import { Menu, Save, Search } from "lucide-react";
 import { Button } from "./ui/button";
 import { AppModeSwitch } from "./AppModeSwitch";
+import { StudySplitToggle } from "./StudySplitToggle";
+import { TouchReaderActions } from "./topbar/TouchReaderActions";
+import { openCreateDocDialog } from "@/lib/createDocDialogBus";
+import { requestAnnotateSelection } from "@/lib/annotateSelectionBus";
 import { useStore } from "@/lib/store";
 import { runLibraryImageUpload } from "@/lib/assets/runImageUpload";
 import { useMediaQuery } from "@/lib/useMediaQuery";
@@ -77,6 +81,7 @@ export function TopBar() {
   const setGraphDialogOpen = useStore((s) => s.setGraphDialogOpen);
   const annotations = useStore((s) => s.annotations);
   const assetsForDoc = useStore((s) => s.assetsForDoc);
+  const studySplitEnabled = useStore((s) => s.studySplitEnabled);
 
   // Transient UI: two confirmations + three anchored popovers.
   const [renameOpen, setRenameOpen] = React.useState(false);
@@ -102,7 +107,7 @@ export function TopBar() {
 
   // 目录开关与其他 popover 共用一套「点外部/Esc 收起」，但 open 状态是全局
   // 共享的（专注浮动条读同一份），这样 mod+shift+o 不必去 DOM 里探测。
-  const toc = useTocPanel({ docId: active?.id, available: asideAvailable });
+  const toc = useTocPanel({ docId: active?.id, available: !!active });
   const setTocOpen = toc.setOpen;
 
   const [activeHeading, setActiveHeading] = useActiveHeading({
@@ -111,7 +116,7 @@ export function TopBar() {
     docId: active?.id,
   });
 
-  const showTocButton = asideAvailable && (!wide || !outlineRailOpen);
+  const showTocButton = !!active && (!wide || !outlineRailOpen);
   const showRailToggle = asideAvailable && wide;
 
   const exportDoc = () => {
@@ -145,7 +150,7 @@ export function TopBar() {
         <Button
           variant="ghost"
           size="icon"
-          className={cn("lg:hidden", touchIcon)}
+          className={cn(!studySplitEnabled && "lg:hidden", touchIcon)}
           aria-label="打开侧栏"
           onClick={() => setSidebarOpen(true)}
         >
@@ -260,6 +265,8 @@ export function TopBar() {
 
           <AppModeSwitch />
 
+          <StudySplitToggle />
+
           <MoreMenu
             active={active}
             viewMode={viewMode}
@@ -316,10 +323,18 @@ export function TopBar() {
             className={touchIcon}
             aria-label={active ? "文件内查找" : "搜索"}
             title={active ? "文件内查找 (⌘/Ctrl+F)" : "搜索"}
+            data-reader-action="search"
             onClick={() => (active ? setFindInFileOpen(true) : setCommandOpen(true))}
           >
             <Search className="h-4 w-4" />
           </Button>
+
+          <TouchReaderActions
+            touchIcon={touchIcon}
+            canAnnotate={!!active && active.type === "md" && viewMode !== "source"}
+            onAnnotate={() => requestAnnotateSelection()}
+            onNewNote={() => openCreateDocDialog({ type: "md" })}
+          />
 
           {active && toc.open && (
             <TocPopover

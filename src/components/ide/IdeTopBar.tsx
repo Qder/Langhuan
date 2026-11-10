@@ -14,6 +14,7 @@ import {
 import { Button } from "../ui/button";
 import { Dropdown, DropdownItem } from "../ui/dropdown";
 import { AppModeSwitch } from "../AppModeSwitch";
+import { StudySplitToggle } from "../StudySplitToggle";
 import { IdeOutlineToggle } from "./IdeOutlineRail";
 import { useIdeStore } from "@/lib/ide/store";
 import { useMediaQuery } from "@/lib/useMediaQuery";
@@ -239,6 +240,7 @@ export function IdeTopBar({
 
       {canImportZip ? <IdeImportZipHost /> : null}
       <AppModeSwitch className={cn("ml-0.5")} />
+      <StudySplitToggle className="ml-0.5" />
     </header>
   );
 }
