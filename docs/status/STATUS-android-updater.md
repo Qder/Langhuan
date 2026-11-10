@@ -111,3 +111,13 @@
 仓库内 `docs/status/fixtures/android-latest.example.json` 只演示字段形状。
 **不会**由本切片上传 GitHub Releases，也**不**包含 keystore / 签名密钥。
 Yang 按上文 checklist 用 `npm run updater:android-latest-json` / `scripts/publish-android-release.ps1` 自行发版。
+
+
+## 2026-11-10：实际版本与首次更新说明
+
+当前版本优先复用 `android_app_version` → Kotlin `PackageManager.getPackageInfo`
+的实际 `versionName` / `versionCode`；失败明确提示，不用 Tauri 配置版本冒充。
+已检查到的真实 updater notes 按目标版本精确缓存；安装后仅匹配当前身份的说明才展示，
+否则使用明确标注“本构建、未代表远程发布”的仓库说明。首次进入显示一次，关闭后同版本不再弹；
+设置页与读码底栏可再次查看。未改变版本号、清单地址、更新网络或安装流程。
+自动测试与真机待验见 [STATUS-tablet-reading.md](STATUS-tablet-reading.md)。

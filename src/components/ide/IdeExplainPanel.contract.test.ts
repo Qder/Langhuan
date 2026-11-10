@@ -85,10 +85,9 @@ describe("讲解面板：React Compiler 规则", () => {
   });
 
   it("勾选项仍然跟随「讲解选区」请求", () => {
-    expect(pendingSrc).toMatch(/setIncludeFile\(pendingExplainRequest\.includeFile\)/);
-    expect(pendingSrc).toMatch(
-      /setIncludeSelection\(pendingExplainRequest\.includeSelection\)/
-    );
+    expect(pendingSrc).toContain("includeFile: req.includeFile");
+    expect(pendingSrc).toContain("includeSelection: req.includeSelection");
+    expect(pendingSrc).not.toContain("appliedRequestNonce");
   });
 });
 
@@ -160,7 +159,7 @@ describe("讲解面板：窄屏抽屉不整屏盖住编辑器", () => {
     expect(sheetSrc).toContain("explainSheetHeightStyle");
     expect(sheetSrc).toMatch(/explainSheetHasScrim\(state\)\s*&&/);
     expect(heightSrc).toContain("62");
-    expect(heightSrc).toContain("92");
+    expect(heightSrc).toContain("100");
     // dvh + min() 走内联样式，别丢给 Tailwind JIT 扫描（未命中会退化成内容高度）。
     expect(heightSrc).toContain("dvh");
     expect(sheetSrc).toContain("style={explainSheetHeightStyle(state)}");
@@ -307,7 +306,7 @@ describe("讲解面板：生成中不再空转", () => {
     expect(sendSrc).toContain("IDE_EXPLAIN_FOLDER_MAX_FILES_ANDROID");
     expect(sendSrc).toContain("isTauriAndroidRuntime");
     expect(sendSrc).toContain(
-      "const [includeFolder, setIncludeFolder] = React.useState(false)"
+      "includeFolder } = useIdeStore((s) => s.explainContext)"
     );
     expect(sendSrc).toContain("本轮带上工程内");
     expect(composerSrc).toContain("带上工程文件");

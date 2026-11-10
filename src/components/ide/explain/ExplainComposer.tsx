@@ -125,6 +125,10 @@ export function ExplainComposer({
           带上工程文件
         </label>
       </div>
+      <p className="px-1 text-[11px] text-[var(--muted)]" aria-label="待发送上下文">
+        {includeFile ? "当前文件正文" : "不带当前文件正文"} · {includeSelection && selectionRange ? `选区 ${selectionRange.path}:${selectionRange.fromLine}–${selectionRange.toLine}` : "不带选区"}
+        {" · 路径索引（无正文）"}{includeNearby ? " · 相关文件（最多3个）" : ""}{includeFolder ? " · 工程文件（限量）" : ""}
+      </p>
       <div className="flex gap-1.5 items-end">
         <textarea
           className={cn(

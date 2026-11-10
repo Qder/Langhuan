@@ -21,6 +21,8 @@ import {
   readAndroidAppVersion,
   type AndroidUpdateInfo,
 } from "@/lib/android/updater";
+import { ReleaseNotes } from "./ReleaseNotes";
+import { cacheReleaseNotes, androidBuildId } from "@/lib/releaseNotes";
 import { isTauriRuntime } from "@/lib/storage/contentApi";
 
 function formatBytes(n: number): string {
@@ -29,7 +31,7 @@ function formatBytes(n: number): string {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function AndroidUpdateSettings({ versionLabel }: { versionLabel: string }) {
+function AndroidUpdateSettings() {
   const [busy, setBusy] = React.useState(false);
   const [message, setMessage] = React.useState("");
   const [available, setAvailable] = React.useState<AndroidUpdateInfo | null>(null);
@@ -39,8 +41,8 @@ function AndroidUpdateSettings({ versionLabel }: { versionLabel: string }) {
 
   React.useEffect(() => {
     void readAndroidAppVersion()
-      .then((v) => setDetail(`versionCode ${v.versionCode} · ${v.versionName}`))
-      .catch(() => setDetail(""));
+      .then((v) => setDetail(`${v.versionName} · versionCode ${v.versionCode}`))
+      .catch(() => setDetail("无法读取实际 Android 版本"));
   }, []);
 
   async function onCheck() {
@@ -56,6 +58,7 @@ function AndroidUpdateSettings({ versionLabel }: { versionLabel: string }) {
         return;
       }
       setAvailable(found);
+      cacheReleaseNotes(androidBuildId(found.remote.versionName, found.remote.versionCode), found.remote.notes);
       setMessage("");
     } catch (err) {
       setMessage(explainAndroidUpdaterError(err));
@@ -101,8 +104,7 @@ function AndroidUpdateSettings({ versionLabel }: { versionLabel: string }) {
         更新
       </h3>
       <p className="text-sm text-[var(--muted)] leading-relaxed">
-        当前版本 {versionLabel || "…"}
-        {detail ? `（${detail}）` : ""}。检查 GitHub Releases 上的 APK；同一签名覆盖安装，库仍在应用私有目录。也可继续侧载
+        当前版本 {detail || "读取中…"}。检查 GitHub Releases 上的 APK；同一签名覆盖安装，库仍在应用私有目录。也可继续侧载
         <code className="mx-1 text-xs">adb install -r</code>。
       </p>
       <Button
@@ -162,6 +164,10 @@ function AndroidUpdateSettings({ versionLabel }: { versionLabel: string }) {
 }
 
 export function UpdateSettings() {
+  return <><ReleaseNotes /><UpdateChannelSettings /></>;
+}
+
+function UpdateChannelSettings() {
   const [version, setVersion] = React.useState("");
   const [busy, setBusy] = React.useState(false);
   const [message, setMessage] = React.useState("");
@@ -169,7 +175,8 @@ export function UpdateSettings() {
   const [progress, setProgress] = React.useState<Progress | null>(null);
 
   React.useEffect(() => {
-    void currentAppVersion().then(setVersion);
+    if (isTauriAndroid()) return;
+    void currentAppVersion().then(setVersion).catch(() => setVersion("读取失败"));
   }, []);
 
   if (!isTauriRuntime()) {
@@ -186,7 +193,7 @@ export function UpdateSettings() {
   }
 
   if (isTauriAndroid()) {
-    return <AndroidUpdateSettings versionLabel={version} />;
+    return <AndroidUpdateSettings />;
   }
 
   if (!isTauriDesktop()) return null;
@@ -202,6 +209,7 @@ export function UpdateSettings() {
         return;
       }
       setAvailable(found);
+      cacheReleaseNotes(`desktop:${found.version}`, found.notes);
       setMessage("");
     } catch (err) {
       setMessage(explainUpdaterError(err));

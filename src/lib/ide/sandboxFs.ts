@@ -28,9 +28,19 @@ export type IdeSandboxProject = {
   files: Record<string, string>;
 };
 
+export type IdeImportSkip = { path: string; reason: string };
+
+/** JSZip calls this only without a UTF-8 flag / valid Unicode path extra field. */
+export function decodeZipFileName(bytes: Uint8Array | string[] | number[]): string {
+  const raw = Uint8Array.from(bytes as ArrayLike<number>);
+  try { return new TextDecoder("utf-8", { fatal: true }).decode(raw); } catch { /* legacy ZIP */ }
+  try { return new TextDecoder("gbk", { fatal: true }).decode(raw); } catch { /* preserve evidence */ }
+  return new TextDecoder("utf-8").decode(raw);
+}
+
 export type IdeSandboxImportResult =
-  | { ok: true; project: IdeSandboxProject; skipped: number; truncated: boolean }
-  | { ok: false; error: string };
+  | { ok: true; project: IdeSandboxProject; skipped: number; truncated: boolean; skippedFiles: IdeImportSkip[] }
+  | { ok: false; error: string; skippedFiles?: IdeImportSkip[] };
 
 function sandboxKey(id: string): string {
   return `${IDE_SANDBOX_KEY_PREFIX}${id}`;
@@ -70,13 +80,14 @@ export async function clearSandboxProject(id: string): Promise<void> {
 
 /** Normalize zip entry path; drop traversal / junk. */
 export function normalizeZipEntryPath(raw: string): string | null {
+  if (/^[\\/]|^[a-z]:|[\x00-\x1f\ufffd]/i.test(raw)) return null;
   const p = String(raw || "")
     .replace(/\\/g, "/")
     .replace(/^\.\/+/, "")
     .replace(/^\/+/, "");
   if (!p || p.endsWith("/")) return null;
   const parts = p.split("/").filter(Boolean);
-  if (parts.some((seg) => seg === ".." || seg === ".")) return null;
+  if (parts.some((seg) => seg === ".." || seg === "." || seg === "__proto__" || seg === "constructor" || seg === "prototype")) return null;
   if (parts.some((seg) => shouldIgnoreName(seg))) return null;
   return parts.join("/");
 }
@@ -124,23 +135,31 @@ export async function importZipToSandbox(
 ): Promise<IdeSandboxImportResult> {
   let zip: JSZip;
   try {
-    zip = await JSZip.loadAsync(zipData);
+    zip = await JSZip.loadAsync(zipData, { decodeFileName: decodeZipFileName });
   } catch {
     return { ok: false, error: "打不开这个 zip（文件损坏或不是 zip）" };
   }
 
+  const skippedFiles: IdeImportSkip[] = [];
+  const skip = (path: string, reason: string) => skippedFiles.push({ path, reason });
   const rawPaths: string[] = [];
   const entryByNorm = new Map<string, JSZip.JSZipObject>();
   zip.forEach((relativePath, entry) => {
     if (entry.dir) return;
-    const norm = normalizeZipEntryPath(relativePath);
-    if (!norm) return;
+    const original = entry.unsafeOriginalName ?? relativePath;
+    const norm = normalizeZipEntryPath(original);
+    if (!norm) {
+      skip(original, original.includes("\ufffd") ? "文件名已含替换字符，无法可靠恢复" :
+        /^[\\/]|^[a-z]:|[\x00-\x1f]/i.test(original) || original.replace(/\\/g, "/").split("/").some((p) => p === ".." || p === "__proto__" || p === "constructor" || p === "prototype") ? "无效或不安全路径" : "忽略目录或文件规则");
+      return;
+    }
+    if (entryByNorm.has(norm)) { skip(original, "规范化后路径重复"); return; }
     rawPaths.push(norm);
     entryByNorm.set(norm, entry);
   });
 
   if (rawPaths.length === 0) {
-    return { ok: false, error: "zip 里没有可用的文件（或全被忽略规则过滤了）" };
+    return { ok: false, error: "zip 里没有可用的文件（或全被忽略规则过滤了）", skippedFiles };
   }
 
   const { rootName } = stripSingleRootPrefix(rawPaths);
@@ -159,17 +178,17 @@ export async function importZipToSandbox(
 
   const files: Record<string, string> = {};
   let totalBytes = 0;
-  let skipped = 0;
   let truncated = false;
 
   const ordered = [...remapped.keys()].sort((a, b) => a.localeCompare(b, "zh"));
   for (const path of ordered) {
     if (Object.keys(files).length >= IDE_SANDBOX_MAX_FILES) {
       truncated = true;
-      break;
+      skip(path, "超过工程文件数量上限（3000）");
+      continue;
     }
     if (!isLikelyTextPath(path)) {
-      skipped += 1;
+      skip(path, "非文本文件类型");
       continue;
     }
     const entry = remapped.get(path);
@@ -178,21 +197,22 @@ export async function importZipToSandbox(
     try {
       text = await entry.async("string");
     } catch {
-      skipped += 1;
+      skip(path, "解压或读取失败");
       continue;
     }
     if (looksBinaryText(text)) {
-      skipped += 1;
+      skip(path, "正文含 NUL，判为二进制");
       continue;
     }
     const bytes = new TextEncoder().encode(text).byteLength;
     if (bytes > IDE_SANDBOX_MAX_FILE_BYTES) {
-      skipped += 1;
+      skip(path, "单文件超过 2 MiB 文本限制");
       continue;
     }
     if (totalBytes + bytes > IDE_SANDBOX_MAX_TOTAL_BYTES) {
       truncated = true;
-      break;
+      skip(path, "超过工程合计 40 MiB 文本限制");
+      continue;
     }
     files[path] = text;
     totalBytes += bytes;
@@ -201,6 +221,7 @@ export async function importZipToSandbox(
   if (Object.keys(files).length === 0) {
     return {
       ok: false,
+      skippedFiles,
       error: truncated
         ? "工程太大，未能导入任何文本文件（可先去掉 node_modules / build 再打包）"
         : "zip 里没有可预览的文本源码（已跳过二进制与忽略目录）",
@@ -218,7 +239,7 @@ export async function importZipToSandbox(
     files,
   };
   await storeSandboxProject(project);
-  return { ok: true, project, skipped, truncated };
+  return { ok: true, project, skipped: skippedFiles.length, truncated, skippedFiles };
 }
 
 export function sessionFromSandbox(project: IdeSandboxProject): IdeFolderSession {

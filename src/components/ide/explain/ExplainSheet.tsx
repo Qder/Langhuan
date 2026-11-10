@@ -37,8 +37,11 @@ export function ExplainSheet({
         />
       )}
       <div
-        className="absolute inset-x-0 bottom-0 z-50 flex flex-col min-h-0 animate-enter"
+        className={state === "full"
+          ? "fixed inset-0 z-[70] flex flex-col min-h-0 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]"
+          : "absolute inset-x-0 bottom-0 z-50 flex flex-col min-h-0 animate-enter"}
         style={explainSheetHeightStyle(state)}
+        aria-modal={state === "full" || undefined}
         role="dialog"
         aria-label="讲解"
       >

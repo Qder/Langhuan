@@ -56,6 +56,7 @@ import {
   captureStatusMessage,
 } from "@/lib/ide/captureToLibrary";
 import { useStore } from "@/lib/store";
+import { SelectionExplainAction } from "./explain/SelectionExplainAction";
 import { cn } from "@/lib/utils";
 import {
   clearRevealInView,
@@ -656,6 +657,13 @@ export function IdeEditor({ path }: { path: string }) {
 
   const explainSelection = () => {
     setCtxMenu(null);
+    const view = viewRef.current;
+    if (!view) return;
+    const range = view.state.selection.main;
+    if (range.empty) return;
+    setSelection({ path, text: view.state.doc.sliceString(range.from, range.to),
+      fromLine: view.state.doc.lineAt(range.from).number,
+      toLine: view.state.doc.lineAt(Math.max(range.from, range.to - 1)).number });
     requestExplainSelection();
   };
 
@@ -683,6 +691,7 @@ export function IdeEditor({ path }: { path: string }) {
 
   return (
     <div className={cn("relative h-full w-full overflow-hidden")}>
+      <SelectionExplainAction path={path} onExplain={explainSelection} />
       <div ref={hostRef} className={cn("h-full w-full overflow-hidden")} />
       {ctxMenu && (
         <div

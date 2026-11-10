@@ -17,6 +17,8 @@ export type ResizeGutterProps = {
   onDelta: (deltaPx: number, axis: Axis) => void;
   /** Double-click / Enter reset (optional). */
   onReset?: () => void;
+  /** Absolute Home/End value for panes whose drag direction is inverted. */
+  onValue?: (value: number) => void;
   /** Optional keyboard step in px (default 16; Shift = 48). */
   keyboardStep?: number;
   /** Current value for aria-valuenow (optional). */
@@ -42,6 +44,7 @@ export function ResizeGutter({
   resolveAxis,
   onDelta,
   onReset,
+  onValue,
   keyboardStep = 16,
   value,
   min,
@@ -51,6 +54,8 @@ export function ResizeGutter({
   style,
   disabled,
 }: ResizeGutterProps) {
+  const dragCleanup = React.useRef<(() => void) | null>(null);
+  React.useEffect(() => () => dragCleanup.current?.(), []);
   const dragging = React.useRef(false);
   const last = React.useRef(0);
   const activeAxis = React.useRef<Axis>(axis);
@@ -90,6 +95,7 @@ export function ResizeGutter({
       if (e.button !== 0) return;
       e.preventDefault();
       e.stopPropagation();
+      dragCleanup.current?.();
       const ax = getAxis();
       activeAxis.current = ax;
       dragging.current = true;
@@ -105,20 +111,22 @@ export function ResizeGutter({
       document.body.style.userSelect = "none";
 
       const onMove = (ev: PointerEvent) => {
-        if (!dragging.current) return;
+        if (!dragging.current || ev.pointerId !== e.pointerId) return;
         const pos = activeAxis.current === "horizontal" ? ev.clientX : ev.clientY;
         const delta = pos - last.current;
         last.current = pos;
         if (delta !== 0) onDeltaRef.current(delta, activeAxis.current);
       };
 
-      const onUp = (ev: PointerEvent) => {
-        endDrag(gutter, ev.pointerId);
+      const cleanup = () => {
+        endDrag(gutter, e.pointerId);
         window.removeEventListener("pointermove", onMove);
         window.removeEventListener("pointerup", onUp);
         window.removeEventListener("pointercancel", onUp);
       };
 
+      const onUp = (ev: PointerEvent) => { if (ev.pointerId === e.pointerId) cleanup(); };
+      dragCleanup.current = cleanup;
       window.addEventListener("pointermove", onMove);
       window.addEventListener("pointerup", onUp);
       window.addEventListener("pointercancel", onUp);
@@ -141,12 +149,14 @@ export function ResizeGutter({
       }
       if (e.key === "Home" && typeof min === "number" && typeof value === "number") {
         e.preventDefault();
-        onDeltaRef.current(min - value, ax);
+        if (onValue) onValue(min);
+        else onDeltaRef.current(min - value, ax);
         return;
       }
       if (e.key === "End" && typeof max === "number" && typeof value === "number") {
         e.preventDefault();
-        onDeltaRef.current(max - value, ax);
+        if (onValue) onValue(max);
+        else onDeltaRef.current(max - value, ax);
         return;
       }
       if ((e.key === "Enter" || e.key === " ") && onResetRef.current) {
@@ -159,7 +169,7 @@ export function ResizeGutter({
         onDeltaRef.current(delta, ax);
       }
     },
-    [disabled, getAxis, keyboardStep, min, max, value]
+    [disabled, getAxis, keyboardStep, min, max, value, onValue]
   );
 
   const orientation = axis === "horizontal" ? "vertical" : "horizontal";

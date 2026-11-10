@@ -228,6 +228,12 @@ const ExplainTurn = React.memo(function ExplainTurn({
       <div className="text-[10px] text-[var(--muted)] mb-1 font-ui">
         {msg.role === "user" ? "你" : msg.mock ? "示例讲解" : "讲解"}
       </div>
+      {msg.role === "assistant" && msg.files && <details className="mb-1 text-[11px] text-[var(--muted)]">
+        <summary>本次上下文 · {msg.files.length} 个文件 / 片段</summary>
+        {msg.files.length === 0 ? "未附带文件正文或选区" : msg.files.map((file, index) =>
+          <p key={index} className="break-all">{file.path} · 从 {file.startLine ?? 1} 行起</p>)}
+      </details>}
+      {msg.failure && <button type="button" className="min-h-10 text-xs text-[var(--accent)]" onClick={onRetry}>重试本次讲解</button>}
       {msg.role === "assistant" ? (
         kind === "generating" ? (
           <div className="flex items-center gap-1.5 text-[var(--muted)] text-xs">

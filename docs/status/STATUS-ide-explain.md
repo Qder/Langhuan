@@ -208,3 +208,10 @@ prior 回显。要复现本轮：起一个 OpenAI 兼容 SSE 端点，把请求 
 - [ ] 打包桌面 WebView 点两轮。**未验**（以浏览器发问 + 单测 / Rust `openai_messages` 为准）。
 
 浏览器 / 桌面差异：组装在 TS，转发语义一致，**应无差异**。
+
+
+## 2026-11-10：平板讲解与导入/版本体验
+
+本轮仅源码与本地提交，未推送、未发布、未打 APK，版本号未变。详见
+[STATUS-tablet-reading.md](STATUS-tablet-reading.md)。讲解设置的 `ExplainUsageHelp`
+仍默认关闭；不变更 API Key 存储和网络通路。

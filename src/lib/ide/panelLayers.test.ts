@@ -263,13 +263,17 @@ describe("IdeShell 里不再用 effect 同步两个开关", () => {
   const effectDeps = [...src.matchAll(/React\.useEffect\([\s\S]*?\}, \[([^\]]*)\]\);/g)]
     .map((m) => m[1] ?? "");
 
-  it("没有任何 effect 同时依赖两个层开关", () => {
-    expect(effectDeps.length).toBeGreaterThan(0); // 正则没匹配上时要响
-    for (const deps of effectDeps) {
+  it("同时依赖两个开关仅限尺寸适配，不得同步修改开关", () => {
+    const effects = [...src.matchAll(/React\.useEffect\(([\s\S]*?)\}, \[([^\]]*)\]\);/g)];
+    expect(effects.length).toBeGreaterThan(0);
+    for (const [, body, deps] of effects) {
       const names = deps.split(",").map((d) => d.trim());
-      const both =
-        names.includes("explainOpen") && names.includes("explorerOpen");
-      expect(both).toBe(false);
+      if (!names.includes("explainOpen") || !names.includes("explorerOpen")) continue;
+      // Rotation refits widths only. Never reintroduce the old Boolean-sync effect.
+      expect(body).toContain("clampIdeExplainWidth");
+      expect(body).toContain("clampIdeExplorerWidth");
+      expect(body).not.toContain("setExplainOpen(");
+      expect(body).not.toContain("setExplorerOpen(");
     }
   });
 
@@ -308,5 +312,28 @@ describe("IdeShell 里不再用 effect 同步两个开关", () => {
     const drawerDecl = src.match(/const showDrawer =[\s\S]*?;\r?\n/);
     expect(drawerDecl).toBeTruthy();
     expect(drawerDecl![0]).toContain("!isLg");
+  });
+});
+
+describe("讲解选区请求快照", () => {
+  it("保留用户正文/相关/工程勾选，选区发送前捕获且不依赖之后焦点", () => {
+    const selection = { path: "src/Example.java", text: "chosen text", fromLine: 3, toLine: 4 };
+    useIdeStore.setState({ selection, pendingExplainRequest: null });
+    useIdeStore.getState().setExplainContext({ includeFile: false, includeNearby: false, includeFolder: false });
+    expect(useIdeStore.getState().requestExplainSelection()).toBe(true);
+    const request = useIdeStore.getState().pendingExplainRequest!;
+    expect(request.includeFile).toBe(false);
+    expect(request.includeSelection).toBe(true);
+    expect(request.selection).toEqual(selection);
+    expect(request.selection).not.toBe(selection);
+    useIdeStore.getState().setSelection(null);
+    expect(request.selection?.text).toBe("chosen text");
+    expect(useIdeStore.getState().explainContext.includeNearby).toBe(false);
+    expect(useIdeStore.getState().explainContext.includeFolder).toBe(false);
+  });
+  it("没有选区不创建请求", () => {
+    useIdeStore.setState({ selection: null, pendingExplainRequest: null });
+    expect(useIdeStore.getState().requestExplainSelection()).toBe(false);
+    expect(useIdeStore.getState().pendingExplainRequest).toBeNull();
   });
 });

@@ -9,7 +9,7 @@
 export type ExplainSheetState = "half" | "full";
 
 export const EXPLAIN_SHEET_HALF_VH = 62;
-export const EXPLAIN_SHEET_FULL_VH = 92;
+export const EXPLAIN_SHEET_FULL_VH = 100;
 
 /**
  * 高度直接给内联样式：`dvh` + `min()` 走 Tailwind 任意值要过 JIT 扫描，

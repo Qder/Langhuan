@@ -10,7 +10,7 @@ import {
 describe("explain sheet（窄屏讲解抽屉）", () => {
   it("半高默认留出编辑器上半段，加高档才更高", () => {
     expect(explainSheetHeightStyle("half").height).toBe("min(62dvh, 100dvh)");
-    expect(explainSheetHeightStyle("full").height).toBe("min(92dvh, 100dvh)");
+    expect(explainSheetHeightStyle("full").height).toBe("min(100dvh, 100dvh)");
   });
 
   it("只有加高档铺遮罩，半高时顶栏 Tab 可点", () => {

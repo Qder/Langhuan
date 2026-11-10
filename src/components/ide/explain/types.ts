@@ -13,6 +13,7 @@ export type SendExplain = (
     includeFile?: boolean;
     includeSelection?: boolean;
     retryAssistantId?: string;
+    selection?: import("@/lib/ide/store").IdeState["selection"];
   }
 ) => Promise<void>;
 

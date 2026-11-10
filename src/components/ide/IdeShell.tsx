@@ -3,6 +3,8 @@
 import * as React from "react";
 import { useIdeStore } from "@/lib/ide/store";
 import { useStore } from "@/lib/store";
+import { IdeImportReport } from "./IdeImportReport";
+import { ReleaseNotes } from "../ReleaseNotes";
 import { IdeTopBar } from "./IdeTopBar";
 import { IdeExplorer } from "./IdeExplorer";
 import { IdeTabBar } from "./IdeTabBar";
@@ -27,6 +29,7 @@ import { IDE_FIND_EVENT, IDE_GOTO_DEF_EVENT } from "@/lib/ide/ideEvents";
 import { claimShortcut } from "@/lib/shortcuts";
 import {
   IDE_WIDE_QUERY,
+  IDE_EXPLAIN_DOCK_QUERY,
   isExplorerLayerVisible,
   toggleExplorerLayers,
 } from "@/lib/ide/panelLayers";
@@ -66,7 +69,32 @@ export function IdeShell() {
   const setOutlineOpen = useIdeStore((s) => s.setOutlineOpen);
   const toggleOutlineOpen = useIdeStore((s) => s.toggleOutlineOpen);
   const isLg = useMediaQuery(IDE_WIDE_QUERY);
+  const explainDocked = useMediaQuery(IDE_EXPLAIN_DOCK_QUERY);
   const isXl = useMediaQuery("(min-width: 1280px)");
+  const [explainMax, setExplainMax] = React.useState(IDE_EXPLAIN_WIDTH_MAX);
+  // Refit persisted desktop sizes when rotating a tablet or shrinking a window.
+  React.useEffect(() => {
+    const fit = () => {
+      const width = splitRef.current?.getBoundingClientRect().width ?? 0;
+      if (!width || !explainDocked) return;
+      const state = useIdeStore.getState();
+      const tree = isLg && state.explorerOpen;
+      const nextExplain = clampIdeExplainWidth(state.explainWidth, {
+        containerWidth: width, explorerOpen: tree, explorerWidth: IDE_EXPLORER_WIDTH_MIN,
+      });
+      const nextTree = clampIdeExplorerWidth(state.explorerWidth, {
+        containerWidth: width, explainOpen: state.explainOpen, explainWidth: nextExplain,
+      });
+      if (state.explainOpen && nextExplain !== state.explainWidth) state.setExplainWidth(nextExplain);
+      if (tree && nextTree !== state.explorerWidth) state.setExplorerWidth(nextTree);
+      setExplainMax(clampIdeExplainWidth(IDE_EXPLAIN_WIDTH_MAX, {
+        containerWidth: width, explorerOpen: tree, explorerWidth: nextTree,
+      }));
+    };
+    const frame = requestAnimationFrame(fit);
+    window.addEventListener("resize", fit);
+    return () => { cancelAnimationFrame(frame); window.removeEventListener("resize", fit); };
+  }, [isLg, explainDocked, explorerOpen, explainOpen, explorerWidth]);
   const [quickOpen, setQuickOpen] = React.useState(false);
   const [gotoLineOpen, setGotoLineOpen] = React.useState(false);
   const [workspaceSearchOpen, setWorkspaceSearchOpen] = React.useState(false);
@@ -275,12 +303,12 @@ export function IdeShell() {
       setExplorerWidth(
         clampIdeExplorerWidth(s.explorerWidth + deltaPx, {
           containerWidth: container,
-          explainOpen: isLg && s.explainOpen,
+          explainOpen: explainDocked && s.explainOpen,
           explainWidth: s.explainWidth,
         })
       );
     },
-    [isLg, setExplorerWidth]
+    [explainDocked, setExplorerWidth]
   );
 
   const onExplainDelta = React.useCallback(
@@ -393,13 +421,14 @@ export function IdeShell() {
           )}
         </div>
 
-        {explainOpen && isLg && (
+        {explainOpen && explainDocked && (
           <ResizeGutter
             axis="horizontal"
             label="调整讲解面板宽度"
             value={explainWidth}
             min={IDE_EXPLAIN_WIDTH_MIN}
-            max={IDE_EXPLAIN_WIDTH_MAX}
+            max={explainMax}
+            onValue={(value) => onExplainDelta(useIdeStore.getState().explainWidth - value)}
             onDelta={onExplainDelta}
             onReset={() => setExplainWidth(IDE_EXPLAIN_WIDTH_DEFAULT)}
           />
@@ -434,11 +463,13 @@ export function IdeShell() {
         )}
       >
         <span
-          className="min-w-0 break-all leading-tight"
+          className="flex-1 min-w-0 break-all leading-tight"
           title={status || undefined}
         >
           {status || "读码 · 讲解"}
         </span>
+        <IdeImportReport />
+        <ReleaseNotes />
       </div>
     </div>
   );

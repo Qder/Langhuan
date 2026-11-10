@@ -7,18 +7,13 @@ import type { SendExplain } from "./types";
 /**
  * Consume the one-shot「讲解选区」request.
  *
- * Include flags are aligned during render (props → state). Sending stays in
- * an effect so we don't trip set-state-in-effect, and a nonce ref stops the
- * store-clear from firing the same question twice.
+ * Include flags are applied by the store event that creates the request.
+ * Sending stays in an effect; nonce + unmount guards stop duplicate sends.
  */
 export function usePendingExplain({
   sendRef,
-  setIncludeFile,
-  setIncludeSelection,
 }: {
   sendRef: React.MutableRefObject<SendExplain>;
-  setIncludeFile: (v: boolean) => void;
-  setIncludeSelection: (v: boolean) => void;
 }) {
   const pendingExplainRequest = useIdeStore((s) => s.pendingExplainRequest);
   const clearPendingExplainRequest = useIdeStore(
@@ -32,18 +27,6 @@ export function usePendingExplain({
       aliveRef.current = false;
     };
   }, []);
-
-  const [appliedRequestNonce, setAppliedRequestNonce] = React.useState<
-    number | null
-  >(null);
-  if (
-    pendingExplainRequest &&
-    pendingExplainRequest.nonce !== appliedRequestNonce
-  ) {
-    setAppliedRequestNonce(pendingExplainRequest.nonce);
-    setIncludeFile(pendingExplainRequest.includeFile);
-    setIncludeSelection(pendingExplainRequest.includeSelection);
-  }
 
   React.useEffect(() => {
     const req = pendingExplainRequest;
@@ -59,6 +42,7 @@ export function usePendingExplain({
       void sendRef.current(req.question, {
         includeFile: req.includeFile,
         includeSelection: req.includeSelection,
+        selection: req.selection,
       });
     }, 0);
   }, [pendingExplainRequest, clearPendingExplainRequest, sendRef]);

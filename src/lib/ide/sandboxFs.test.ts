@@ -122,3 +122,55 @@ describe("importZipToSandbox", () => {
     expect(bad.ok).toBe(false);
   });
 });
+
+describe("ZIP 中文名与逐文件导入报告", () => {
+  it("UTF-8 标志与 Unicode extra field 下中文文件名不被 GBK 回退破坏", async () => {
+    const zip = new JSZip(); zip.file("作业/中文.java", "class Example {}");
+    const result = await importZipToSandbox(await zip.generateAsync({ type: "uint8array" }), "作业.zip");
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.project.files["中文.java"]).toBe("class Example {}");
+  });
+
+  it("无 UTF-8 标志、无 Unicode extra 的 CP936/GBK 中文名正确导入", async () => {
+    const zip = new JSZip(); zip.file("abcd.java", "class Legacy {}");
+    const bytes = await zip.generateAsync({ type: "uint8array" });
+    // ASCII ZIP has neither UTF-8 flag nor Unicode path extra. Replace both names
+    // in local/central headers with equal-length GBK bytes for 中文 (D6 D0 CE C4).
+    for (let i = 0; i < bytes.length - 4; i++) {
+      if (bytes[i] === 97 && bytes[i+1] === 98 && bytes[i+2] === 99 && bytes[i+3] === 100) bytes.set([0xd6, 0xd0, 0xce, 0xc4], i);
+    }
+    const result = await importZipToSandbox(bytes, "legacy.zip");
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.project.files["中文.java"]).toBe("class Legacy {}");
+  });
+
+  it("列出真实跳过路径/原因，JSZip 清洗过的 traversal 也不能绕过验证", async () => {
+    const zip = new JSZip();
+    zip.file("good.ts", "ok"); zip.file("image.png", "binary"); zip.file("nul.ts", "a\0b");
+    zip.file("huge.txt", "x".repeat(2 * 1024 * 1024 + 1));
+    zip.file("node_modules/skip.js", "ignore"); zip.file("../evil.ts", "unsafe");
+    zip.file("损坏�.ts", "unrecoverable name");
+    const result = await importZipToSandbox(await zip.generateAsync({ type: "uint8array" }), "report.zip");
+    expect(result.ok).toBe(true); if (!result.ok) return;
+    expect(result.project.files).toEqual({ "good.ts": "ok" });
+    expect(result.skipped).toBe(6);
+    const reasons = Object.fromEntries(result.skippedFiles.map((item) => [item.path, item.reason]));
+    expect(reasons["image.png"]).toContain("非文本");
+    expect(reasons["nul.ts"]).toContain("NUL");
+    expect(reasons["huge.txt"]).toContain("2 MiB");
+    expect(reasons["node_modules/skip.js"]).toContain("忽略");
+    expect(reasons["../evil.ts"]).toContain("不安全");
+    expect(reasons["损坏�.ts"]).toContain("无法可靠恢复");
+  });
+
+  it("拒绝绝对路径、驱动器路径、控制字符和对象原型路径", () => {
+    for (const path of ["/etc/config.ts", "C:/src/a.ts", "src/../a.ts", "a\0.ts", "__proto__/a.ts", "�.ts"]) expect(normalizeZipEntryPath(path)).toBeNull();
+  });
+
+  it("完全失败也保留跳过原因供详情显示", async () => {
+    const zip = new JSZip(); zip.file("image.png", "binary");
+    const result = await importZipToSandbox(await zip.generateAsync({ type: "uint8array" }), "no-text.zip");
+    expect(result.ok).toBe(false);
+    expect(result.skippedFiles).toEqual([{ path: "image.png", reason: "非文本文件类型" }]);
+  });
+});

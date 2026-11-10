@@ -9,6 +9,8 @@
  */
 
 /** 宽屏（左树 + 右讲解可同开）的门槛，和 IdeShell / 顶栏共用一份。 */
+export const IDE_EXPLAIN_DOCK_QUERY = "(min-width: 768px)";
+
 export const IDE_WIDE_QUERY = "(min-width: 1024px)";
 
 export type IdePanelLayers = {

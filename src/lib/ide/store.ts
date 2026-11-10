@@ -105,7 +105,7 @@ export type IdeExplainSettings = {
   model: string;
 };
 
-type IdeState = {
+export type IdeState = {
   recent: IdeRecentProjectMeta[];
   session: IdeFolderSession | null;
   /** Expanded folder paths in the explorer. */
@@ -131,6 +131,8 @@ type IdeState = {
   pendingReveal: IdePendingReveal | null;
   /** After open/jump: explorer scrolls row into view then clears. */
   pendingExplorerReveal: { path: string; nonce: number } | null;
+  /** Last import report, kept in memory until changing project. */
+  importReport: import("./sandboxFs").IdeImportSkip[] | null;
   /** Current editor selection for explain context. */
   selection: (IdeExplainSelection & { path: string }) | null;
   /** Recently opened files across projects, newest first. */
@@ -140,6 +142,8 @@ type IdeState = {
    * next successful openFolder / openRecent.
    */
   pendingIdeLink: IdeLinkTarget | null;
+  explainContext: { includeFile: boolean; includeSelection: boolean; includeNearby: boolean; includeFolder: boolean };
+  setExplainContext: (patch: Partial<IdeState["explainContext"]>) => void;
   explainOpen: boolean;
   explainWidth: number;
   /** Active thread messages keyed by project session.id (mirrors threads). */
@@ -153,6 +157,7 @@ type IdeState = {
     question: string;
     includeSelection: boolean;
     includeFile: boolean;
+    selection?: IdeState["selection"];
   } | null;
 
   setExplorerOpen: (v: boolean) => void;
@@ -259,6 +264,7 @@ function rememberSession(
     pendingReveal: null,
     pendingExplorerReveal: null,
     selection: null,
+    importReport: null,
     // recentFiles is deliberately kept: it is a cross-project list, and the
     // welcome/no-file screens label each row with its own project name.
     pendingExplainRequest: null,
@@ -324,10 +330,13 @@ export const useIdeStore = create<IdeState>()(
       loadingTree: false,
       pendingReveal: null,
       pendingExplorerReveal: null,
+      importReport: null,
       selection: null,
       recentFiles: [],
       pendingIdeLink: null,
       explainOpen: false,
+      explainContext: { includeFile: true, includeSelection: false, includeNearby: true, includeFolder: false },
+      setExplainContext: (patch) => set((s) => ({ explainContext: { ...s.explainContext, ...patch } })),
       explainWidth: IDE_EXPLAIN_WIDTH_DEFAULT,
       explainBySession: {},
       explainThreadsBySession: {},
@@ -376,11 +385,13 @@ export const useIdeStore = create<IdeState>()(
         if (!planned) return false;
         set((s) => ({
           ...openLayer({ explorerOpen: s.explorerOpen, explainOpen: s.explainOpen }, "explain", isCompactIdeLayout()),
+          explainContext: { ...s.explainContext, includeSelection: true },
           pendingExplainRequest: {
             nonce: Date.now(),
             question: planned.question,
             includeSelection: true,
-            includeFile: planned.includeFile,
+            includeFile: s.explainContext.includeFile,
+            selection: s.selection ? { ...s.selection } : null,
           },
         }));
         return true;
@@ -582,18 +593,19 @@ export const useIdeStore = create<IdeState>()(
           (typeof File !== "undefined" && file instanceof File
             ? file.name
             : "工程.zip");
-        set({ status: "正在导入 zip…" });
+        set({ status: "正在导入 zip…", importReport: null });
         const result = await importZipToSandbox(file, name);
         if (!result.ok) {
-          set({ status: result.error });
+          set({ status: result.error, importReport: result.skippedFiles ?? null });
           return false;
         }
         const session = sessionFromSandbox(result.project);
         rememberSession(set, get, session);
         const notes: string[] = [];
-        if (result.skipped > 0) notes.push(`跳过 ${result.skipped} 个非文本/过大文件`);
+        if (result.skipped > 0) notes.push(`跳过 ${result.skipped} 个文件（可查看详情）`);
         if (result.truncated) notes.push("工程过大，已截断部分文件");
         set({
+          importReport: result.skippedFiles,
           status: notes.length
             ? `已导入「${session.name}」（${notes.join("；")}）`
             : `已导入「${session.name}」`,
@@ -782,6 +794,7 @@ export const useIdeStore = create<IdeState>()(
           pendingClose: null,
           pendingReveal: null,
           selection: null,
+          importReport: null,
           pendingExplainRequest: null,
           status: "已关闭工程",
         });
