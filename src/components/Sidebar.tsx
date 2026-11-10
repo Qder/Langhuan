@@ -1586,16 +1586,16 @@ export function Sidebar() {
         <div className="h-10 shrink-0 border-t border-[var(--border)] px-2 flex items-center justify-between gap-1">
           <button
             type="button"
-            onClick={() => setBackupDialogOpen(true)}
+            onClick={() => setSettingsDialogOpen(true)}
             className="min-w-0 flex-1 rounded-lg px-1.5 py-1 text-left hover:bg-[var(--hover)]"
-            title="备份与恢复"
+            title="存储用量与缓存清理"
           >
             <div className="text-[10px] text-[var(--muted)] leading-tight truncate">
               {storageUsage?.level === "crit"
                 ? "存储告急"
                 : storageUsage?.level === "warn"
                   ? "存储偏高"
-                  : "IndexedDB"}
+                  : "存储用量"}
             </div>
             <div
               className={cn(

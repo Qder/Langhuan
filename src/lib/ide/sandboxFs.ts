@@ -5,7 +5,7 @@
  * zip，或在 Android 应用里一次性选择系统文件夹，文本文件进 IndexedDB 沙箱。
  * 不写 content/，编辑保存在沙箱，不写回原来的 zip / 文件夹。
  */
-import { get, set, del } from "idb-keyval";
+import { get, set, del, keys } from "idb-keyval";
 import JSZip from "jszip";
 import { shouldIgnoreName } from "./ignore";
 import type { IdeFsEntry, IdeFolderSession } from "./ideFs";
@@ -77,6 +77,39 @@ export async function clearSandboxProject(id: string): Promise<void> {
   } catch {
     /* ignore */
   }
+}
+
+
+export function estimateSandboxProjectBytes(project: IdeSandboxProject): number {
+  try {
+    return new Blob([JSON.stringify(project)]).size;
+  } catch {
+    try {
+      return JSON.stringify(project).length;
+    } catch {
+      return 0;
+    }
+  }
+}
+
+/** Every `langhuan-ide-sandbox:*` record. These are often the only copy of an imported project. */
+export async function listSandboxProjects(): Promise<IdeSandboxProject[]> {
+  const out: IdeSandboxProject[] = [];
+  try {
+    for (const key of await keys()) {
+      if (typeof key !== "string" || !key.startsWith(IDE_SANDBOX_KEY_PREFIX)) continue;
+      const project = await loadSandboxProject(key.slice(IDE_SANDBOX_KEY_PREFIX.length));
+      if (project) out.push(project);
+    }
+  } catch {
+    return out;
+  }
+  return out;
+}
+
+export async function estimateSandboxBytes(): Promise<number> {
+  const projects = await listSandboxProjects();
+  return projects.reduce((n, p) => n + estimateSandboxProjectBytes(p), 0);
 }
 
 /** Normalize zip entry path; drop traversal / junk. */

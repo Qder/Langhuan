@@ -10,6 +10,7 @@ vi.mock("idb-keyval", () => ({
   del: async (key: string) => {
     memory.delete(key);
   },
+  keys: async () => [...memory.keys()],
 }));
 
 import {
@@ -17,6 +18,11 @@ import {
   importEntriesToSandbox,
   importZipToSandbox,
   listSandboxDir,
+  listSandboxProjects,
+  estimateSandboxBytes,
+  estimateSandboxProjectBytes,
+  storeSandboxProject,
+  loadSandboxProject,
   normalizeZipEntryPath,
   readSandboxFile,
   sessionFromSandbox,
@@ -213,5 +219,26 @@ describe("importEntriesToSandbox", () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error).toMatch(/没有可预览的文本源码/);
+  });
+});
+
+describe("listSandboxProjects / estimateSandboxBytes", () => {
+  it("lists stored sandboxes and measures their JSON size, not a guessed number", async () => {
+    const project: IdeSandboxProject = {
+      id: "sandbox:demo",
+      name: "demo",
+      pathLabel: "导入 zip · demo.zip",
+      sourceName: "demo.zip",
+      importedAt: 1,
+      files: { "src/a.ts": "export const n = 1;\n" },
+    };
+    await storeSandboxProject(project);
+    const listed = await listSandboxProjects();
+    expect(listed).toHaveLength(1);
+    expect(listed[0]?.id).toBe("sandbox:demo");
+    expect(await loadSandboxProject("sandbox:demo")).toEqual(project);
+    const bytes = estimateSandboxProjectBytes(project);
+    expect(bytes).toBeGreaterThan(0);
+    expect(await estimateSandboxBytes()).toBe(bytes);
   });
 });

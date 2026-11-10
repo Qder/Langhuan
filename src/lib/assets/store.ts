@@ -61,6 +61,31 @@ export async function saveAssetMetaList(list: AssetMeta[]): Promise<void> {
   await set(ASSET_META_KEY, list);
 }
 
+export function assetObjectUrlCacheSize(): number {
+  return urlCache.size;
+}
+
+/** Session object URLs are regenerateable; this does not delete unique blobs. */
+export function revokeAllAssetObjectUrls(): number {
+  const n = urlCache.size;
+  for (const id of [...urlCache.keys()]) revokeAssetObjectUrl(id);
+  return n;
+}
+
+/** Map of asset id → blob.size for blobs that are actually present in IndexedDB. */
+export async function estimateAssetBlobSizes(): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  const all = await keys();
+  for (const k of all) {
+    if (typeof k !== "string" || !k.startsWith(ASSET_BLOB_PREFIX)) continue;
+    const blob = await get<Blob>(k);
+    if (blob && typeof blob.size === "number") {
+      out.set(k.slice(ASSET_BLOB_PREFIX.length), blob.size);
+    }
+  }
+  return out;
+}
+
 export async function clearAllAssetBlobs(): Promise<void> {
   try {
     const all = await keys();

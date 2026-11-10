@@ -38,6 +38,10 @@ export function peekAsset(root: string, rel: string): AssetEntry | undefined {
 }
 
 /** 清掉缓存（测试用；也用于「重新导入项目」后避免拿到旧字节）。 */
+export function projectAssetCacheSize(): number {
+  return cache.size;
+}
+
 export function clearProjectAssetCache(root?: string): void {
   generation += 1;
   if (!root) {

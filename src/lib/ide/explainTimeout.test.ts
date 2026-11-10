@@ -5,6 +5,8 @@ import {
   EXPLAIN_REQUEST_TIMEOUT_MS,
   assistantBubbleKind,
   createExplainWatchdog,
+  EXPLAIN_NETWORK_FAILURE_MESSAGE,
+  EXPLAIN_OFFLINE_MESSAGE,
   explainTimeoutMessage,
   explainTransportFailure,
   finalizeExplainReply,
@@ -127,5 +129,30 @@ describe("createExplainWatchdog", () => {
     expect(wd2.signal.aborted).toBe(false);
     wd2.dispose();
     vi.useRealTimers();
+  });
+});
+
+describe("讲解离线或网络失败不阻断本地学习", () => {
+  it("离线时给出非阻断中文说明，且不把失败写成超时", () => {
+    const r = explainTransportFailure(new TypeError("Failed to fetch"), {
+      userAborted: false,
+      online: false,
+    });
+    expect(r).toEqual({ kind: "error", message: EXPLAIN_OFFLINE_MESSAGE });
+    if (r.kind === "error") {
+      expect(r.message).not.toMatch(/超时/);
+      expect(r.message).toMatch(/仍可离线使用/);
+    }
+  });
+
+  it("在线但传输失败时说明只影响讲解面板", () => {
+    const r = explainTransportFailure(new TypeError("Failed to fetch"), {
+      userAborted: false,
+      online: true,
+    });
+    expect(r).toEqual({ kind: "error", message: EXPLAIN_NETWORK_FAILURE_MESSAGE });
+    if (r.kind === "error") {
+      expect(r.message).toMatch(/不受影响/);
+    }
   });
 });

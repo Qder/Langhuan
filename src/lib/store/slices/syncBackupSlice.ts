@@ -51,9 +51,25 @@ export const createSyncBackupSlice: StateCreator<
         return measureLibraryBytes(documents, drafts, trash);
       },
   refreshStorageUsage: async () => {
-        const { documents, drafts, trash } = get();
+        const {
+          documents,
+          drafts,
+          trash,
+          assets,
+          annotations,
+          savedSearches,
+          quizDocs,
+          learningTopics,
+        } = get();
         try {
-          const usage = await computeStorageUsage(documents, drafts, trash);
+          const usage = await computeStorageUsage(documents, drafts, trash, {
+            assets,
+            annotations,
+            savedSearches,
+            quizDocs,
+            learningTopics,
+            readingProgress: readScrollMemoryMap(),
+          });
           set({ storageUsage: usage });
         } catch {
           /* ignore */

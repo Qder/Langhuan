@@ -57,14 +57,45 @@ export function isAbortLike(err: unknown): boolean {
   return false;
 }
 
-/** 用户点停止以外的传输失败：超时走中文，其它原样（已经是中文的上游错误）。 */
+export const EXPLAIN_OFFLINE_MESSAGE =
+  "当前无网络，讲解需要联网。阅读、批注、笔记、专题和已导入的读码项目仍可离线使用。";
+
+export const EXPLAIN_NETWORK_FAILURE_MESSAGE =
+  "讲解请求失败（网络或接口不可用）。阅读、批注、笔记、专题和已导入的读码项目不受影响，可继续使用。";
+
+export function isNavigatorOffline(online: boolean | undefined = undefined): boolean {
+  if (typeof online === "boolean") return !online;
+  try {
+    return typeof navigator !== "undefined" && navigator.onLine === false;
+  } catch {
+    return false;
+  }
+}
+
+export function isExplainNetworkFailure(err: unknown): boolean {
+  const raw = err instanceof Error ? err.message : typeof err === "string" ? err : String(err ?? "");
+  const name = err instanceof Error ? err.name : "";
+  return /failed to fetch|networkerror|network request failed|load failed|net::err_|err_internet|offline|internet disconnected/i.test(
+    `${name} ${raw}`
+  );
+}
+
+/** 用户点停止以外的传输失败：超时走中文，离线/网络失败说明不影响本地学习，其它原样。 */
 export function explainTransportFailure(
   err: unknown,
-  opts: { userAborted: boolean; baseUrl?: string }
+  opts: { userAborted: boolean; baseUrl?: string; online?: boolean }
 ): { kind: "aborted" } | { kind: "error"; message: string } {
   if (opts.userAborted) return { kind: "aborted" };
   if (isAbortLike(err)) {
     return { kind: "error", message: explainTimeoutMessage(opts.baseUrl) };
+  }
+  if (isNavigatorOffline(opts.online) || isExplainNetworkFailure(err)) {
+    return {
+      kind: "error",
+      message: isNavigatorOffline(opts.online)
+        ? EXPLAIN_OFFLINE_MESSAGE
+        : EXPLAIN_NETWORK_FAILURE_MESSAGE,
+    };
   }
   const raw = err instanceof Error ? err.message : typeof err === "string" ? err : "";
   const msg = raw.trim() || "讲解失败";

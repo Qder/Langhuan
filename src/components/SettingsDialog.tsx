@@ -20,6 +20,7 @@ import {
   ZOOM_OPTIONS,
 } from "@/lib/readingPrefs";
 import { UpdateSettings } from "./UpdateSettings";
+import { StorageUsageSettings } from "./StorageUsageSettings";
 
 const FONT_SIZES = [15, 17, 19, 21] as const;
 const LINE_WIDTHS: [number, string][] = [
@@ -57,7 +58,7 @@ export function SettingsDialog() {
             设置
           </h2>
           <p className="text-sm text-[var(--muted)] mt-1">
-            主题、阅读、自动保存与检查更新。命令与导航仍在 ⌘K。
+            主题、阅读、自动保存、存储占用与检查更新。命令与导航仍在 ⌘K。
           </p>
         </div>
         <button
@@ -272,6 +273,8 @@ export function SettingsDialog() {
             </button>
           </label>
         </section>
+
+        <StorageUsageSettings />
 
         <UpdateSettings />
 

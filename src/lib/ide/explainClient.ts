@@ -29,6 +29,8 @@ import {
   createExplainWatchdog,
   explainTimeoutMessage,
   explainTransportFailure,
+  isExplainNetworkFailure,
+  isNavigatorOffline,
   raceWithDeadline,
 } from "@/lib/ide/explainTimeout";
 
@@ -71,6 +73,10 @@ function chatMessagesFor(req: ExplainStreamRequest): ExplainChatMessage[] {
 }
 
 function normalizeBridgeError(e: unknown): string {
+  const fail = explainTransportFailure(e, { userAborted: false });
+  if (fail.kind === "error" && (isNavigatorOffline() || isExplainNetworkFailure(e))) {
+    return fail.message;
+  }
   const raw = e instanceof Error ? e.message : typeof e === "string" ? e : "";
   const msg = raw.trim();
   if (!msg) return DESKTOP_EXPLAIN_BRIDGE_ERROR;
