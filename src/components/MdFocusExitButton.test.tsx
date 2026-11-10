@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as React from "react";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { MdFocusExitButton } from "./MdFocusExitButton";
 import { requestToggleToc, isTocPanelOpen, setTocPanelOpen } from "@/lib/tocPanel";
+import type { BatteryManagerLike, NavigatorWithBattery } from "@/lib/immersiveClockBattery";
 
 const setMdFocusMode = vi.fn();
 const setStatus = vi.fn();
@@ -64,6 +65,7 @@ beforeEach(() => {
   setReadingPrefs.mockReset();
   current = doc;
   setTocPanelOpen(false);
+  delete (navigator as NavigatorWithBattery).getBattery;
 });
 
 function mount() {
@@ -195,6 +197,89 @@ describe("MdFocusExitButton（专注浮动条）", () => {
     });
     expect(document.querySelector("[data-toc-popover]")).toBeNull();
     expect(setMdFocusMode).not.toHaveBeenCalled();
+    cleanup();
+  });
+});
+
+
+function installBattery(initial: { level: number; charging: boolean }): BatteryManagerLike & {
+  emit: (type: string) => void;
+} {
+  const listeners = new Map<string, Set<() => void>>();
+  const battery = {
+    level: initial.level,
+    charging: initial.charging,
+    addEventListener(type: string, listener: () => void) {
+      const set = listeners.get(type) ?? new Set();
+      set.add(listener);
+      listeners.set(type, set);
+    },
+    removeEventListener(type: string, listener: () => void) {
+      listeners.get(type)?.delete(listener);
+    },
+    emit(type: string) {
+      listeners.get(type)?.forEach((fn) => fn());
+    },
+  };
+  Object.defineProperty(navigator, "getBattery", {
+    configurable: true,
+    writable: true,
+    value: () => Promise.resolve(battery),
+  });
+  return battery;
+}
+
+describe("MdFocusExitButton（右上角时间与电量）", () => {
+  afterEach(() => {
+    delete (navigator as NavigatorWithBattery).getBattery;
+  });
+
+  it("另开一块右上角胶团显示本地时间，不塞进左侧条", () => {
+    const { host, cleanup } = mount();
+    const pill = host.querySelector("[data-immersive-clock-battery]");
+    expect(pill).toBeTruthy();
+    expect(pill?.className).toContain("safe-area-inset-right");
+    expect(pill?.className).toContain("safe-area-inset-top");
+    const time = host.querySelector('[aria-label^="本地时间 "]');
+    expect(time?.textContent).toMatch(/^\d{2}:\d{2}$/);
+    // 时间不在左侧 overflow 条里，避免把目录/退出/进度挤出可视区。
+    const leftBar = byLabel(host, "退出专注")?.parentElement;
+    expect(leftBar?.contains(pill)).toBe(false);
+    cleanup();
+  });
+
+  it("没有 Battery API 时只显示时间，不虚构 100%", () => {
+    const { host, cleanup } = mount();
+    const pill = host.querySelector("[data-immersive-clock-battery]");
+    expect(pill?.textContent).toMatch(/^\d{2}:\d{2}$/);
+    expect(host.querySelector('[aria-label^="电量 "]')).toBeNull();
+    expect(pill?.textContent).not.toContain("100%");
+    cleanup();
+  });
+
+  it("有电量时显示百分比，充电中加标记", async () => {
+    const fake = installBattery({ level: 0.87, charging: false });
+    const { host, root, cleanup } = mount();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const batteryEl = () => host.querySelector('[aria-label^="电量 "]');
+    expect(batteryEl()?.textContent).toContain("87%");
+    expect(batteryEl()?.getAttribute("aria-label")).toBe("电量 87%");
+    expect(host.querySelector("[data-immersive-clock-battery] svg")).toBeNull();
+
+    fake.charging = true;
+    await act(async () => {
+      fake.emit("chargingchange");
+    });
+    expect(batteryEl()?.getAttribute("aria-label")).toBe("电量 87%，充电中");
+    expect(host.querySelector("[data-immersive-clock-battery] svg")).toBeTruthy();
+
+    // 换文档重渲不应丢掉胶团。
+    await act(async () => {
+      root.render(<MdFocusExitButton />);
+    });
+    expect(host.querySelector("[data-immersive-clock-battery]")).toBeTruthy();
     cleanup();
   });
 });

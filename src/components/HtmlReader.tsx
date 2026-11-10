@@ -30,6 +30,7 @@ import type { HtmlLocatePayload, LocateResult } from "@/lib/locate";
 import type { RawCssHit } from "@/lib/locate/cssLocate";
 import type { BridgeElementNode } from "@/lib/locate/types";
 import { ElementInspector } from "./ElementInspector";
+import { ImmersiveClockBattery } from "./ImmersiveClockBattery";
 import { PreviewHoverStrip } from "./PreviewHoverStrip";
 import { prepareHtmlPreview } from "@/lib/fixHtmlPreview";
 import {
@@ -1013,6 +1014,7 @@ export function HtmlReader({ doc }: { doc: Document }) {
 
       {/* Immersive floating strip */}
       {htmlImmersive && (
+        <>
         <div className="pointer-events-auto fixed left-3 top-3 z-[60] flex items-center gap-1 rounded-full border border-white/15 bg-black/45 px-1.5 py-1 text-white shadow-lg backdrop-blur-md">
           <button
             type="button"
@@ -1066,6 +1068,8 @@ export function HtmlReader({ doc }: { doc: Document }) {
             退出
           </button>
         </div>
+        <ImmersiveClockBattery variant="html" />
+        </>
       )}
 
       {menu && (

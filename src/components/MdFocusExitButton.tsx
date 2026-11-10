@@ -11,6 +11,7 @@ import { useActiveHeading } from "./topbar/useActiveHeading";
 import { useDocAsideData } from "./topbar/useDocAsideData";
 import { useTocPanel } from "@/lib/tocPanel";
 import { useReadingProgressPercent } from "@/lib/useReadingProgress";
+import { ImmersiveClockBattery } from "./ImmersiveClockBattery";
 
 /** Floating strip while MD 专注 hides the top bar. */
 export function MdFocusExitButton() {
@@ -143,6 +144,7 @@ export function MdFocusExitButton() {
           />
         </span>
       </div>
+      <ImmersiveClockBattery variant="focus" />
       {active && tocOpen && (
         <TocPopover
           open={tocOpen}
