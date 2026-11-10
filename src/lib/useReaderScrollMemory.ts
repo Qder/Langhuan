@@ -8,8 +8,10 @@ import {
 } from "./scrollMemory";
 import { READER_SCROLL_ID } from "./useReadingProgress";
 
-/** 恢复后等两帧：图片 / mermaid / KaTeX 常在首帧之后才把正文撑高。 */
+/** 连续若干帧：图片 / mermaid / KaTeX 常在首帧之后才把正文撑高。 */
 const RESTORE_PASSES = 3;
+/** 从读码切回时布局可能尚未撑开，高度为 0 时按这个节奏再试，不把 0 当结论。 */
+const RESTORE_RETRY_MS = [200, 500, 1200] as const;
 
 export type ReaderScrollMemoryOptions = {
   /** 文档身份（content 相对路径）。空串 = 不记也不恢复。 */
@@ -44,48 +46,69 @@ export function useReaderScrollMemory({
   const trackedRef = React.useRef<Tracked | null>(null);
   /** 上一轮真正处理过的文档；`null` = 还没有过。 */
   const prevPathRef = React.useRef<string | null>(null);
+  /** 上一轮 effect 是否处于 enabled：用来区分「切回预览」和「yieldTo 变化」。 */
+  const prevEnabledRef = React.useRef(false);
 
   // 先「归零 + 恢复」，再挂保存监听：`#reader-scroll` 是共享节点，换篇时浏览器会
   // 把旧 scrollTop clamp 到新正文的最大值（更短的文档就停在底部）。若保存监听
   // 先挂上，那个 clamp 值会被当成新一篇的阅读位置写进去。
   React.useEffect(() => {
-    if (!enabled || !path) return;
-    const prev = prevPathRef.current;
+    if (!enabled || !path) {
+      prevEnabledRef.current = false;
+      return;
+    }
+    const prevPath = prevPathRef.current;
+    const enabledAgain = !prevEnabledRef.current;
+    const samePath = prevPath === path;
     prevPathRef.current = path;
-    // 同一篇重复跑 effect（比如从「定位到源码」回来）不再重来一遍。
-    if (prev === path) return;
-    restoredForRef.current = null;
+    prevEnabledRef.current = true;
+    // 同一篇且一直开着（例如从「定位到源码」回来）不再重来一遍。
+    // 预览被关掉再打开（切源码 / 切到读码再回来）要再试一次：隐藏或卸载
+    // 后 scrollTop 在部分 WebView 上会丢。
+    if (samePath && !enabledAgain) return;
+
+    const pathChanged = !samePath;
+    if (pathChanged) restoredForRef.current = null;
+
     const root = document.getElementById(READER_SCROLL_ID);
     if (!root) return;
-    // 共用节点上残留的 scrollTop 一律归零（可能是上一篇的，也可能是 clamp 过
-    // 的）。恢复流程随后会把真正的目标设上去。
-    if (root.scrollTop !== 0) {
-      suppressSaveRef.current = true;
-      root.scrollTop = 0;
-      window.setTimeout(() => {
-        suppressSaveRef.current = false;
-      }, 120);
+    let zeroTimer = 0;
+    // 换篇才清残留坐标。同一篇重新打开时保留当前 scrollTop，若已被重置为 0，
+    // 后面的恢复会补上。
+    if (pathChanged) {
+      if (root.scrollTop !== 0) {
+        suppressSaveRef.current = true;
+        root.scrollTop = 0;
+        zeroTimer = window.setTimeout(() => {
+          suppressSaveRef.current = false;
+        }, 120);
+      }
+      trackedRef.current = {
+        path,
+        top: 0,
+        max: root.scrollHeight - root.clientHeight,
+      };
     }
-    trackedRef.current = {
-      path,
-      top: 0,
-      max: root.scrollHeight - root.clientHeight,
-    };
 
     if (yieldTo) {
       restoredForRef.current = path;
-      return;
+      return () => {
+        if (zeroTimer) window.clearTimeout(zeroTimer);
+      };
     }
     const entry = readScrollMemory(path);
     // 没有记录（或记录已坏）：停在顶部，不要继承上一篇的坐标。
     if (!entry || entry.ratio <= 0) {
       restoredForRef.current = path;
-      return;
+      return () => {
+        if (zeroTimer) window.clearTimeout(zeroTimer);
+      };
     }
     restoredForRef.current = path;
 
     const rafs: number[] = [];
-    let timer = 0;
+    const retryTimers: number[] = [];
+    let suppressTimer = 0;
     /** 用户在恢复期间自己滚了 → 后续补帧不能把他拽回去。 */
     let settled = false;
     const onUserScroll = () => {
@@ -95,9 +118,20 @@ export function useReaderScrollMemory({
 
     const apply = () => {
       if (settled) return;
+      // 面板尚未撑开时 clientHeight 为 0，max 会虚高，绝不能按这个数落点。
+      if (root.clientHeight <= 0) return;
       const target = scrollTargetFor(entry, root.scrollHeight, root.clientHeight);
-      // 还没渲染出高度：留给下一帧，别把 0 当结论。
+      // 还没渲染出可滚高度：留给后续帧 / ResizeObserver / 延迟重试，别把 0 当结论。
       if (target == null) return;
+      // 同一篇重新打开且位置已经在目标附近：不要闪一下再写回去。
+      if (samePath && Math.abs(root.scrollTop - target) <= 2) {
+        trackedRef.current = {
+          path,
+          top: root.scrollTop,
+          max: root.scrollHeight - root.clientHeight,
+        };
+        return;
+      }
       suppressSaveRef.current = true;
       root.scrollTop = target;
       trackedRef.current = {
@@ -105,20 +139,39 @@ export function useReaderScrollMemory({
         top: root.scrollTop,
         max: root.scrollHeight - root.clientHeight,
       };
-      window.clearTimeout(timer);
-      timer = window.setTimeout(() => {
+      window.clearTimeout(suppressTimer);
+      suppressTimer = window.setTimeout(() => {
         suppressSaveRef.current = false;
       }, 120);
     };
 
     apply();
-    for (let i = 0; i < RESTORE_PASSES; i++) {
-      rafs.push(requestAnimationFrame(apply));
+    const schedule = (remaining: number) => {
+      if (remaining <= 0) return;
+      rafs.push(
+        requestAnimationFrame(() => {
+          apply();
+          schedule(remaining - 1);
+        })
+      );
+    };
+    schedule(RESTORE_PASSES);
+    for (const ms of RESTORE_RETRY_MS) {
+      retryTimers.push(window.setTimeout(apply, ms));
     }
+    let ro: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== "undefined") {
+      ro = new ResizeObserver(() => apply());
+      ro.observe(root);
+    }
+
     return () => {
       root.removeEventListener("scroll", onUserScroll);
       rafs.forEach((id) => cancelAnimationFrame(id));
-      window.clearTimeout(timer);
+      retryTimers.forEach((id) => window.clearTimeout(id));
+      if (zeroTimer) window.clearTimeout(zeroTimer);
+      window.clearTimeout(suppressTimer);
+      ro?.disconnect();
       suppressSaveRef.current = false;
     };
   }, [path, enabled, yieldTo]);

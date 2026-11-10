@@ -8,6 +8,7 @@ import {
   toggleExplainSheet,
   type ExplainSheetState,
 } from "@/lib/ide/explainSheet";
+import { useKeyboardInset } from "@/lib/useKeyboardInset";
 
 /**
  * 窄屏讲解抽屉的外壳：半高默认、抓手切换高度、只有加高档铺遮罩。
@@ -26,6 +27,7 @@ export function ExplainSheet({
   onClose: () => void;
   children: React.ReactNode;
 }) {
+  const keyboardInset = useKeyboardInset();
   return (
     <>
       {explainSheetHasScrim(state) && (
@@ -40,7 +42,8 @@ export function ExplainSheet({
         className={state === "full"
           ? "fixed inset-0 z-[70] flex flex-col min-h-0 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]"
           : "absolute inset-x-0 bottom-0 z-50 flex flex-col min-h-0 animate-enter"}
-        style={explainSheetHeightStyle(state)}
+        style={explainSheetHeightStyle(state, keyboardInset)}
+        data-keyboard-inset={keyboardInset > 0 ? keyboardInset : undefined}
         aria-modal={state === "full" || undefined}
         role="dialog"
         aria-label="讲解"

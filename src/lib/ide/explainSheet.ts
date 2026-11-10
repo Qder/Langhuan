@@ -15,11 +15,28 @@ export const EXPLAIN_SHEET_FULL_VH = 100;
  * 高度直接给内联样式：`dvh` + `min()` 走 Tailwind 任意值要过 JIT 扫描，
  * 一旦没扫到就退化成内容高度（真机上撞到过抽屉只有 390px）。这里不过 JIT。
  */
-export function explainSheetHeightStyle(state: ExplainSheetState): {
+export type ExplainSheetLayoutStyle = {
   height: string;
-} {
+  bottom?: string;
+};
+
+/**
+ * 抽屉贴在布局视口底部。软键盘只缩小 visualViewport 时，把整块抬到键盘上方，
+ * 并限制高度不超过可见区域，避免输入框和发送按钮被挡住。
+ */
+export function explainSheetHeightStyle(
+  state: ExplainSheetState,
+  keyboardInsetPx = 0
+): ExplainSheetLayoutStyle {
   const vh = state === "full" ? EXPLAIN_SHEET_FULL_VH : EXPLAIN_SHEET_HALF_VH;
-  return { height: `min(${vh}dvh, 100dvh)` };
+  const inset = Number.isFinite(keyboardInsetPx) ? Math.max(0, Math.round(keyboardInsetPx)) : 0;
+  if (inset <= 0) {
+    return { height: `min(${vh}dvh, 100dvh)` };
+  }
+  return {
+    height: `min(${vh}dvh, calc(100dvh - ${inset}px))`,
+    bottom: `${inset}px`,
+  };
 }
 
 export function toggleExplainSheet(state: ExplainSheetState): ExplainSheetState {

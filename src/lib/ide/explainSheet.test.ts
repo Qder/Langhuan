@@ -33,4 +33,18 @@ describe("explain sheet（窄屏讲解抽屉）", () => {
     // 宽屏不参与。
     expect(nextExplainSheetAfterJump(false, "full", true)).toBe("full");
   });
+
+  it("键盘弹起时整块抬到键盘上方，并限制不超过可见高度", () => {
+    expect(explainSheetHeightStyle("half", 0)).toEqual({ height: "min(62dvh, 100dvh)" });
+    expect(explainSheetHeightStyle("half")).toEqual({ height: "min(62dvh, 100dvh)" });
+    expect(explainSheetHeightStyle("half", 280)).toEqual({
+      height: "min(62dvh, calc(100dvh - 280px))",
+      bottom: "280px",
+    });
+    expect(explainSheetHeightStyle("full", 320)).toEqual({
+      height: "min(100dvh, calc(100dvh - 320px))",
+      bottom: "320px",
+    });
+    expect(explainSheetHeightStyle("half", -10).bottom).toBeUndefined();
+  });
 });

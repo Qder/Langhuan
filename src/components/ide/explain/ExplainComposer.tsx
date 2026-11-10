@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { ExplainSnippetCapture } from "./ExplainCaptureBar";
 import { shouldSendOnExplainComposerKey } from "./composerKeys";
 import type { SendExplain } from "./types";
+import { explainDockKeyboardPadding } from "@/lib/ide/explainKeyboardStyle";
 
 /** B5 — three chips; each fires an explain request with the current context. */
 const EXPLAIN_PRESETS = [
@@ -34,6 +35,8 @@ export function ExplainComposer({
   onSend,
   onStop,
   onCaptureSelection,
+  keyboardInset = 0,
+  padForKeyboard = false,
 }: {
   hasSession: boolean;
   emptyHistory: boolean;
@@ -53,7 +56,13 @@ export function ExplainComposer({
   onSend: SendExplain;
   onStop: () => void;
   onCaptureSelection: () => void;
+  /** 软键盘弹起时收起预设芯片和旁注，把输入框和发送留在可见区。 */
+  keyboardInset?: number;
+  /** 宽屏停靠/全屏：在输入区本身加底垫。窄屏抽屉改抬整块，不再重复垫高。 */
+  padForKeyboard?: boolean;
 }) {
+  const compactKeyboard = keyboardInset > 0;
+
   return (
     <div
       className={cn(
@@ -63,8 +72,9 @@ export function ExplainComposer({
         "bg-[color-mix(in_srgb,var(--fg)_5%,var(--chrome))]",
         "shadow-[0_-8px_16px_-10px_color-mix(in_srgb,var(--fg)_35%,transparent)]"
       )}
+      style={{ paddingBottom: padForKeyboard ? explainDockKeyboardPadding(true, keyboardInset) : undefined }}
     >
-      {hasSession && emptyHistory && !busy && (
+      {hasSession && emptyHistory && !busy && !compactKeyboard && (
         <div className="flex flex-wrap gap-1.5 px-1">
           {EXPLAIN_PRESETS.map((preset) => (
             <button
@@ -125,10 +135,12 @@ export function ExplainComposer({
           带上工程文件
         </label>
       </div>
+      {!compactKeyboard ? (
       <p className="px-1 text-[11px] text-[var(--muted)]" aria-label="待发送上下文">
         {includeFile ? "当前文件正文" : "不带当前文件正文"} · {includeSelection && selectionRange ? `选区 ${selectionRange.path}:${selectionRange.fromLine}–${selectionRange.toLine}` : "不带选区"}
         {" · 路径索引（无正文）"}{includeNearby ? " · 相关文件（最多3个）" : ""}{includeFolder ? " · 工程文件（限量）" : ""}
       </p>
+      ) : null}
       <div className="flex gap-1.5 items-end">
         <textarea
           className={cn(
@@ -166,7 +178,7 @@ export function ExplainComposer({
           </Button>
         )}
       </div>
-      {hasSession && !emptyHistory ? (
+      {hasSession && !emptyHistory && !compactKeyboard ? (
         <p className="px-1 text-[11px] font-ui text-[var(--muted)]">
           追问会带上当前对话；「新对话」或「清空当前对话」才是全新提问
         </p>

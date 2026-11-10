@@ -26,6 +26,7 @@ function deferred<T>() { let resolve!: (v: T) => void; let reject!: (e: Error) =
 }
 beforeEach(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  localStorage.clear();
   vi.mocked(streamExplain).mockReset();
   vi.mocked(collectFileIndexWithOptionalBfs).mockReset().mockResolvedValue(["a.ts"]);
   const initial = {

@@ -190,3 +190,28 @@ describe("ExplainComposer 工程文件", () => {
     expect(host.querySelector("textarea")?.placeholder).toContain("问这个工程");
   });
 });
+
+describe("ExplainComposer 软键盘收起次要说明", () => {
+  let root: Root;
+  let host: HTMLElement;
+
+  afterEach(() => {
+    if (root && host) unmount(root, host);
+  });
+
+  it("键盘弹起时隐藏预设芯片和旁注，输入框和发送仍在", () => {
+    const onSend = vi.fn<SendExplain>();
+    ({ host, root } = mount(onSend, { emptyHistory: true, keyboardInset: 280 }));
+    expect(host.textContent).not.toContain("这个工程在干什么");
+    expect(host.querySelector('[aria-label="待发送上下文"]')).toBeNull();
+    expect(host.querySelector("textarea")).toBeTruthy();
+    expect(host.querySelector('[aria-label="发送"]')).toBeTruthy();
+  });
+
+  it("没有键盘时仍显示预设和上下文说明", () => {
+    const onSend = vi.fn<SendExplain>();
+    ({ host, root } = mount(onSend, { emptyHistory: true, keyboardInset: 0 }));
+    expect(host.textContent).toContain("这个工程在干什么");
+    expect(host.querySelector('[aria-label="待发送上下文"]')).toBeTruthy();
+  });
+});

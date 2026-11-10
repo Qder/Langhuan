@@ -15,10 +15,8 @@ import { useExplainCapture } from "./explain/useExplainCapture";
 import { useExplainJump } from "./explain/useExplainJump";
 import { ExplainViewControls } from "./explain/ExplainViewControls";
 import { ExplainSheet } from "./explain/ExplainSheet";
-import {
-  nextExplainSheetAfterJump,
-  type ExplainSheetState,
-} from "@/lib/ide/explainSheet";
+import { nextExplainSheetAfterJump, type ExplainSheetState } from "@/lib/ide/explainSheet";
+import { useKeyboardInset } from "@/lib/useKeyboardInset";
 /**
  * 讲解面板 — 只编排。
  *
@@ -70,6 +68,7 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
   const [showSettings, setShowSettings] = React.useState(false);
   const selectionActive = !!selection && selection.path === activePath;
   const explainWidth = useIdeStore((s) => s.explainWidth);
+  const keyboardInset = useKeyboardInset();
 
   const panel = (
     <div
@@ -142,6 +141,8 @@ export function IdeExplainPanel({ onClose }: { onClose: () => void }) {
         onSend={stream.send}
         onStop={stream.stop}
         onCaptureSelection={() => void capture.captureSelection()}
+        keyboardInset={keyboardInset}
+        padForKeyboard={isLg}
       />
     </div>
   );

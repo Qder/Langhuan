@@ -162,7 +162,7 @@ describe("讲解面板：窄屏抽屉不整屏盖住编辑器", () => {
     expect(heightSrc).toContain("100");
     // dvh + min() 走内联样式，别丢给 Tailwind JIT 扫描（未命中会退化成内容高度）。
     expect(heightSrc).toContain("dvh");
-    expect(sheetSrc).toContain("style={explainSheetHeightStyle(state)}");
+    expect(sheetSrc).toContain("style={explainSheetHeightStyle(state, keyboardInset)}");
   });
 
   it("有抓手可在半高 / 加高之间切换", () => {

@@ -23,6 +23,7 @@ import { finalizeExplainReply } from "@/lib/ide/explainTimeout";
 import { listIdeDir, readIdeFile } from "@/lib/ide/ideFs";
 import { isTauriAndroidRuntime } from "@/lib/platform";
 import type { SendExplain } from "./types";
+import { useExplainComposerDraft } from "./useExplainComposerDraft";
 
 function newId(): string {
   return `m_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
@@ -40,7 +41,7 @@ export function useExplainSend({
   const pushExplainMessage = useIdeStore((s) => s.pushExplainMessage);
   const explainSettings = useIdeStore((s) => s.explainSettings);
 
-  const [question, setQuestion] = React.useState("");
+  const [question, setQuestion] = useExplainComposerDraft();
   const { includeFile, includeSelection, includeNearby, includeFolder } = useIdeStore((s) => s.explainContext);
   const setContext = useIdeStore((s) => s.setExplainContext);
   const setIncludeFile = (v: boolean) => setContext({ includeFile: v });

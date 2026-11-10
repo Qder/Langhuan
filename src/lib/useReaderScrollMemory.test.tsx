@@ -267,4 +267,37 @@ describe("useReaderScrollMemory", () => {
     // 让位给「定位到源码」，别把它顶回 800
     expect(el.scrollTop).toBe(0);
   });
+
+  it("首帧高度为 0 时等布局撑开再恢复，不把 0 当结论", async () => {
+    localStorage.setItem(
+      KEY,
+      JSON.stringify({ "a.md": { top: 800, ratio: 0.5, savedAt: 1 } })
+    );
+    const el = mountScroller({ scrollHeight: 2000, clientHeight: 0 }, 0);
+    await render(<Reader path="a.md" enabled />);
+    await settle(5);
+    expect(el.scrollTop).toBe(0);
+
+    Object.defineProperty(el, "clientHeight", {
+      configurable: true,
+      get: () => 400,
+    });
+    await act(async () => {
+      await new Promise<void>((r) => setTimeout(r, 250));
+    });
+    expect(el.scrollTop).toBe(800);
+  });
+
+  it("预览关掉再打开且位置被清零时，按记录恢复", async () => {
+    const geo = { scrollHeight: 2000, clientHeight: 400 };
+    const el = mountScroller(geo);
+    await render(<Reader path="a.md" enabled />);
+    scrollTo(el, 800);
+    await settle();
+    await rerender(<Reader path="a.md" enabled={false} />);
+    el.scrollTop = 0;
+    await rerender(<Reader path="a.md" enabled />);
+    await settle(5);
+    expect(el.scrollTop).toBe(800);
+  });
 });
