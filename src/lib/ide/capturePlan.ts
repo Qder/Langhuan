@@ -71,6 +71,9 @@ export type ExplainCaptureInput = {
   sourceLine?: number;
   citations?: ExplainCitation[];
   createdAt?: number;
+  projectId?: string | null;
+  sourceSnapshot?: string | null;
+  sourceEndLine?: number;
 };
 
 /** One tail promise per note path — the serial queue for read-modify-write. */
@@ -178,6 +181,9 @@ export type SnippetCaptureInput = {
   lang?: string;
   /** Extra context under the block, e.g. 「来自讲解选区」. */
   note?: string;
+  projectId?: string | null;
+  projectName?: string | null;
+  capturedAt?: number;
 };
 
 /**
@@ -201,6 +207,9 @@ export async function captureSnippet(
     text: body,
     lang: input.lang,
     note: input.note,
+    projectId: input.projectId,
+    projectName: input.projectName,
+    capturedAt: input.capturedAt,
   });
 
   return enqueueCapture(requested, async () => {
@@ -252,6 +261,7 @@ export type ExplainThreadCaptureInput = {
   title: string;
   turns: ExplainThreadTurn[];
   projectName?: string | null;
+  projectId?: string | null;
   /** 收入时刻；同时决定文件名里的日期。 */
   createdAt?: number;
 };
@@ -279,6 +289,7 @@ export async function captureExplainThread(
   });
   const body = buildExplainThreadNote({
     projectName: input.projectName,
+    projectId: input.projectId,
     title: input.title,
     turns,
     createdAt: input.createdAt,
@@ -317,6 +328,52 @@ export async function captureExplainThread(
       return {
         ok: false,
         message: `收入失败：${e instanceof Error ? e.message : String(e)}`,
+      };
+    }
+  });
+}
+
+
+/**
+ * Append a citation / snippet block to an existing library note (not necessarily 速记.md).
+ * Used by 「引用到笔记」when a note is already open.
+ */
+export async function captureSnippetIntoDoc(
+  writer: NoteWriter,
+  target: { id: string; path: string },
+  input: SnippetCaptureInput
+): Promise<CaptureResult> {
+  const body = String(input.text ?? "");
+  if (!body.trim()) return { ok: false, message: "选区是空的" };
+  const block = buildSnippetBlock({
+    path: input.path,
+    fromLine: input.fromLine,
+    toLine: input.toLine,
+    text: body,
+    lang: input.lang,
+    note: input.note,
+    projectId: input.projectId,
+    projectName: input.projectName,
+    capturedAt: input.capturedAt,
+  });
+  return enqueueCapture(target.path, async () => {
+    try {
+      const next = appendExplainSection(writer.contentOf(target.id), block);
+      const written = await writer.write(target.id, next);
+      if (!written.ok) {
+        return { ok: false, message: `引用失败：${written.message}` };
+      }
+      return {
+        ok: true,
+        docId: target.id,
+        path: target.path,
+        renamed: false,
+        appended: true,
+      };
+    } catch (e) {
+      return {
+        ok: false,
+        message: `引用失败：${e instanceof Error ? e.message : String(e)}`,
       };
     }
   });

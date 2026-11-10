@@ -11,6 +11,10 @@ import {
   captureStatusMessage,
 } from "@/lib/ide/captureToLibrary";
 import { useStore } from "@/lib/store";
+import {
+  enrichExplainCitations,
+  primarySelectionCitation,
+} from "@/lib/ide/enrichExplainCitations";
 
 /** Persist an answer into 读码笔记, or the live selection into 速记.md. */
 export function useExplainCapture(messages: IdeExplainMessage[]) {
@@ -22,6 +26,39 @@ export function useExplainCapture(messages: IdeExplainMessage[]) {
   const [savedNotes, setSavedNotes] = React.useState<
     Record<string, { docId: string; path: string }>
   >({});
+
+
+  const citationCtx = React.useCallback(() => {
+    return {
+      projectId: session?.id,
+      selection,
+      files: tabs.map((t) => ({ path: t.path, content: t.draft })),
+      sourcePath: activePath,
+    };
+  }, [activePath, selection, session?.id, tabs]);
+
+  const citationsFor = React.useCallback(
+    (raw: IdeExplainMessage["citations"] | undefined, markdown: string) => {
+      const ctx = citationCtx();
+      const enriched = enrichExplainCitations(
+        raw ?? citationsFromMarkdown(markdown),
+        ctx
+      );
+      const primary = primarySelectionCitation(ctx);
+      if (
+        primary &&
+        !enriched.some(
+          (c) =>
+            c.path === primary.path &&
+            (c.line ?? 0) === (primary.line ?? 0)
+        )
+      ) {
+        return [primary, ...enriched];
+      }
+      return enriched;
+    },
+    [citationCtx]
+  );
 
   /** B1 — the question that produced this answer is the previous user turn. */
   const captureExplain = React.useCallback(
@@ -35,13 +72,22 @@ export function useExplainCapture(messages: IdeExplainMessage[]) {
         question,
         answer: msg.content,
         projectName: session?.name,
+        projectId: session?.id,
         sourcePath: activePath,
         // Land the file link on the line the question was about, when known.
         sourceLine:
           selection && selection.path === activePath
             ? selection.fromLine
             : undefined,
-        citations: msg.citations ?? citationsFromMarkdown(msg.content),
+        sourceEndLine:
+          selection && selection.path === activePath
+            ? selection.toLine
+            : undefined,
+        sourceSnapshot:
+          selection && selection.path === activePath
+            ? selection.text
+            : undefined,
+        citations: citationsFor(msg.citations, msg.content),
         createdAt: msg.createdAt,
       });
       if (!result.ok) {
@@ -54,7 +100,7 @@ export function useExplainCapture(messages: IdeExplainMessage[]) {
       }));
       setStatus(captureStatusMessage(result));
     },
-    [activePath, messages, selection, session?.name, setStatus]
+    [activePath, citationsFor, messages, selection, session?.id, session?.name, setStatus]
   );
 
   const openSavedNote = React.useCallback(
@@ -100,9 +146,10 @@ export function useExplainCapture(messages: IdeExplainMessage[]) {
         role: m.role,
         content: m.content,
         createdAt: m.createdAt,
-        citations: m.citations ?? citationsFromMarkdown(m.content),
+        citations: citationsFor(m.citations, m.content),
       })),
       projectName: session?.name,
+      projectId: session?.id,
     });
     if (!result.ok) {
       setStatus(result.message);
@@ -110,7 +157,7 @@ export function useExplainCapture(messages: IdeExplainMessage[]) {
     }
     setSavedThread({ docId: result.docId, path: result.path });
     setStatus(captureStatusMessage(result, "已收入本段对话"));
-  }, [messages, session?.name, setStatus, threadTitle]);
+  }, [citationsFor, messages, session?.id, session?.name, setStatus, threadTitle]);
 
   const openSavedThread = React.useCallback(() => {
     const docId = savedThread?.docId;
@@ -148,13 +195,15 @@ export function useExplainCapture(messages: IdeExplainMessage[]) {
       toLine: selection.toLine,
       text,
       lang: selection.path.split(".").pop() ?? "",
+      projectId: session?.id,
+      projectName: session?.name,
     });
     setStatus(
       result.ok
         ? captureStatusMessage(result, "已收入速记")
         : result.message
     );
-  }, [activePath, selection, setStatus, tabs]);
+  }, [activePath, selection, session?.id, session?.name, setStatus, tabs]);
 
   return {
     savedNotes,

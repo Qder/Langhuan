@@ -43,6 +43,7 @@ import {
   type IdePendingReveal,
 } from "./citations";
 import type { IdeLinkTarget } from "./ideLink";
+import { resolveNoteSourceJump } from "./noteSourceJump";
 import { pendingLinkLocation } from "./pendingLink";
 import {
   IDE_RECENT_FILES_MAX,
@@ -319,6 +320,41 @@ function writeExplainPack(
       [sessionId]: messagesOfActiveExplainThread(pack.threads, pack.activeId),
     },
   };
+}
+
+
+async function openByCitationSnapshot(
+  get: () => { session: import("./ideFs").IdeFolderSession | null; openFile: (path: string, opts?: { line?: number; endLine?: number }) => Promise<boolean> },
+  pending: IdeLinkTarget
+): Promise<boolean | "skip"> {
+  if (!pending.snapshot || !get().session) return "skip";
+  const session = get().session!;
+  const readFile = async (relPath: string) => {
+    try {
+      return await readIdeFile(session, relPath);
+    } catch {
+      return null;
+    }
+  };
+  const resolved = await resolveNoteSourceJump({
+    citation: {
+      projectId: pending.projectId || session.id,
+      path: pending.path,
+      fromLine: pending.line ?? 1,
+      toLine: pending.endLine ?? pending.line ?? 1,
+      snapshot: pending.snapshot,
+    },
+    readFile,
+    searchProject: {
+      listDir: (dir) => listIdeDir(session, dir),
+      readFile,
+    },
+  });
+  if (!resolved.ok) return "skip";
+  return get().openFile(resolved.path, {
+    line: resolved.fromLine,
+    endLine: resolved.toLine,
+  });
 }
 
 export const useIdeStore = create<IdeState>()(
@@ -799,12 +835,19 @@ export const useIdeStore = create<IdeState>()(
               ? { path, line: target.line, endLine: target.endLine }
               : { path, line: target.line }
             : { path };
+        if (target.projectId) wanted.projectId = target.projectId;
+        if (target.snapshot) wanted.snapshot = target.snapshot;
         if (!get().session) {
           set({
             pendingIdeLink: wanted,
             status: `先打开包含 ${pendingLinkLocation(wanted)} 的工程，打开后会自动跳过去`,
           });
           return false;
+        }
+        const snapped = await openByCitationSnapshot(get, wanted);
+        if (snapped === true) {
+          set({ pendingIdeLink: null });
+          return true;
         }
         const ok = await get().openFile(path, {
           line: target.line,
@@ -828,6 +871,11 @@ export const useIdeStore = create<IdeState>()(
       consumePendingIdeLink: async () => {
         const pending = get().pendingIdeLink;
         if (!pending) return;
+        const snapped = await openByCitationSnapshot(get, pending);
+        if (snapped === true) {
+          set({ pendingIdeLink: null });
+          return;
+        }
         const ok = await get().openFile(pending.path, {
           line: pending.line,
           endLine: pending.endLine,

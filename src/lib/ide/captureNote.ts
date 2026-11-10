@@ -17,6 +17,7 @@
 import { basename, normalizeNewlines } from "../utils";
 import { normalizeIdeRelPath } from "./citations";
 import { formatIdeLink } from "./ideLink";
+import { formatNoteSourceCitationBlock } from "./noteSourceCitation";
 
 export const IDE_NOTE_ROOT = "读码笔记";
 export const IDE_SNIPPET_NOTE_NAME = "速记.md";
@@ -114,6 +115,9 @@ export type ExplainCitation = {
   path: string;
   line?: number;
   endLine?: number;
+  /** Selected source at capture time; omitted when we only have a path. */
+  snapshot?: string;
+  projectId?: string;
 };
 
 export type ExplainNoteInput = {
@@ -124,6 +128,10 @@ export type ExplainNoteInput = {
   sourcePath?: string | null;
   /** Where to jump when the file link is clicked; falls back to the first cite. */
   sourceLine?: number;
+  sourceEndLine?: number;
+  /** Open-file / selection snapshot for the primary source path. */
+  sourceSnapshot?: string | null;
+  projectId?: string | null;
   citations?: ExplainCitation[];
   /** Chat message time; defaults to now. */
   createdAt?: number;
@@ -160,10 +168,13 @@ function normalizeCites(list: ExplainCitation[] | undefined): ExplainCitation[] 
       if (endLine != null && (kept.endLine == null || endLine > kept.endLine)) {
         cites[prevIndex] = { ...kept, endLine };
       }
+      if (!kept.snapshot && c.snapshot) {
+        cites[prevIndex] = { ...cites[prevIndex]!, snapshot: c.snapshot, projectId: c.projectId ?? kept.projectId };
+      }
       continue;
     }
     index.set(key, cites.length);
-    cites.push({ path, line, endLine });
+    cites.push({ path, line, endLine, snapshot: c.snapshot, projectId: c.projectId });
   }
   return cites;
 }
@@ -189,17 +200,33 @@ function sourceLinkLine(
   return own[0];
 }
 
-function citeLines(cites: ExplainCitation[]): string[] {
-  const out: string[] = [];
-  for (const c of cites) {
-    const label =
-      c.line == null
-        ? c.path
-        : c.endLine != null && c.endLine > c.line
-          ? `${c.path}:${c.line}-${c.endLine}`
-          : `${c.path}:${c.line}`;
-    out.push(`- \`${label}\` · ${formatIdeLink(c.path, c.line, c.endLine)}`);
+function citeBlock(c: ExplainCitation, projectId?: string | null): string[] {
+  const label =
+    c.line == null
+      ? c.path
+      : c.endLine != null && c.endLine > c.line
+        ? `${c.path}:${c.line}-${c.endLine}`
+        : `${c.path}:${c.line}`;
+  const out = [`- \`${label}\` · ${formatIdeLink(c.path, c.line, c.endLine)}`];
+  const pid = c.projectId || projectId || "";
+  if (pid && c.snapshot && c.line != null) {
+    out.push(
+      "",
+      formatNoteSourceCitationBlock({
+        projectId: pid,
+        path: c.path,
+        fromLine: c.line,
+        toLine: c.endLine ?? c.line,
+        snapshot: c.snapshot,
+      }),
+    );
   }
+  return out;
+}
+
+function citeLines(cites: ExplainCitation[], projectId?: string | null): string[] {
+  const out: string[] = [];
+  for (const c of cites) out.push(...citeBlock(c, projectId));
   return out;
 }
 
@@ -231,9 +258,25 @@ export function buildExplainSection(input: ExplainNoteInput): string {
   if (sourcePath) {
     lines.push(`- 文件：\`${sourcePath}\` · ${formatIdeLink(sourcePath, line)}`);
   }
+
+  if (sourcePath && input.sourceSnapshot && input.projectId && line != null) {
+    lines.push(
+      "",
+      formatNoteSourceCitationBlock({
+        projectId: input.projectId,
+        projectName: input.projectName,
+        path: sourcePath,
+        fromLine: line,
+        toLine: input.sourceEndLine ?? line,
+        snapshot: input.sourceSnapshot,
+        capturedAt: createdAt,
+      }),
+    );
+  }
+
   lines.push("", "### 问题", "", question, "", "### 讲解", "", answer, "");
   if (cites.length > 0) {
-    lines.push("### 引用", "", ...citeLines(cites), "");
+    lines.push("### 引用", "", ...citeLines(cites, input.projectId), "");
   }
   return lines.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd();
 }
@@ -287,10 +330,25 @@ export function buildExplainNote(input: ExplainNoteInput): string {
     lines.push(`- 文件：\`${sourcePath}\` · ${formatIdeLink(sourcePath, line)}`);
   }
   lines.push(`- 收入时间：${noteLocalStamp(stamp)}`);
+
+  if (sourcePath && input.sourceSnapshot && input.projectId && line != null) {
+    lines.push(
+      "",
+      formatNoteSourceCitationBlock({
+        projectId: input.projectId,
+        projectName: input.projectName,
+        path: sourcePath,
+        fromLine: line,
+        toLine: input.sourceEndLine ?? line,
+        snapshot: input.sourceSnapshot,
+        capturedAt: createdAt,
+      }),
+    );
+  }
   lines.push("", "## 问题", "", question, "", "## 讲解", "", answer, "");
 
   if (cites.length > 0) {
-    lines.push("## 引用", "", ...citeLines(cites), "");
+    lines.push("## 引用", "", ...citeLines(cites, input.projectId), "");
   }
 
   return `${lines.join("\n").replace(/\n{3,}/g, "\n\n")}`;
@@ -339,6 +397,10 @@ export type SnippetBlockInput = {
   lang?: string;
   /** Extra note appended after the fence (e.g. origin). */
   note?: string;
+  /** When set, the fence is a structured `lh-cite` (project/path/lines/snapshot). */
+  projectId?: string | null;
+  projectName?: string | null;
+  capturedAt?: number;
 };
 
 /** `### \`src/foo.ts:12-20\`` + fenced body (+ truncation note). */
@@ -348,17 +410,31 @@ export function buildSnippetBlock(input: SnippetBlockInput): string {
   const to = Math.max(from, Math.floor(input.toLine || from));
   const range = to > from ? `${from}-${to}` : `${from}`;
   const { text, truncated, totalLines, totalChars } = truncateSnippet(input.text);
-  const fence = safeFence(text);
   const lang = (input.lang || "").trim();
+  const projectId = (input.projectId || "").trim();
 
   const parts: string[] = [
     `### \`${path}:${range}\``,
     "",
-    `${fence}${lang}`,
-    text,
-    fence,
-    "",
   ];
+  if (projectId) {
+    parts.push(
+      formatNoteSourceCitationBlock({
+        projectId,
+        projectName: input.projectName,
+        path,
+        fromLine: from,
+        toLine: to,
+        snapshot: text,
+        note: undefined,
+        capturedAt: input.capturedAt,
+      }),
+      "",
+    );
+  } else {
+    const fence = safeFence(text);
+    parts.push(`${fence}${lang}`, text, fence, "");
+  }
   if (truncated) {
     parts.push(
       `> 选区较长，已截断：保留前 ${text.split("\n").length} 行 / ${text.length} 字符（原始 ${totalLines} 行 / ${totalChars} 字符）。`,
@@ -446,10 +522,11 @@ function clipExplainBody(raw: string, emptyText: string): string {
 /**
  * 整段对话的 markdown：frontmatter + 每轮「问题 / 讲解 / 引用」。
  *
- * 只写对话文本和引用路径，**不写** `files` 里的源码正文——工程源码不进笔记库。
+ * 只写对话文本、引用路径，以及选区快照（`lh-cite`）；不把工程全文抄进笔记库。
  */
 export function buildExplainThreadNote(input: {
   projectName?: string | null;
+  projectId?: string | null;
   title: string;
   turns: ExplainThreadTurn[];
   /** 收入时刻，默认现在。 */
@@ -490,7 +567,7 @@ export function buildExplainThreadNote(input: {
     lines.push(clipExplainBody(turn.content, "（讲解没有返回内容）"));
     const cites = normalizeCites(turn.citations);
     if (cites.length > 0) {
-      lines.push("", "### 引用", "", ...citeLines(cites));
+      lines.push("", "### 引用", "", ...citeLines(cites, input.projectId));
     }
   }
 

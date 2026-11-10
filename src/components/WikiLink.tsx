@@ -12,6 +12,7 @@ import {
   isIdeLinkTarget,
   parseIdeLinkTarget,
 } from "@/lib/ide/ideLink";
+import { openWorkbenchCodePane } from "@/lib/ide/followNoteSourceCitation";
 
 type PeekState = {
   x: number;
@@ -135,7 +136,7 @@ export function WikiLink({
       );
     }
     const openIde = () => {
-      useStore.getState().setAppMode("ide");
+      openWorkbenchCodePane();
       // No project open → the store parks the link and the welcome banner
       // offers to open the project it came from (the link is persisted).
       void useIdeStore.getState().followIdeLink(ideTarget);

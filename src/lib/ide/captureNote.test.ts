@@ -24,6 +24,7 @@ import {
   truncateSnippet,
 } from "./captureNote";
 import { parseIdeLinkTarget } from "./ideLink";
+import { parseNoteSourceCitations } from "./noteSourceCitation";
 
 describe("sanitizeNoteSegment", () => {
   it("replaces path-hostile characters", () => {
@@ -408,5 +409,88 @@ describe("capture note body round-trips to ide links", () => {
       citations: [{ path: "src/a.ts", line: 4, endLine: 9 }],
     });
     expect(md).toContain("[[ide:src/a.ts:88]]");
+  });
+});
+
+describe("讲解收入笔记 includes citation metadata", () => {
+  const snapshot = "export function add(a: number, b: number) {\n  return a + b;\n}";
+
+  it("buildExplainNote writes an lh-cite fence that parses after reload", () => {
+    const md = buildExplainNote({
+      question: "add 在做什么？",
+      answer: "两数相加。",
+      projectName: "demo",
+      projectId: "proj-demo",
+      sourcePath: "src/add.ts",
+      sourceLine: 4,
+      sourceEndLine: 6,
+      sourceSnapshot: snapshot,
+      citations: [
+        {
+          path: "src/add.ts",
+          line: 4,
+          endLine: 6,
+          snapshot,
+          projectId: "proj-demo",
+        },
+      ],
+      createdAt: new Date(2026, 10, 10, 17, 0).getTime(),
+    });
+    expect(md).toContain("```lh-cite");
+    expect(md).toContain("project: proj-demo");
+    expect(md).toContain("path: src/add.ts");
+    expect(md).toContain("lines: 4-6");
+    expect(md).toContain(snapshot);
+    const reloaded = parseNoteSourceCitations(md);
+    expect(reloaded.length).toBeGreaterThanOrEqual(1);
+    const cite = reloaded[0]!.citation;
+    expect(cite.projectId).toBe("proj-demo");
+    expect(cite.path).toBe("src/add.ts");
+    expect(cite.fromLine).toBe(4);
+    expect(cite.toLine).toBe(6);
+    expect(cite.snapshot).toBe(snapshot);
+    expect(cite.projectName).toBe("demo");
+  });
+
+  it("buildSnippetBlock with projectId round-trips in the note body", () => {
+    const block = buildSnippetBlock({
+      path: "src/add.ts",
+      fromLine: 4,
+      toLine: 6,
+      text: snapshot,
+      lang: "ts",
+      note: "记得看返回值",
+      projectId: "proj-demo",
+      projectName: "demo",
+      capturedAt: 1_731_234_567_000,
+    });
+    expect(block).toContain("```lh-cite");
+    expect(block).not.toMatch(/```ts\n/);
+    const parsed = parseNoteSourceCitations(block);
+    expect(parsed).toHaveLength(1);
+    expect(parsed[0]!.citation).toMatchObject({
+      projectId: "proj-demo",
+      path: "src/add.ts",
+      fromLine: 4,
+      toLine: 6,
+      snapshot,
+      projectName: "demo",
+    });
+    expect(block).toContain("记得看返回值");
+    // comment stays after the fence, not duplicated as a header field
+    expect(parsed[0]!.citation.note).toBeUndefined();
+  });
+
+  it("without projectId, buildSnippetBlock keeps the language fence", () => {
+    const block = buildSnippetBlock({
+      path: "src/add.ts",
+      fromLine: 4,
+      toLine: 6,
+      text: snapshot,
+      lang: "ts",
+    });
+    expect(block).toContain("```ts");
+    expect(block).not.toContain("```lh-cite");
+    expect(parseNoteSourceCitations(block)).toHaveLength(0);
   });
 });

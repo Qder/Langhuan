@@ -22,11 +22,25 @@ export function normalizePendingIdeLink(raw: unknown): IdeLinkTarget | null {
   const r = raw as Record<string, unknown>;
   const path = normalizeIdeRelPath(typeof r.path === "string" ? r.path : "");
   if (!path || !isIdeCitationPath(path)) return null;
+  const projectId =
+    typeof r.projectId === "string" && r.projectId.trim()
+      ? r.projectId.trim()
+      : undefined;
+  const snapshot =
+    typeof r.snapshot === "string" && r.snapshot
+      ? r.snapshot
+      : undefined;
+  const extras = {
+    ...(projectId ? { projectId } : {}),
+    ...(snapshot ? { snapshot } : {}),
+  };
   const line = posInt(r.line);
-  if (line == null) return { path };
+  if (line == null) return { path, ...extras };
   const endLine = posInt(r.endLine);
   const end = endLine != null && endLine > line ? endLine : undefined;
-  return end != null ? { path, line, endLine: end } : { path, line };
+  return end != null
+    ? { path, line, endLine: end, ...extras }
+    : { path, line, ...extras };
 }
 
 /** `src/App.tsx · 第 10 行` — the "where", without the `ide:` scheme noise. */
@@ -59,6 +73,12 @@ export function guessPendingProject(
 ): PendingProjectGuess | null {
   const path = normalizeIdeRelPath(target.path);
   if (!path) return null;
+  if (target.projectId) {
+    const meta = recent.find((r) => r.id === target.projectId);
+    if (meta) {
+      return { id: meta.id, name: meta.name, pathLabel: meta.pathLabel };
+    }
+  }
   for (const f of recentFiles) {
     if (normalizeIdeRelPath(f.path) !== path) continue;
     const meta = recent.find((r) => r.id === f.sessionId);

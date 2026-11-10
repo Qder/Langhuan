@@ -22,6 +22,10 @@ export type IdeLinkTarget = {
   path: string;
   line?: number;
   endLine?: number;
+  /** Project that owned the file when the citation was written. */
+  projectId?: string;
+  /** Selected source snapshot at link time (used to relocate). */
+  snapshot?: string;
 };
 
 /** True when a wikilink target (the part inside `[[…]]`) is an ide: link. */

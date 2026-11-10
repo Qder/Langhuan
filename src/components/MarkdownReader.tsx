@@ -72,6 +72,7 @@ import { rehypeCallout } from "@/lib/rehypeCallout";
 import { proseWidthForZoom } from "@/lib/readingPrefs";
 import { rehypeToc } from "@/lib/rehypeToc";
 import { PreviewContextMenu, type ContextMenuItem } from "./locate/PreviewContextMenu";
+import { NoteSourceCiteCard, isNoteSourceCiteClass } from "./NoteSourceCiteCard";
 import { SelectionFloatBar } from "./locate/SelectionFloatBar";
 import { ANNOTATE_SELECTION_EVENT } from "@/lib/annotateSelectionBus";
 import { subscribeScrollSync } from "@/lib/locate/scrollBus";
@@ -763,6 +764,15 @@ const MarkdownBody = React.memo(
             (typeof className === "string" && /(^|\s)language-/.test(className));
           const attrs = srcAttrs(fmOffset, node);
           if (isBlock) {
+            if (isNoteSourceCiteClass(className)) {
+              return (
+                <NoteSourceCiteCard
+                  text={flattenCodeText(children).replace(/\n$/, "")}
+                  srcStart={attrs["data-src-start"]}
+                  srcEnd={attrs["data-src-end"]}
+                />
+              );
+            }
             if (isMermaidLanguage(className)) {
               return (
                 <MermaidBlock

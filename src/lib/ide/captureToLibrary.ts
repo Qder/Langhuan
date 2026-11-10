@@ -17,6 +17,7 @@ import {
   captureExplain,
   captureExplainThread,
   captureSnippet,
+  captureSnippetIntoDoc,
   captureStatusMessage,
   type CaptureWriteOutcome,
   type ExplainCaptureInput,
@@ -74,6 +75,32 @@ export function captureSnippetToLibrary(
   input: SnippetCaptureInput
 ): Promise<import("./capturePlan").CaptureResult> {
   return captureSnippet(writer(), input);
+}
+
+/**
+ * 「引用到笔记」: 有打开的笔记就追加进去，否则走既有 速记.md 通路。
+ */
+export function captureCitationToActiveNote(
+  input: SnippetCaptureInput
+): Promise<import("./capturePlan").CaptureResult> {
+  const state = useStore.getState();
+  const id = state.activeId;
+  const doc = id ? state.documents.find((d) => d.id === id) : undefined;
+  if (doc && doc.type === "md") {
+    return captureSnippetIntoDoc(writer(), { id: doc.id, path: doc.path }, input);
+  }
+  return captureSnippet(writer(), input);
+}
+
+export function citationCaptureVerb(usedOpenNote: boolean): string {
+  return usedOpenNote ? "已引用到当前笔记" : "已收入速记";
+}
+
+export function willCiteIntoOpenNote(): boolean {
+  const state = useStore.getState();
+  const id = state.activeId;
+  const doc = id ? state.documents.find((d) => d.id === id) : undefined;
+  return !!doc && doc.type === "md";
 }
 
 /** 「收入本段对话」：当前 thread 全文 → 一篇 讲解-<短标题>.md（整篇覆盖）。 */

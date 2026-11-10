@@ -53,6 +53,9 @@ import {
 import { isDarkTheme } from "@/lib/theme";
 import {
   captureSnippetToLibrary,
+  captureCitationToActiveNote,
+  citationCaptureVerb,
+  willCiteIntoOpenNote,
   captureStatusMessage,
 } from "@/lib/ide/captureToLibrary";
 import { useStore } from "@/lib/store";
@@ -685,13 +688,43 @@ export function IdeEditor({ path }: { path: string }) {
       toLine,
       text: doc.sliceString(sel.from, sel.to),
       lang: path.split(".").pop() ?? "",
+      projectId: session?.id,
+      projectName: session?.name,
     });
     setStatus(result.ok ? captureStatusMessage(result, "已收入速记") : result.message);
   };
 
+  const citeSelectionToNote = async () => {
+    const view = viewRef.current;
+    setCtxMenu(null);
+    if (!view) return;
+    const sel = view.state.selection.main;
+    if (sel.empty) return;
+    const doc = view.state.doc;
+    const fromLine = doc.lineAt(sel.from).number;
+    const toLine = doc.lineAt(
+      sel.to === sel.from ? sel.from : Math.max(sel.from, sel.to - 1)
+    ).number;
+    const intoOpen = willCiteIntoOpenNote();
+    const result = await captureCitationToActiveNote({
+      path,
+      fromLine,
+      toLine,
+      text: doc.sliceString(sel.from, sel.to),
+      lang: path.split(".").pop() ?? "",
+      projectId: session?.id,
+      projectName: session?.name,
+    });
+    setStatus(
+      result.ok
+        ? captureStatusMessage(result, citationCaptureVerb(intoOpen))
+        : result.message
+    );
+  };
+
   return (
     <div className={cn("relative h-full w-full overflow-hidden")}>
-      <SelectionExplainAction path={path} onExplain={explainSelection} />
+      <SelectionExplainAction path={path} onExplain={explainSelection} onCite={() => void citeSelectionToNote()} />
       <div ref={hostRef} className={cn("h-full w-full overflow-hidden")} />
       {ctxMenu && (
         <div
@@ -739,6 +772,17 @@ export function IdeEditor({ path }: { path: string }) {
             onClick={() => void captureSelectionToSnippet()}
           >
             收入速记
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            disabled={!ctxMenu.hasSelection}
+            className={cn(
+              "w-full text-left px-3 py-1.5 min-h-11 hover:bg-[var(--hover)] disabled:opacity-40 disabled:hover:bg-transparent"
+            )}
+            onClick={() => void citeSelectionToNote()}
+          >
+            引用到笔记
           </button>
           <button
             type="button"
