@@ -10,7 +10,9 @@ import {
   mergeSearches,
   mergeProgress,
   mergeVersions,
+  mergeTopics,
 } from "./learningData";
+import { remapTopicIds } from "../learningTopics";
 import {
   textBase64,
   base64Text,
@@ -89,6 +91,7 @@ export function payloadFromBackupTree(tree: BackupTree): BackupPayload {
     annotations: [],
     quizDocs: [],
     savedSearches: [],
+    topics: [],
     versions: Object.create(null),
     readingProgress: {},
     assetBinaries: Object.create(null),
@@ -189,6 +192,10 @@ export function mergeBackupPayload(
       base.readingProgress ?? {},
       incoming.readingProgress ?? {},
     ),
+    topics: mergeTopics(
+      base.topics ?? [],
+      (incoming.topics ?? []).map((t) => remapTopicIds(t, id)),
+    ),
   };
 }
 export function backupConflicts(
@@ -251,6 +258,12 @@ export function backupConflicts(
     incoming.savedSearches ?? [],
     (s) => s.id,
     (s) => `${LEARNING_PATHS.searches}#${s.id}`,
+  );
+  compare(
+    current.topics ?? [],
+    (incoming.topics ?? []).map((t) => remapTopicIds(t, mapId)),
+    (t) => t.id,
+    (t) => `${LEARNING_PATHS.topics}#${t.id}`,
   );
   for (const [docId, versions] of Object.entries(incoming.versions ?? {}))
     compare(

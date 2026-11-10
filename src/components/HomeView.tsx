@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Archive, BookOpenCheck, FileCode2, FilePlus2, FolderInput, Globe, Search, Star } from "lucide-react";
+import { Archive, BookMarked, BookOpenCheck, FileCode2, FilePlus2, FolderInput, Globe, Search, Star } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { collectTagCounts, getTags } from "@/lib/tags";
 import { countAllBacklinks } from "@/lib/search";
@@ -38,6 +38,7 @@ import {
   visibleReadingPercent,
 } from "@/lib/readingProgress";
 import { readScrollMemoryMap } from "@/lib/scrollMemory";
+import { topicSummary } from "./LearningTopicView";
 
 export function HomeView() {
   const documents = useStore((s) => s.documents);
@@ -79,6 +80,22 @@ export function HomeView() {
     const b = reviewBadgeCount(quizDocs, new Set(documents.map((d) => d.id)));
     return b.dontKnow + b.unseen;
   }, [quizDocs, documents]);
+  const learningTopics = useStore((s) => s.learningTopics);
+  const setActiveTopicId = useStore((s) => s.setActiveTopicId);
+  const createLearningTopic = useStore((s) => s.createLearningTopic);
+  const [newTopicOpen, setNewTopicOpen] = React.useState(false);
+  const [newTopicTitle, setNewTopicTitle] = React.useState("");
+  const [newTopicDesc, setNewTopicDesc] = React.useState("");
+  const submitNewTopic = () => {
+    const topic = createLearningTopic({
+      title: newTopicTitle,
+      description: newTopicDesc,
+    });
+    setNewTopicTitle("");
+    setNewTopicDesc("");
+    setNewTopicOpen(false);
+    setActiveTopicId(topic.id);
+  };
 
   const onPaste = () => setPasteOpen(true);
 
@@ -343,6 +360,75 @@ export function HomeView() {
           </section>
           </>
         )}
+
+
+        <section className="space-y-3" aria-label="学习专题">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="font-serif text-xl font-semibold flex items-center gap-2">
+              <BookMarked className="h-4 w-4" /> 学习专题
+            </h2>
+            <button
+              type="button"
+              className="min-h-11 rounded-xl border border-[var(--border)] bg-[var(--card)] px-3 text-sm font-ui hover:bg-[var(--hover)]"
+              onClick={() => setNewTopicOpen((v) => !v)}
+            >
+              {newTopicOpen ? "取消" : "新建专题"}
+            </button>
+          </div>
+          {newTopicOpen && (
+            <form
+              className="card-surface p-4 space-y-3"
+              onSubmit={(e) => {
+                e.preventDefault();
+                submitNewTopic();
+              }}
+            >
+              <input
+                className="w-full min-h-11 rounded-xl border border-[var(--border)] bg-transparent px-3"
+                placeholder="专题标题"
+                value={newTopicTitle}
+                onChange={(e) => setNewTopicTitle(e.target.value)}
+                aria-label="专题标题"
+              />
+              <textarea
+                className="w-full min-h-[72px] rounded-xl border border-[var(--border)] bg-transparent px-3 py-2"
+                placeholder="可选说明"
+                value={newTopicDesc}
+                onChange={(e) => setNewTopicDesc(e.target.value)}
+                aria-label="专题说明"
+              />
+              <button
+                type="submit"
+                className="min-h-11 rounded-xl bg-[var(--accent)] text-white px-4 text-sm font-ui"
+              >
+                创建并打开
+              </button>
+            </form>
+          )}
+          {learningTopics.length === 0 && !newTopicOpen ? (
+            <p className="text-sm text-[var(--muted)]">
+              还没有专题。专题用来归拢已有笔记和源码引用，不会复制笔记正文。
+            </p>
+          ) : (
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {learningTopics.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setActiveTopicId(t.id)}
+                  className="card-surface hover-lift text-left p-4 min-h-[108px] flex flex-col gap-2"
+                  aria-label={`打开专题 ${t.title}`}
+                >
+                  <div className="font-serif text-lg font-semibold truncate">{t.title}</div>
+                  {t.description && (
+                    <p className="text-sm text-[var(--muted)] line-clamp-2">{t.description}</p>
+                  )}
+                  <div className="text-[11px] text-[var(--muted)] mt-auto">{topicSummary(t)}</div>
+                </button>
+              ))}
+            </div>
+          )}
+        </section>
 
         {starred.length > 0 && (
           <section className="space-y-3">

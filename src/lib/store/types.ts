@@ -17,6 +17,7 @@ import type { QuizDoc, QuizItemState } from "../quiz";
 import type { ReadingPrefs } from "../readingPrefs";
 import type { DocMeta, DocStatus } from "../docMeta";
 import type { SavedSearch } from "../searchQuery";
+import type { LearningTopic, LearningTopicCitationRef } from "../learningTopics";
 import type { HtmlDocPreviewPrefs } from "../htmlPreviewPrefs";
 import type { LocateResult } from "../locate/types";
 import type { BridgeElementNode } from "../locate/types";
@@ -201,6 +202,10 @@ export type LanghuanState = {
   annotations: Annotation[];
   /** HTML quiz practice state (not in document body). */
   quizDocs: QuizDoc[];
+  /** Lightweight groupings of existing notes and lh-cite refs (not a second document store). */
+  learningTopics: LearningTopic[];
+  /** Open topic on the home/topic surface; null = none. */
+  activeTopicId: string | null;
   /** Quiz review dialog. */
   quizReviewOpen: boolean;
   /** Link & image health scan dialog. */
@@ -477,6 +482,18 @@ export type LanghuanState = {
   setExportDialogOpen: (v: boolean) => void;
   setShortcutsDialogOpen: (v: boolean) => void;
   assetsForDoc: (docId: string) => AssetMeta[];
+  createLearningTopic: (input: { title: string; description?: string }) => LearningTopic;
+  renameLearningTopic: (id: string, title: string) => void;
+  setLearningTopicDescription: (id: string, description: string) => void;
+  deleteLearningTopic: (id: string) => void;
+  addLearningTopicNote: (id: string, noteId: string) => void;
+  removeLearningTopicNote: (id: string, noteId: string) => void;
+  addLearningTopicCitation: (
+    id: string,
+    ref: Omit<LearningTopicCitationRef, "id"> & { id?: string },
+  ) => void;
+  removeLearningTopicCitation: (id: string, citationId: string) => void;
+  setActiveTopicId: (id: string | null) => void;
   /** Load library from content/ API (and one-shot IDB→content migrate / seed). */
   hydrateFromContent: () => Promise<void>;
 };

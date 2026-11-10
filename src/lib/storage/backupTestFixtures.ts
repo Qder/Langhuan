@@ -69,5 +69,25 @@ export function completeBackupFixture(): BackupPayload {
     },
     savedSearches: [{ id: "s1", name: "学习", query: "study", createdAt: 4 }],
     readingProgress: { "notes/a.md": { top: 42, ratio: 0.25, savedAt: 5 } },
+    topics: [
+      {
+        id: "topic-1",
+        title: "入门",
+        description: "先读这篇",
+        noteIds: ["d1"],
+        citations: [
+          {
+            id: "tc1",
+            noteId: "d1",
+            projectId: "proj",
+            path: "src/a.ts",
+            fromLine: 1,
+            toLine: 2,
+          },
+        ],
+        createdAt: 6,
+        updatedAt: 7,
+      },
+    ],
   };
 }

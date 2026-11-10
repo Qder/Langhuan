@@ -1,8 +1,9 @@
 /** @vitest-environment node */
 import { describe, it, expect, vi } from "vitest";
 import JSZip from "jszip";
-import { parseLibraryZipDetailed, backupHasBlockingIssues } from "./backup";
+import { parseLibraryZipDetailed, backupHasBlockingIssues, buildLibraryZipDetailed } from "./backup";
 import { payloadToBackupTree } from "./backupTree";
+import { completeBackupFixture } from "./backupTestFixtures";
 vi.mock("../assets/store", () => ({
   getAssetBlob: vi.fn(),
   putAssetBlob: vi.fn(),
@@ -157,4 +158,41 @@ it("preserves opaque record IDs without prototype-key collisions", async () => {
   expect(Object.hasOwn(parsed.payload.versions!, "__proto__")).toBe(true);
   expect(parsed.payload.assetBinaries!.constructor).toBe("iVBORw==");
   expect(() => payloadToBackupTree(parsed.payload)).not.toThrow();
+});
+
+describe("topics backup compatibility", () => {
+  it("new v3 export includes topics and export-then-restore round-trips them", async () => {
+    const source = completeBackupFixture();
+    const built = await buildLibraryZipDetailed(source);
+    expect(built.report.ok).toBe(true);
+    const zip = await JSZip.loadAsync(await built.blob.arrayBuffer());
+    const manifest = JSON.parse(
+      await zip.file("langhuan-backup/manifest.json")!.async("string"),
+    );
+    expect(manifest.learningFiles).toContain("learning/topics.json");
+    const parsed = await parseLibraryZipDetailed(built.blob);
+    expect(parsed.report.ok).toBe(true);
+    expect(parsed.payload.topics).toEqual(source.topics);
+  });
+
+  it("v3 zip without topics still imports with empty topics", async () => {
+    const source = completeBackupFixture();
+    const built = await buildLibraryZipDetailed(source);
+    const zip = await JSZip.loadAsync(await built.blob.arrayBuffer());
+    zip.remove("langhuan-backup/learning/topics.json");
+    const manifest = JSON.parse(
+      await zip.file("langhuan-backup/manifest.json")!.async("string"),
+    );
+    manifest.learningFiles = (manifest.learningFiles as string[]).filter(
+      (n) => n !== "learning/topics.json",
+    );
+    delete manifest.entryDigests["learning/topics.json"];
+    zip.file("langhuan-backup/manifest.json", JSON.stringify(manifest));
+    const parsed = await parseLibraryZipDetailed(
+      new Blob([await zip.generateAsync({ type: "arraybuffer" })]),
+    );
+    expect(backupHasBlockingIssues(parsed.report)).toBe(false);
+    expect(parsed.payload.topics ?? []).toEqual([]);
+    expect(() => payloadToBackupTree(parsed.payload)).not.toThrow();
+  });
 });

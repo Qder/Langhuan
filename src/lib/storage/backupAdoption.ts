@@ -2,7 +2,7 @@
 import { get, set, keys } from "idb-keyval";
 import { fetchBackupRestoreState, fetchBackupSnapshot } from "./backupApi";
 import { assignBackupLearning, type BackupPayload } from "./backup";
-import { parseLearningFile, LEARNING_PATHS } from "./learningData";
+import { parseLearningFile, LEARNING_PATHS, REQUIRED_LEARNING_PATHS } from "./learningData";
 import { base64Text } from "./backupProtocol";
 import { adoptRestoredVersions } from "./versions";
 import { hydrateScrollMemoryMap, readScrollMemoryMap } from "../scrollMemory";
@@ -32,6 +32,7 @@ export async function ensureBackupAdoption(
     annotations: [],
     quizDocs: [],
     savedSearches: [],
+    topics: [],
     versions: Object.create(null),
     readingProgress: {},
   };
@@ -40,7 +41,7 @@ export async function ensureBackupAdoption(
       payload,
       parseLearningFile(f.path, base64Text(f.base64)),
     );
-  for (const path of Object.values(LEARNING_PATHS))
+  for (const path of Object.values(REQUIRED_LEARNING_PATHS))
     if (!state.files.some((f) => f.path === path))
       throw new Error(`恢复学习文件缺失：${path}；尚未替换本机旧数据`);
   const snapshot = await fetchBackupSnapshot();
@@ -72,6 +73,7 @@ export async function ensureBackupAdoption(
       annotations: s?.annotations ?? [],
       quizDocs: s?.quizDocs ?? [],
       savedSearches: s?.savedSearches ?? [],
+      learningTopics: s?.learningTopics ?? [],
       drafts: s?.drafts ?? {},
     });
     await set(rollbackKey, {
@@ -100,6 +102,7 @@ export async function ensureBackupAdoption(
     annotations: payload.annotations,
     quizDocs: payload.quizDocs,
     savedSearches: payload.savedSearches,
+    learningTopics: payload.topics ?? [],
     drafts: {},
     activeId: null,
   });
@@ -111,6 +114,7 @@ export async function ensureBackupAdoption(
       annotations: payload.annotations,
       quizDocs: payload.quizDocs,
       savedSearches: payload.savedSearches,
+      learningTopics: payload.topics ?? [],
       drafts: {},
       activeId: null,
     },

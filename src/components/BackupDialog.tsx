@@ -239,7 +239,7 @@ export function BackupDialog() {
         </h2>
         <p className="text-sm text-[var(--muted)]">
           ZIP
-          含正文、附件、回收站、批注、版本历史、练习、保存搜索和阅读进度。不含讲解密钥/草稿、文件夹绑定、界面布局或读码工程专用数据；未保存的笔记草稿不在包中。
+          含正文、附件、回收站、批注、版本历史、练习、保存搜索、阅读进度和学习专题。不含讲解密钥/草稿、文件夹绑定、界面布局或读码工程专用数据；未保存的笔记草稿不在包中。
         </p>
         <p className="text-xs text-[var(--muted)]">
           上次备份：{lastBackupAt ? relativeTime(lastBackupAt) : "尚无"}
@@ -286,7 +286,8 @@ export function BackupDialog() {
                     0,
                   )}{" "}
                   · 搜索 {preview.payload.savedSearches?.length ?? 0} · 进度{" "}
-                  {Object.keys(preview.payload.readingProgress ?? {}).length}
+                  {Object.keys(preview.payload.readingProgress ?? {}).length}{" "}
+                  · 专题 {preview.payload.topics?.length ?? 0}
                 </p>
                 {preview.sourceError && (
                   <p role="alert">
@@ -296,7 +297,7 @@ export function BackupDialog() {
                 )}
                 {preview.legacy && (
                   <p className="text-xs text-[var(--muted)]">
-                    旧格式兼容导入：原包未提供的版本/搜索/进度视为空；合并保留当前库，替换采用旧包内容。
+                    旧格式兼容导入：原包未提供的版本/搜索/进度/专题视为空；合并保留当前库，替换采用旧包内容。
                   </p>
                 )}
                 <ul className="max-h-40 overflow-auto space-y-1 text-xs">

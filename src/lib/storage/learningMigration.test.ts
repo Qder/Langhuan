@@ -10,7 +10,8 @@ const io = { read: readLearningFile, write: writeLearningFile };
 const ann = (id: string, time = 1) => ({ ...createAnnotation({ docId: "doc", path: "a.md", quote: "quote", start: 0, end: 5 }, time), id });
 const search = (id: string, time = 1) => ({ id, name: id, query: id, createdAt: time });
 const progress = (savedAt: number) => ({ top: 10, ratio: 0.5, savedAt });
-const initial = (): LearningState => ({ annotations: [ann("old")], savedSearches: [search("old")], progress: { "a.md": progress(1) }, quizDocs: [{ docId: "doc", updatedAt: 1, items: [{ id: "old", stem: "question", state: "know", updatedAt: 1 }] }] });
+const topic = (id: string, time = 1) => ({ id, title: id, description: "", noteIds: ["doc"], citations: [], createdAt: time, updatedAt: time });
+const initial = (): LearningState => ({ annotations: [ann("old")], savedSearches: [search("old")], progress: { "a.md": progress(1) }, quizDocs: [{ docId: "doc", updatedAt: 1, items: [{ id: "old", stem: "question", state: "know", updatedAt: 1 }] }], topics: [topic("old")] });
 describe("learning file migration in an isolated real library", () => {
   const cwd = process.cwd(); let root = "";
   beforeEach(async () => { root = await fs.mkdtemp(path.join(os.tmpdir(), "lh-learning-")); process.chdir(root); });
@@ -41,7 +42,7 @@ describe("learning file migration in an isolated real library", () => {
   it("write failure preserves the merged state and old input; retry succeeds", async () => {
     const old = initial(); let current = old;
     const failed = await migrateLearningData(() => old, { ...io, write: async () => { throw new Error("disk full"); } }, (s) => { current = s; });
-    expect(failed.errors).toHaveLength(4);
+    expect(failed.errors).toHaveLength(5);
     expect(current.annotations).toEqual(old.annotations); expect(current.progress).toEqual(old.progress);
     expect(old.quizDocs[0].items[0].state).toBe("know");
     expect((await migrateLearningData(() => current, io, (s) => { current = s; })).errors).toEqual([]);
@@ -79,5 +80,21 @@ describe("learning file migration in an isolated real library", () => {
     expect(mergeVersions(Array.from({ length: 25 }, (_, i) => ({ id: String(i), docId: "doc", content: "body", path: "a.md", savedAt: i })), [])).toHaveLength(20);
     expect(() => parseLearningFile(P.annotations, '{"format":"langhuan-annotations","version":2,"annotations":[]}')).toThrow();
     expect(() => parseLearningFile(versionPath("a"), '{"format":"langhuan-versions","version":1,"docId":"b","versions":[]}')).toThrow();
+  });
+
+  it("topics union by id, newer timestamp wins, ties prefer library, corrupt file is not wiped", async () => {
+    const local = initial();
+    await writeLearningFile(P.topics, { format: "langhuan-topics", version: 1, topics: [topic("library", 3), { ...topic("old", 1), title: "library-title" }] });
+    let state = local;
+    await migrateLearningData(() => state, io, (s) => { state = s; });
+    expect(state.topics.map((t) => t.id).sort()).toEqual(["library", "old"]);
+    expect(state.topics.find((t) => t.id === "old")?.title).toBe("library-title");
+    await fs.mkdir(path.dirname(absFromRel(P.topics)), { recursive: true });
+    await fs.writeFile(absFromRel(P.topics), "{broken-topics");
+    state = initial();
+    const result = await migrateLearningData(() => state, io, (s) => { state = s; });
+    expect(result.blocked).toContain(P.topics);
+    expect(state.topics[0].id).toBe("old");
+    expect(await fs.readFile(absFromRel(P.topics), "utf8")).toBe("{broken-topics");
   });
 });

@@ -30,6 +30,7 @@ import { createAssetsSlice } from "./slices/assetsSlice";
 import { createSyncBackupSlice } from "./slices/syncBackupSlice";
 import { createDocsSlice } from "./slices/docsSlice";
 import { createProjectsSlice } from "./slices/projectsSlice";
+import { createLearningTopicsSlice } from "./slices/learningTopicsSlice";
 import { createElementInspectSlice } from "./slices/elementInspectSlice";
 
 export type {
@@ -55,6 +56,7 @@ export const useStore = create<LanghuanState>()(
       ...createSyncBackupSlice(...a),
       ...createDocsSlice(...a),
       ...createProjectsSlice(...a),
+      ...createLearningTopicsSlice(...a),
       ...createElementInspectSlice(...a),
     }),
     {
@@ -84,6 +86,7 @@ export const useStore = create<LanghuanState>()(
         statusFilter: s.statusFilter,
         annotations: s.annotations,
         quizDocs: s.quizDocs,
+        learningTopics: s.learningTopics,
         readingPrefs: s.readingPrefs,
         mdFocusMode: s.mdFocusMode,
         openTabs: s.openTabs,
@@ -145,6 +148,7 @@ export const useStore = create<LanghuanState>()(
           );
         }
         if (!Array.isArray(p.quizDocs)) p.quizDocs = [];
+        if (!Array.isArray(p.learningTopics)) p.learningTopics = [];
         p.readingPrefs = normalizeReadingPrefs(
           (p.readingPrefs as Partial<ReadingPrefs>) || DEFAULT_READING_PREFS
         );

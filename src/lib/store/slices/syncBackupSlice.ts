@@ -9,6 +9,8 @@ import type { Document, TrashItem } from "../../types";
 import { normalizeReadingPrefs } from "../../readingPrefs";
 import { createSeedDocuments } from "../../seed";
 import { uid } from "../../utils";
+import { mergeTopics } from "../../storage/learningData";
+import { remapTopicIds } from "../../learningTopics";
 import { saveAssetMetaList } from "../../assets/store";
 import { clearVersions } from "../../storage/versions";
 import {
@@ -91,6 +93,7 @@ export const createSyncBackupSlice: StateCreator<
         quizDocs: get().quizDocs,
         savedSearches: get().savedSearches,
         readingProgress: readScrollMemoryMap(),
+        topics: get().learningTopics,
       }),
   importLibrary: async (payload, mode) => {
         const beforeDocuments = get().documents;
@@ -119,6 +122,7 @@ export const createSyncBackupSlice: StateCreator<
             assets,
             annotations: payload.annotations || [],
             quizDocs: payload.quizDocs || [],
+            learningTopics: payload.topics || [],
             readingPrefs: payload.readingPrefs
               ? normalizeReadingPrefs(payload.readingPrefs)
               : get().readingPrefs,
@@ -193,12 +197,22 @@ export const createSyncBackupSlice: StateCreator<
           }
           nextQuiz = [...byId.values()];
         }
+        const mapNote = (id: string) => {
+          const incoming = payload.documents.find((d) => d.id === id);
+          if (!incoming) return id;
+          return nextDocs.find((d) => d.path === incoming.path)?.id ?? id;
+        };
+        const nextTopics = mergeTopics(
+          get().learningTopics,
+          (payload.topics ?? []).map((t) => remapTopicIds(t, mapNote)),
+        );
         await persistImport(nextDocs);
         set({
           documents: nextDocs,
           assets: nextAssets,
           annotations: nextAnn,
           quizDocs: nextQuiz,
+          learningTopics: nextTopics,
         });
         void saveAssetMetaList(nextAssets);
         const mergeCount = n;

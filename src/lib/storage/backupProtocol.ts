@@ -2,7 +2,7 @@
 import {
   isLearningPath,
   parseLearningFile,
-  LEARNING_PATHS,
+  REQUIRED_LEARNING_PATHS,
 } from "./learningData";
 export type BackupFile = { path: string; base64: string };
 export type BackupTree = { files: BackupFile[] };
@@ -115,6 +115,6 @@ export function validateBackupTree(tree: BackupTree): void {
     trash.some((t) => !t?.doc || typeof t.doc.content !== "string")
   )
     throw new Error("回收站无效");
-  for (const p of Object.values(LEARNING_PATHS))
+  for (const p of Object.values(REQUIRED_LEARNING_PATHS))
     if (!byPath.has(p)) throw new Error(`缺少学习文件：${p}`);
 }

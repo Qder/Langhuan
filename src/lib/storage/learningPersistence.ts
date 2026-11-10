@@ -19,8 +19,8 @@ async function hydrateLearningStateUnlocked(get: Get, set: Set): Promise<void> {
   await waitForLearningWrites();
   try {
     await ensureBackupAdoption(get, set);
-    const result = await migrateLearningData(() => ({ annotations: get().annotations, savedSearches: get().savedSearches, quizDocs: get().quizDocs, progress: readScrollMemoryMap() }), libraryLearningIO, (merged) => {
-      set({ annotations: merged.annotations, savedSearches: merged.savedSearches, quizDocs: merged.quizDocs });
+    const result = await migrateLearningData(() => ({ annotations: get().annotations, savedSearches: get().savedSearches, quizDocs: get().quizDocs, progress: readScrollMemoryMap(), topics: get().learningTopics ?? [] }), libraryLearningIO, (merged) => {
+      set({ annotations: merged.annotations, savedSearches: merged.savedSearches, quizDocs: merged.quizDocs, learningTopics: merged.topics });
       hydrateScrollMemoryMap(merged.progress);
     });
     for (const path of Object.values(LEARNING_PATHS)) setLearningReadBlocked(path, result.blocked.includes(path));
@@ -40,6 +40,7 @@ async function hydrateLearningStateUnlocked(get: Get, set: Set): Promise<void> {
       write(LEARNING_PATHS.searches, { format: "langhuan-saved-searches", version: 1, searches: state.savedSearches }),
       write(LEARNING_PATHS.quiz, { format: "langhuan-quiz", version: 1, updatedAt: Date.now(), docs: state.quizDocs }),
       write(LEARNING_PATHS.progress, { format: "langhuan-reading-progress", version: 1, progress: readScrollMemoryMap() }),
+      write(LEARNING_PATHS.topics, { format: "langhuan-topics", version: 1, topics: state.learningTopics ?? [] }),
     ].map((write) => write.catch(() => {})));
   }
 }
@@ -50,6 +51,7 @@ export function installLearningPersistence(store: { subscribe: (listener: (s: La
     if (s.annotations !== prev.annotations) void persistLearningFile(LEARNING_PATHS.annotations, { format: "langhuan-annotations", version: 1, annotations: s.annotations }).catch(() => {});
     if (s.savedSearches !== prev.savedSearches) void persistLearningFile(LEARNING_PATHS.searches, { format: "langhuan-saved-searches", version: 1, searches: s.savedSearches }).catch(() => {});
     if (s.quizDocs !== prev.quizDocs) void persistLearningFile(LEARNING_PATHS.quiz, { format: "langhuan-quiz", version: 1, updatedAt: Date.now(), docs: s.quizDocs }).catch(() => {});
+    if (s.learningTopics !== prev.learningTopics) void persistLearningFile(LEARNING_PATHS.topics, { format: "langhuan-topics", version: 1, topics: s.learningTopics ?? [] }).catch(() => {});
   });
   configureScrollMemoryLibrary((progress) => active ? persistLearningFile(LEARNING_PATHS.progress, { format: "langhuan-reading-progress", version: 1, progress }) : Promise.resolve(), (e) => reportLearningError(LEARNING_PATHS.progress, e));
   if (typeof window !== "undefined") window.addEventListener("pagehide", () => { void flushScrollMemoryLibrary().catch(() => {}); });

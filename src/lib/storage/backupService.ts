@@ -9,6 +9,7 @@ import {
   mergeAnnotations,
   mergeQuiz,
   mergeSearches,
+  mergeTopics,
 } from "./learningData";
 import type { BackupSnapshot } from "./backupProtocol";
 import type { BackupPayload } from "./backup";
@@ -48,6 +49,7 @@ export async function collectBackup(
     fallback.savedSearches ?? [],
     p.savedSearches ?? [],
   );
+  p.topics = mergeTopics(fallback.topics ?? [], p.topics ?? []);
   if (!paths.has(LEARNING_PATHS.progress))
     p.readingProgress = fallback.readingProgress ?? readScrollMemoryMap();
   // Include still-pending old-store snapshots without writing/migrating during preview.

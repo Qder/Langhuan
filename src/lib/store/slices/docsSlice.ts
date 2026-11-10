@@ -262,6 +262,7 @@ export const createDocsSlice: StateCreator<
         invalidateInspect();
         set({
           activeId: null,
+          activeTopicId: null,
           htmlImmersive: false,
           htmlSidebarPeek: false,
           htmlScrollPercent: 0,

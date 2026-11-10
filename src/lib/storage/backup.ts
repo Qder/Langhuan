@@ -22,8 +22,10 @@ export {
 import { normalizeAnnotation } from "../annotations";
 import type { DocVersion } from "../types";
 import type { SavedSearch } from "../searchQuery";
+import type { LearningTopic } from "../learningTopics";
 import {
   LEARNING_PATHS,
+  REQUIRED_LEARNING_PATHS,
   versionPath,
   parseLearningFile,
   type ProgressMap,
@@ -56,6 +58,7 @@ export type BackupPayload = {
   versions?: Record<string, DocVersion[]>;
   savedSearches?: SavedSearch[];
   readingProgress?: ProgressMap;
+  topics?: LearningTopic[];
   /** Detached bytes: parsing never inserts these into live IDB. */
   assetBinaries?: Record<string, string>;
 };
@@ -121,6 +124,14 @@ export function backupLearningFiles(
         progress: payload.readingProgress ?? {},
       },
     ],
+    [
+      LEARNING_PATHS.topics,
+      {
+        format: "langhuan-topics",
+        version: 1,
+        topics: payload.topics ?? [],
+      },
+    ],
     ...Object.entries(payload.versions ?? {}).map(
       ([docId, versions]) =>
         [
@@ -149,6 +160,9 @@ export function assignBackupLearning(
       break;
     case "langhuan-versions":
       (payload.versions ??= Object.create(null))[file.docId] = file.versions;
+      break;
+    case "langhuan-topics":
+      payload.topics = file.topics;
       break;
   }
 }
@@ -567,7 +581,7 @@ export async function parseLibraryZipDetailed(
     }
   }
   if (manifest.version === 3)
-    for (const rel of Object.values(LEARNING_PATHS))
+    for (const rel of Object.values(REQUIRED_LEARNING_PATHS))
       if (!manifest.learningFiles?.includes(`learning/${rel.slice(10)}`))
         issues.push({
           kind: "corrupt-metadata",

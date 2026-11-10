@@ -6,6 +6,7 @@ import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
 import { StatusBar } from "./StatusBar";
 import { HomeView } from "./HomeView";
+import { LearningTopicView } from "./LearningTopicView";
 import { DualDocLayout } from "./DocWorkspace";
 import { TabBar } from "./TabBar";
 import { ReadingProgress } from "./ReadingProgress";
@@ -18,6 +19,7 @@ export function NotesLibraryShell({
   className?: string;
 }) {
   const activeId = useStore((s) => s.activeId);
+  const activeTopicId = useStore((s) => s.activeTopicId);
   const getActive = useStore((s) => s.getActive);
   const htmlImmersive = useStore((s) => s.htmlImmersive);
   const mdFocusMode = useStore((s) => s.mdFocusMode);
@@ -40,7 +42,7 @@ export function NotesLibraryShell({
         {!chromeHidden && <TopBar />}
         {!chromeHidden && <TabBar />}
         <main className="flex-1 min-h-0 overflow-hidden">
-          {activeId ? <DualDocLayout /> : <HomeView />}
+          {activeId ? <DualDocLayout /> : activeTopicId ? <LearningTopicView /> : <HomeView />}
         </main>
         {focusMd && <MdFocusExitButton />}
         {!chromeHidden && <StatusBar />}

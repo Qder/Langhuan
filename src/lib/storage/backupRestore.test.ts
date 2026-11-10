@@ -72,6 +72,7 @@ describe("isolated complete backup", () => {
     );
     expect(manifest.version).toBe(3);
     expect(manifest.learningFiles).toContain("learning/versions/d1.json");
+    expect(manifest.learningFiles).toContain("learning/topics.json");
     const parsed = await parseLibraryZipDetailed(built.blob);
     expect(parsed.report.ok).toBe(true);
     expect(parsed.payload.annotations).toEqual(source.annotations);
@@ -79,6 +80,7 @@ describe("isolated complete backup", () => {
     expect(parsed.payload.versions).toEqual(source.versions);
     expect(parsed.payload.savedSearches).toEqual(source.savedSearches);
     expect(parsed.payload.readingProgress).toEqual(source.readingProgress);
+    expect(parsed.payload.topics).toEqual(source.topics);
     expect(parsed.payload.assetBinaries).toEqual(source.assetBinaries);
     expect(parsed.payload.trash).toEqual(source.trash);
     const stage = await stageBackupLibrary(

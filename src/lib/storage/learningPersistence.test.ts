@@ -62,7 +62,7 @@ describe("learning integration: simulated IDB + localStorage and real content fi
     const third = makeStore(); await hydrate(third);
     expect(third.getState().annotations).toHaveLength(2);
     expect(errors).toEqual([]);
-    expect((await fs.readdir(absFromRel(".langhuan"))).sort()).toEqual(["annotations.json", "quiz.json", "reading-progress.json", "saved-searches.json", "versions"]);
+    expect((await fs.readdir(absFromRel(".langhuan"))).sort()).toEqual(["annotations.json", "quiz.json", "reading-progress.json", "saved-searches.json", "topics.json", "versions"]);
   });
   it("copying a legacy localStorage store into IDB never deletes the old key", async () => {
     const name = "old-store-rollback";

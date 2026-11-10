@@ -4,12 +4,22 @@ import type { SavedSearch } from "../searchQuery";
 import type { DocVersion } from "../types";
 import type { QuizDoc, QuizStoreFile } from "../quiz";
 import type { ScrollMemoryEntry } from "../scrollMemory";
+import type { LearningTopic } from "../learningTopics";
+import { isStoredTopic, normalizeTopic } from "../learningTopics";
 
 export const LEARNING_PATHS = {
   annotations: ".langhuan/annotations.json",
   searches: ".langhuan/saved-searches.json",
   progress: ".langhuan/reading-progress.json",
   quiz: ".langhuan/quiz.json",
+  topics: ".langhuan/topics.json",
+} as const;
+/** Files that existed before topics; missing topics in old zips/trees is empty, not an error. */
+export const REQUIRED_LEARNING_PATHS = {
+  annotations: LEARNING_PATHS.annotations,
+  searches: LEARNING_PATHS.searches,
+  progress: LEARNING_PATHS.progress,
+  quiz: LEARNING_PATHS.quiz,
 } as const;
 export function versionPath(docId: string): string {
   if (!docId) throw new Error("版本缺少 docId");
@@ -21,7 +31,8 @@ export type LearningFile =
   | { format: "langhuan-saved-searches"; version: 1; searches: SavedSearch[] }
   | { format: "langhuan-reading-progress"; version: 1; progress: ProgressMap }
   | { format: "langhuan-versions"; version: 1; docId: string; versions: DocVersion[] }
-  | QuizStoreFile;
+  | QuizStoreFile
+  | { format: "langhuan-topics"; version: 1; topics: LearningTopic[] };
 export function isLearningPath(rel: string): boolean {
   return Object.values(LEARNING_PATHS).includes(rel as typeof LEARNING_PATHS[keyof typeof LEARNING_PATHS]) || /^\.langhuan\/versions\/[^/\\]+\.json$/.test(rel);
 }
@@ -39,7 +50,16 @@ export function parseLearningFile(rel: string, raw: string): LearningFile {
   if (rel === LEARNING_PATHS.progress) valid = v.format === "langhuan-reading-progress" && record(v.progress) && Object.entries(v.progress).every(([p, a]) => !!p && record(a) && finite(a.top) && a.top >= 0 && finite(a.ratio) && a.ratio >= 0 && a.ratio <= 1 && finite(a.savedAt));
   if (rel === LEARNING_PATHS.quiz) valid = v.format === "langhuan-quiz" && finite(v.updatedAt) && array(v.docs, (d) => record(d) && str(d.docId) && finite(d.updatedAt) && (d.forceQuiz === undefined || typeof d.forceQuiz === "boolean") && array(d.items, (a) => record(a) && str(a.id) && str(a.stem) && ["unseen", "know", "dont_know", "peeked"].includes(String(a.state)) && finite(a.updatedAt)));
   if (/^\.langhuan\/versions\//.test(rel)) valid = v.format === "langhuan-versions" && str(v.docId) && versionPath(v.docId) === rel && array(v.versions, (a) => record(a) && str(a.id) && a.docId === v.docId && str(a.path) && str(a.content) && finite(a.savedAt));
+  if (rel === LEARNING_PATHS.topics) valid = v.format === "langhuan-topics" && array(v.topics, (t) => isStoredTopic(t));
   if (!valid) throw new Error(`${rel} 数据损坏；保留原文件，请检查后重试`);
+
+  if (rel === LEARNING_PATHS.topics && v.format === "langhuan-topics") {
+    return {
+      format: "langhuan-topics",
+      version: 1,
+      topics: (v.topics as LearningTopic[]).map((t) => normalizeTopic(t)!),
+    };
+  }
   return v as LearningFile;
 }
 /** Union by identity; newer timestamp wins, ties favour the library. */
@@ -65,3 +85,6 @@ export function mergeQuiz(old: QuizDoc[], lib: QuizDoc[]): QuizDoc[] {
   const a = new Map(old.map((d) => [d.docId, d])); const b = new Map(lib.map((d) => [d.docId, d]));
   return docs.map((d) => ({ ...d, items: mergeRecords(a.get(d.docId)?.items ?? [], b.get(d.docId)?.items ?? [], (v) => v.id, (v) => v.updatedAt) }));
 }
+
+export const mergeTopics = (old: LearningTopic[], lib: LearningTopic[]) =>
+  mergeRecords(old, lib, (v) => v.id, (v) => v.updatedAt);
