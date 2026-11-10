@@ -357,6 +357,59 @@ describe("bridge jsdom: scrollToRange / highlightRange / clearHighlight", () => 
   });
 });
 
+describe("bridge jsdom: scrollToPercent", () => {
+  it("maps 0–100 onto the current scrollable range", () => {
+    const { doc, win } = loadBridge(`<div style="height:2000px" id="tall">Tall</div>`);
+    const se = doc.scrollingElement || doc.documentElement;
+    Object.defineProperty(se, "scrollHeight", { configurable: true, value: 2000 });
+    Object.defineProperty(se, "clientHeight", { configurable: true, value: 400 });
+    Object.defineProperty(se, "scrollTop", { configurable: true, writable: true, value: 0 });
+
+    win.dispatchEvent(
+      new win.MessageEvent("message", {
+        data: { type: "scrollToPercent", percent: 25 },
+      })
+    );
+    expect(se.scrollTop).toBe(400);
+  });
+
+  it("clamps and ignores unusable values", () => {
+    const { doc, win } = loadBridge(`<div id="t">x</div>`);
+    const se = doc.scrollingElement || doc.documentElement;
+    Object.defineProperty(se, "scrollHeight", { configurable: true, value: 2000 });
+    Object.defineProperty(se, "clientHeight", { configurable: true, value: 400 });
+    Object.defineProperty(se, "scrollTop", { configurable: true, writable: true, value: 50 });
+
+    win.dispatchEvent(
+      new win.MessageEvent("message", { data: { type: "scrollToPercent", percent: 200 } })
+    );
+    expect(se.scrollTop).toBe(1600);
+
+    win.dispatchEvent(
+      new win.MessageEvent("message", { data: { type: "scrollToPercent", percent: -10 } })
+    );
+    expect(se.scrollTop).toBe(0);
+
+    se.scrollTop = 80;
+    win.dispatchEvent(
+      new win.MessageEvent("message", { data: { type: "scrollToPercent", percent: Number.NaN } })
+    );
+    expect(se.scrollTop).toBe(80);
+  });
+
+  it("is a no-op when the page is not yet scrollable", () => {
+    const { doc, win } = loadBridge(`<p id="short">Hi</p>`);
+    const se = doc.scrollingElement || doc.documentElement;
+    Object.defineProperty(se, "scrollHeight", { configurable: true, value: 400 });
+    Object.defineProperty(se, "clientHeight", { configurable: true, value: 400 });
+    Object.defineProperty(se, "scrollTop", { configurable: true, writable: true, value: 0 });
+    win.dispatchEvent(
+      new win.MessageEvent("message", { data: { type: "scrollToPercent", percent: 40 } })
+    );
+    expect(se.scrollTop).toBe(0);
+  });
+});
+
 describe("bridge jsdom: lh-scroll-anchors", () => {
   it("scroll reports anchors sorted by Y with correct shape", async () => {
     const { messages, doc, win } = loadBridge(

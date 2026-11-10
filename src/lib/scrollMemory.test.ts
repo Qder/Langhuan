@@ -5,10 +5,12 @@ import {
   forgetScrollMemory,
   forgetScrollMemoryMany,
   readScrollMemory,
+  readScrollMemoryPercent,
   renameScrollMemory,
   renameScrollMemoryMany,
   scrollTargetFor,
   writeScrollMemory,
+  writeScrollMemoryPercent,
 } from "./scrollMemory";
 
 const store = new Map<string, string>();
@@ -124,6 +126,44 @@ describe("scroll memory", () => {
     expect(Object.keys(raw)).toHaveLength(MD_SCROLL_MAX_DOCS);
     expect(raw["doc-0.md"]).toBeUndefined();
     expect(raw[`doc-${MD_SCROLL_MAX_DOCS + 4}.md`]).toBeDefined();
+  });
+});
+
+describe("scroll memory percent (HTML)", () => {
+  it("stores a 0–100 percent as ratio and reads it back", () => {
+    writeScrollMemoryPercent("page.html", 25);
+    expect(readScrollMemoryPercent("page.html")).toBeCloseTo(25, 5);
+    expect(readScrollMemory("page.html")!.ratio).toBeCloseTo(0.25, 5);
+    expect(readScrollMemory("page.html")!.top).toBe(25);
+  });
+
+  it("keeps HTML and Markdown paths isolated in the same map", () => {
+    writeScrollMemory("notes.md", 400, 2000);
+    writeScrollMemoryPercent("notes.html", 80);
+    expect(readScrollMemory("notes.md")!.top).toBe(400);
+    expect(readScrollMemoryPercent("notes.html")).toBeCloseTo(80, 5);
+  });
+
+  it("allows 0 (scrolled to top) and ignores non-finite input", () => {
+    writeScrollMemoryPercent("a.html", 40);
+    writeScrollMemoryPercent("a.html", Number.NaN);
+    expect(readScrollMemoryPercent("a.html")).toBeCloseTo(40, 5);
+    writeScrollMemoryPercent("a.html", 0);
+    expect(readScrollMemoryPercent("a.html")).toBe(0);
+  });
+
+  it("returns null when there is no record", () => {
+    expect(readScrollMemoryPercent("missing.html")).toBeNull();
+    expect(readScrollMemoryPercent("")).toBeNull();
+  });
+
+  it("rename and forget still work for HTML paths", () => {
+    writeScrollMemoryPercent("old.html", 60);
+    renameScrollMemory("old.html", "new.html");
+    expect(readScrollMemoryPercent("old.html")).toBeNull();
+    expect(readScrollMemoryPercent("new.html")).toBeCloseTo(60, 5);
+    forgetScrollMemory("new.html");
+    expect(readScrollMemoryPercent("new.html")).toBeNull();
   });
 });
 

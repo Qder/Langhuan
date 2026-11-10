@@ -62,6 +62,8 @@ import {
   type AssetMap,
 } from "@/lib/projectAssetCache";
 import { ProjectCompatNotice } from "./ProjectCompatNotice";
+import { shouldYieldHtmlScrollRestore } from "@/lib/htmlScrollMemory";
+import { useHtmlScrollMemory } from "@/lib/useHtmlScrollMemory";
 
 /** 空资源表（换项目时用，保持引用稳定避免多余重算）。 */
 const EMPTY_ASSET_MAP: AssetMap = {};
@@ -299,6 +301,31 @@ export function HtmlReader({ doc }: { doc: Document }) {
   const machineDrive = React.useRef<"preview" | "editor" | null>(null);
   const resetTimer = React.useRef<number | null>(null);
 
+  const scrollMemoryPath = useStore(
+    (s) => s.documents.find((d) => d.id === doc.id)?.path ?? doc.path
+  );
+  const suppressHtmlScrollSync = React.useCallback((ms: number) => {
+    ignoreScrollUntil.current = Date.now() + ms;
+    machineDrive.current = "editor";
+    if (resetTimer.current) window.clearTimeout(resetTimer.current);
+    resetTimer.current = window.setTimeout(() => {
+      machineDrive.current = null;
+    }, ms);
+  }, []);
+  const { onBridgePercent, onIframeReady } = useHtmlScrollMemory({
+    path: scrollMemoryPath,
+    enabled: viewModeStore === "preview",
+    yieldTo: shouldYieldHtmlScrollRestore({
+      pendingPreviewLocate,
+      pendingQuizReveal,
+      docId: doc.id,
+    }),
+    reloadKey: `${doc.id}:${htmlReloadToken}:${srcDoc.length}:${srcDoc.slice(0, 64)}:${srcDoc.slice(-64)}`,
+    post: (msg) => postToBridge(msg),
+    setPercent: setHtmlScrollPercent,
+    onSuppressSync: suppressHtmlScrollSync,
+  });
+
   // Measure stage for device scaling
   React.useEffect(() => {
     const el = stageRef.current;
@@ -319,13 +346,13 @@ export function HtmlReader({ doc }: { doc: Document }) {
     syncQuizForDoc(doc.id);
   }, [isQuizPage, doc.id, content, syncQuizForDoc]);
 
-  // Reset load state when content/reload changes
+  // Reset load state when content/reload changes.
+  // 阅读百分比交给 useHtmlScrollMemory：这里不再清 0，以免覆盖记忆、进度条闪零。
   React.useEffect(() => {
     setLoaded(false);
     setPageBg("transparent");
-    setHtmlScrollPercent(0);
     anchorsWeakRef.current = false;
-  }, [content, htmlReloadToken, doc.id, setHtmlScrollPercent]);
+  }, [content, htmlReloadToken, doc.id]);
 
   const runLocate = React.useCallback(
     (
@@ -490,7 +517,9 @@ export function HtmlReader({ doc }: { doc: Document }) {
         return;
       }
       if (data.type === "lh-scroll") {
-        setHtmlScrollPercent(data.percent ?? 0);
+        const percent = data.percent ?? 0;
+        setHtmlScrollPercent(percent);
+        onBridgePercent(percent);
         return;
       }
       if (data.type === "lh-scroll-anchors") {
@@ -509,7 +538,10 @@ export function HtmlReader({ doc }: { doc: Document }) {
           typeof data.percent === "number" && Number.isFinite(data.percent)
             ? data.percent
             : undefined;
-        if (percent != null) setHtmlScrollPercent(percent);
+        if (percent != null) {
+          setHtmlScrollPercent(percent);
+          onBridgePercent(percent);
+        }
 
         const anchors = (data.anchors || []).map((a, i) => ({
           id: `a${i}`,
@@ -541,7 +573,6 @@ export function HtmlReader({ doc }: { doc: Document }) {
         // to percent sync (avoids random jumps on dynamic pages). Click locate
         // still works via locatePreviewClick.
         if (!covered) {
-          if (percent != null) setHtmlScrollPercent(percent);
           return;
         }
 
@@ -554,9 +585,15 @@ export function HtmlReader({ doc }: { doc: Document }) {
         return;
       }
       if (data.type === "lh-ready") {
+        const st = useStore.getState();
+        const yieldNow = shouldYieldHtmlScrollRestore({
+          pendingPreviewLocate: st.pendingPreviewLocate,
+          pendingQuizReveal: st.pendingQuizReveal,
+          docId: doc.id,
+        });
         if (isQuizPage) {
           postQuiz({ type: "lh-quiz-list" });
-          const pending = useStore.getState().pendingQuizReveal;
+          const pending = st.pendingQuizReveal;
           if (pending && pending.docId === doc.id) {
             const range = parseQuizItemId(pending.itemId);
             postQuiz({
@@ -578,6 +615,7 @@ export function HtmlReader({ doc }: { doc: Document }) {
             setPendingQuizReveal(null);
           }
         }
+        onIframeReady({ yieldTo: yieldNow });
         return;
       }
       if (data.type === "lh-quiz-peeked" && typeof data.id === "string") {
@@ -715,7 +753,7 @@ export function HtmlReader({ doc }: { doc: Document }) {
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [runLocate, handleBridgeKey, setHtmlScrollPercent, getSyncScrollEnabled, publishScrollSync, doc.id, doc.path, isQuizPage, postQuiz, setQuizItemState, setPendingQuizReveal, quizDoc?.items, inspectElement, postToBridge]);
+  }, [runLocate, handleBridgeKey, setHtmlScrollPercent, getSyncScrollEnabled, publishScrollSync, doc.id, doc.path, isQuizPage, postQuiz, setQuizItemState, setPendingQuizReveal, quizDoc?.items, inspectElement, postToBridge, onBridgePercent, onIframeReady]);
 
   // Source → Preview highlight via range (data-lh).
   // Caret follow: highlight only (no scroll) — scrolling preview would emit

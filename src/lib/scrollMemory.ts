@@ -1,11 +1,12 @@
 /**
- * Markdown 预览阅读位置的跨会话记忆。
+ * 预览阅读位置的跨会话记忆（Markdown 与 HTML 共用，按 path 隔离）。
  *
  * 存在 localStorage，与主题（`langhuan-theme`）同一层级：这是一份「本机偏好」，
  * 不是文档数据，所以不进 content/，也不进 zustand 的持久化子树——那里每次
  * 结构性改动都要同步 `store.behavior.test.ts` 的键快照，为一个滚动数字不值得。
  *
- * 键名：`lh.mdScroll`，值是 `{ [docPath]: Entry }`。
+ * 键名：`lh.mdScroll`，值是 `{ [docPath]: Entry }`。HTML 也走同一份 map，
+ * 不另开键，这样改名 / 删除已经接在 docs/trash 上的迁移对两种文档都生效。
  * 用 path 而不是 id：路径变了就不会错跳到旧坐标。应用内改名 / 移动由
  * {@link renameScrollMemory} 把记录迁到新 path，删除由
  * {@link forgetScrollMemory} 清掉，所以孤儿条目只剩「应用外改了文件名」这一种。
@@ -172,6 +173,23 @@ export function renameScrollMemoryMany(
     touched = true;
   }
   if (touched) writeMap(map);
+}
+
+
+/**
+ * 记下 0–100 的阅读百分比。HTML 预览在无 same-origin 时只能拿到百分比，
+ * 按 `max = 100` 写入，ratio 仍是 0–1。
+ */
+export function writeScrollMemoryPercent(path: string, percent: number): void {
+  if (!Number.isFinite(percent)) return;
+  writeScrollMemory(path, percent, 100);
+}
+
+/** 读出 0–100 的百分比；没有记录或数据坏了返回 null。 */
+export function readScrollMemoryPercent(path: string): number | null {
+  const entry = readScrollMemory(path);
+  if (!entry || !Number.isFinite(entry.ratio)) return null;
+  return Math.min(100, Math.max(0, entry.ratio * 100));
 }
 
 /**

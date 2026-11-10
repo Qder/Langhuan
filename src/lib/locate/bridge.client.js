@@ -1480,6 +1480,17 @@
       showOverlayFor(el);
       return;
     }
+    if (d.type === "scrollToPercent") {
+      var p = d.percent;
+      if (typeof p !== "number" || !isFinite(p)) return;
+      if (p < 0) p = 0;
+      if (p > 100) p = 100;
+      var sePct = resolveScrollRoot(lastScrollRoot);
+      var maxPct = (sePct.scrollHeight || 0) - (sePct.clientHeight || 0);
+      if (!(maxPct > 0)) return;
+      sePct.scrollTop = (p / 100) * maxPct;
+      return;
+    }
     if (d.type === "lh-quiz-list") {
       parent.postMessage({ type: "lh-quiz-list", items: quizListItems() }, "*");
       return;

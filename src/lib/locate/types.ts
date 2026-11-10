@@ -232,6 +232,7 @@ export const BRIDGE_MAX_MESSAGE_CHARS = 65536;
 /** Parent → iframe outbound message types (documented; not all validated inbound). */
 export type BridgeOutboundMessage =
   | { type: "scrollToRange"; range: { start: number; end: number } }
+  | { type: "scrollToPercent"; percent: number }
   | { type: "highlightRange"; range: { start: number; end: number } }
   | { type: "clearHighlight" }
   | { type: "lh-highlight"; text: string }
