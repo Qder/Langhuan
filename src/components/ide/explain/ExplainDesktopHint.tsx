@@ -1,39 +1,20 @@
 "use client";
 
-import { IDE_NOTE_DESTINATION_HINT } from "@/lib/ide/captureNote";
-import { TAURI_EXPLAIN_HINT } from "@/lib/ide/explain";
-import { isTauriRuntime } from "@/lib/storage/contentApi";
 import { useIdeStore } from "@/lib/ide/store";
+import { ExplainUsageHelp } from "./ExplainUsageHelp";
 
 /**
- * Settings strip: API fields + the desktop-only transport note.
+ * Settings strip: API fields + opt-in help.
  * Browser keeps using `.env.local`; packaged app has no Next route, so Key
  * and Base URL here are the only way to reach a model.
  */
 export function ExplainDesktopHint() {
-  const isDesktop = isTauriRuntime();
   const explainSettings = useIdeStore((s) => s.explainSettings);
   const setExplainSettings = useIdeStore((s) => s.setExplainSettings);
 
   return (
     <div className="px-3 py-2 border-b border-[var(--chrome-border)] space-y-2 text-xs font-ui">
-      <div className="text-[var(--muted)]">
-        Key 只存在本机 IDE 存储；也可放在 <code>.env.local</code>
-        {isDesktop ? "（桌面版不支持 .env，只用这里的设置）" : ""}。
-      </div>
-      <div className="text-[var(--muted)] space-y-1">
-        {IDE_NOTE_DESTINATION_HINT.split("\n").map((line) => (
-          <p key={line}>{line}</p>
-        ))}
-      </div>
-      {isDesktop && (
-        <div className="text-[var(--muted)]">{TAURI_EXPLAIN_HINT}</div>
-      )}
-      <div className="text-[var(--muted)]">
-        DeepSeek（官方 OpenAI 兼容）：Base URL 填{" "}
-        <code>https://api.deepseek.com</code>，模型填 <code>deepseek-flash</code>
-        （或 <code>deepseek-v4-pro</code>）。只填 Key 时默认也走 DeepSeek，不必填 OpenAI 地址。
-      </div>
+      <ExplainUsageHelp settings />
       <label className="block">
         <span className="text-[var(--muted)]">API Key</span>
         <input

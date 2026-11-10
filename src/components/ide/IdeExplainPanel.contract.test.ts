@@ -18,6 +18,7 @@ const panelSrc = panel;
 const sendSrc = read("explain/useExplainSend.ts");
 const pendingSrc = read("explain/usePendingExplain.ts");
 const hintSrc = read("explain/ExplainDesktopHint.tsx");
+const helpSrc = read("explain/ExplainUsageHelp.tsx");
 const composerSrc = read("explain/ExplainComposer.tsx");
 const listSrc = read("explain/ExplainMessageList.tsx");
 const captureBarSrc = read("explain/ExplainCaptureBar.tsx");
@@ -224,7 +225,7 @@ describe("讲解面板：收入藏书阁路径可见", () => {
     // 空态不再常驻长文，改由 ExplainUsageHelp 展开同一套落盘说明。
     expect(listSrc).toContain("ExplainUsageHelp");
     expect(listSrc).not.toContain("IDE_NOTE_DESTINATION_HINT");
-    expect(hintSrc).toContain("IDE_NOTE_DESTINATION_HINT");
+    expect(hintSrc).toContain("ExplainUsageHelp settings");
     expect(captureBarSrc).toContain("savedPath");
     expect(captureBarSrc).toContain("在藏书阁打开");
     expect(panel).toContain("savedNotes=");
@@ -232,7 +233,6 @@ describe("讲解面板：收入藏书阁路径可见", () => {
 });
 
 describe("讲解面板：使用说明可折叠", () => {
-  const helpSrc = read("explain/ExplainUsageHelp.tsx");
   it("空态用「使用说明」按钮，默认不铺开长文", () => {
     expect(listSrc).toContain("ExplainUsageHelp");
     expect(listSrc).not.toContain("提问会带上当前文件");
@@ -353,7 +353,7 @@ describe("讲解面板：桌面通路", () => {
     expect(sendSrc).not.toContain("桌面版不支持 IDE 讲解");
     expect(sendSrc).not.toContain("TAURI_EXPLAIN_UNAVAILABLE");
     expect(sendSrc).not.toMatch(/fetch\(\s*["']\/api\/ide\/explain["']/);
-    expect(hintSrc).toContain("TAURI_EXPLAIN_HINT");
-    expect(hintSrc).toContain("isTauriRuntime");
+    expect(helpSrc).toContain("TAURI_EXPLAIN_HINT");
+    expect(helpSrc).toContain("isTauriRuntime");
   });
 });
