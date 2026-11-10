@@ -1,6 +1,6 @@
 # Tauri 2 Android APK（debug + 可分发 release）
 
-上次更新：2026-11-10 · 读码可一次性选择系统文件夹导入沙箱；藏书阁同步可扫入新图片/引用附件
+上次更新：2026-11-10 · 藏书阁新增一次性 SAF「导入文件夹」；保留笔记 zip，与同步绑定/读码沙箱分开
 
 ## 一句话现状
 
@@ -9,7 +9,7 @@
 - **Android**：`src-tauri/gen/android` 已 init（`applicationId` `com.qder.langhuan`）。打开就是琅嬛壳（藏书阁 + 读码），库落在应用私有目录，首次 hydrate 会 seed 示例 md。
 - **分发**：`npm run android:apk:release` 打 **release + strip `.so` + 本机 keystore 签名**。不要走 Play 商店。
 - **应用内更新**：设置 →「检查更新」拉 `android-latest.json` → 下载 APK → sha256 → 系统安装器（见 [STATUS-android-updater.md](./STATUS-android-updater.md)）。**真机未验**；仍可用 `adb install -r`。Windows updater **不复用**到 APK。
-- **藏书阁导入（安卓）**：侧栏 / 首页仍可用 **「导入笔记 zip」**。另：侧栏文件夹图标「本地文件夹同步」在 **APK** 里走系统 SAF 选目录（持久权限），由用户点 **应用 → 本地** 或 **本地 → 应用**（同路径覆盖来源；另一侧多出来的不删）。平板浏览器仍不能选目录，请用 APK 或 zip。
+- **藏书阁导入（安卓 APK）**：首页 / 侧栏「导入 ▾ → 导入文件夹」走一次性 SAF 选夹，扫描笔记与图片后仍由「导入到…」确认写入书库 `content/`；不绑定、不写回来源。**「导入笔记 zip」仍保留**。另：侧栏文件夹图标「本地文件夹同步」在 **APK** 里走系统 SAF 选目录（持久权限），由用户点 **应用 → 本地** 或 **本地 → 应用**（同路径覆盖来源；另一侧多出来的不删）。平板浏览器仍不能选目录，请用 APK 或 zip。
 - **读码（安卓 APK）**：欢迎页 / 顶栏可 **「选择文件夹」**（`SafPlugin` 一次性选目录并扫描，导入 IndexedDB 沙箱，**不写** `content/`，**不写回**原文件夹，也**不改写**藏书阁已绑定的 SAF 树）。仍可「导入工程 zip」。桌面仍「打开文件夹」。杀进程后可从「最近工程」恢复沙箱工程（最多 6 个）。平板**浏览器**没有 SAF，不能选目录，请用 APK 或 zip。绝不调用 `showDirectoryPicker`（会 NPE / 杀进程）。
 - **md「目录」叠层**：窄屏/平板顶栏点「目录」曾被 `<header overflow-hidden>` 裁切，看起来像压在正文下一层。`TocPopover` 已改为 `fixed` + `z-[70]`（与阅读设置弹层同思路）。重打 APK 后验收；桌面浏览器同修。
 - **未做**：Play 上架、读码对原文件夹的活绑定/写回、终端、LSP、Cloud Agent。藏书阁 SAF 方向同步与读码选文件夹代码已做，**真机未验**。换包也可继续侧载；in-app 更新见 STATUS-android-updater（真机未验）。
@@ -182,7 +182,7 @@ AVD：`Medium_Phone_API_37.0`，另用 `1536×2048 @ 320dpi`（约 768×1024 d
 
 ### 本回合 P0（模拟器复现，代码已改）
 
-1. **点「打开文件夹」杀进程**。Android WebView 上 `typeof showDirectoryPicker === "function"`，调用却进 `RustWebChromeClient.showFilePicker`，`intent.type` 为 null 时 `intent.type!!` NPE。处理：`directoryPickerSupported` / `folderDirectoryImportSupported` 对 Android UA 一律 false；藏书阁与读码均改为 **导入 zip**（见上两节），不再依赖 webkitdirectory。
+1. **点「打开文件夹」杀进程**。Android WebView 上 `typeof showDirectoryPicker === "function"`，调用却进 `RustWebChromeClient.showFilePicker`，`intent.type` 为 null 时 `intent.type!!` NPE。处理：`directoryPickerSupported` / `folderDirectoryImportSupported` 对 Android UA 一律 false；当时藏书阁与读码均改为 **导入 zip**，不再依赖 webkitdirectory。后续 APK 已各自增加一次性原生 SAF 选夹（见下节）；Web 目录选择器仍禁止在 Android 调用。
 2. **系统返回 SIGSEGV**。`TauriActivity.handleBackNavigation = false`，back 会 `finish()`，wry 拆 WebView 时 `pthread_mutex_lock` 打在已销毁 mutex 上。处理：`MainActivity` 用 `OnBackPressedCallback` → `moveTaskToBack(true)`。真退出走最近任务划掉。
 
 P0 代码 tip：**`f0d3d3a`**（`fix(android): keep the note shell from dying on folder pick or back`）。未做：缩 APK、updater、商店签名。
@@ -212,7 +212,7 @@ P0 代码 tip：**`f0d3d3a`**（`fix(android): keep the note shell from dying on
 | 本地库读写 | Next API → 仓库 `content/` | Rust → 便携/`app_data` | Rust → **应用私有目录** |
 | 首次 seed 示例 md | 有 | 有 | 有 |
 | HTML 项目导入 / CSS·JS 索引 | **唯一支持** | 明确不支持 | **同样不支持**（`desktopProjectsUnsupported`） |
-| 系统文件夹选择 / 双向同步 | File System Access | 不支持 | 藏书阁：SAF 选目录 + **方向同步**（应用→本地 / 本地→应用）；读码：一次性 SAF 选目录或 zip → 沙箱。平板 **浏览器** 仍不能选目录 |
+| 系统文件夹选择 / 双向同步 | File System Access | 不支持 | 藏书阁：一次性 **导入文件夹** 或 SAF 绑定 + **方向同步**（应用→本地 / 本地→应用）；读码：一次性 SAF 选目录或 zip → 沙箱。平板 **浏览器** 仍不能选目录 |
 | 读码打开工程 | 选文件夹（FSA）或导入 zip | 选文件夹（FSA） | **选择文件夹（一次性 SAF）或导入 zip → IndexedDB 沙箱**（`sandbox:` 会话）；最近工程可恢复；编辑不写回原文件夹 |
 | 读码讲解 | Next `/api/ide/explain`，可读 `.env.local` | Rust `ide_explain`，只用设置里的 Key | 同桌面：Rust 管道；没填 Key 是本地示例 |
 | 自动更新 | 无 | Windows：设置里检查更新（见 [STATUS-updater.md](./STATUS-updater.md)） | **已做代码**（见 [STATUS-android-updater.md](./STATUS-android-updater.md)）；**真机未验**；Play 不做 |
@@ -243,14 +243,44 @@ P0 代码 tip：**`f0d3d3a`**（`fix(android): keep the note shell from dying on
 Yang 验收：本机 `npm run android:apk:release` → 装平板 → 读码 →「选择文件夹」导入小工程（或仍导入 zip）→ 树可见 → 打开 `.java`/`.md` → 杀进程再开「最近工程」。确认原文件夹未被改写，藏书阁已绑定目录仍在。
 
 
+## 藏书阁：安卓一次性导入文件夹（2026-11-10 新增，真机未验）
+
+- **入口**：首页「导入文件夹」、侧栏「导入 ▾ → 导入文件夹」。Android APK 调用
+  `android_saf_pick_and_scan_library` → `SafPlugin.pickAndScanLibrary` → `ACTION_OPEN_DOCUMENT_TREE`；
+  不调用 `showDirectoryPicker`，桌面仍走原 `<input webkitdirectory>`。
+- **规则**：与笔记 zip / `importable.ts` 同款 `.md` / `.html` / `.txt`（转 `.md`）/ `.svg`
+  和 png/jpg/jpeg/gif/webp/bmp/avif 图片；保留所选根目录名和子路径。忽略 `__MACOSX`、
+  `node_modules`、`.git`、`.DS_Store`、隐藏目录等；不把 css/js/pdf/ico 收进这条笔记导入路径。
+  最多 2000 文件、单文件 8 MiB、合计 64 MiB；原生有界读取并检查真实字节数，前端再次校验。
+- **确认与详情**：扫描结果转为 `ImportFolderDialog` 的 docs/assets，仍可选库根或子文件夹。
+  对话框内「扫描详情 / 跳过原因」可展开查看超限截断、忽略、不支持类型、读取失败等；
+  无可导入内容、取消或无 SAF 时只提示，不创建笔记，不假装导入成功。
+- **与 zip 区别**：不用先压缩；首页 / 侧栏「导入笔记 zip」入口仍在、规则与落点不变。
+- **与读码区别**：独立 library 命令扫描笔记和二进制图片，不调用 `pickAndScanProject`，
+  不复用读码 2 MiB / 40 MiB / 3000 限额，不创建 IndexedDB 工程沙箱。
+- **与同步绑定区别**：只读来源并拷入书库 `content/`；不写 `KEY_URI` 或替换已有绑定。
+  只释放这次新取得的临时持久读权限；若所选目录已有持久读权限（尤其是同步绑定），保留原授权。
+  编辑仅保存到书库，不写回来源、不做活绑定、不自动写穿；同步仍靠用户手动选择方向。
+- **范围**：含 css/js 的「项目文件夹」安卓仍提示用桌面；未做回到应用自动检测、首页继续阅读、
+  备份历史/进度或屏幕常亮。本轮未改签名/版本号、未打 APK、未发 Release。
+- **待真机验证**：两个入口选目录、取消、权限拒绝；md/html/txt/svg 和带相对图链的图片；
+  导入到库根/子目录、对话框取消无写入；超限/忽略详情；杀进程后书库可读。
+  预先绑定 A 再导入 B（也测导入 A）后原绑定及读写授权应不变，来源目录文件应始终不变。
+  本轮仅自动测试/前端构建，未运行 Android 原生编译或设备验收。
+- **自动验证**（Node **24.22.1**）：`npm run check` 通过；typecheck 通过，lint **0 errors / 80 既有 warnings**
+  （无新增）。195 个测试文件，**2130 passed + 1 既有 expected fail**；新增 16 个测试，无新增 expected fail。
+  既有 expected fail 仍为 HTML golden `offset in whitespace between blocks`。
+  `npm run build` 通过，仅原有两处 metadata.themeColor 警告。新增测试覆盖能力/取消/无 SAF、
+  docs/assets 转换、忽略规则和三项上限；原生命令/授权分离由源码契约测试覆盖，不能替代原生编译和设备测试。
+
 ## 藏书阁：安卓导入笔记 zip
 
-**路线**：与读码相同「先压缩再导入」，但产物进**笔记库**（`content/` / 应用私有库），不是 IndexedDB 工程沙箱。
+**路线**：zip 是一次性选文件夹之外仍保留的导入方式；产物进**笔记库**（`content/` / 应用私有库），不是 IndexedDB 工程沙箱。
 
 | 项 | 说明 |
 | --- | --- |
 | 入口 | 首页「导入笔记 zip」；侧栏 **导入 ▾ → 导入笔记 zip**（桌面也可） |
-| 安卓上的「导入文件夹」 | 会提示无法选文件夹，并打开 zip 选择器 |
+| 安卓上的「导入文件夹」 | APK 已改为一次性 SAF 扫描（下节）；平板浏览器无 SAF 时只提示，不自动打开 zip、不假装成功 |
 | 格式 | `.md` / `.html` / `.txt`(→`.md`) / `.svg` + 常见图片；保留 zip 内相对路径 |
 | 确认 | 仍走「导入到…」对话框，可选库根或子文件夹 |
 | 忽略 | `__MACOSX`、`node_modules`、`.git`、`.DS_Store` 等 |

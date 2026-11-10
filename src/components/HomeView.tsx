@@ -26,6 +26,7 @@ import {
   mimeForImportableImage,
 } from "@/lib/importable";
 import { parseLibraryNotesZip } from "@/lib/importLibraryZip";
+import { pickLibraryFolderImport } from "@/lib/importLibraryFolder";
 import { isAndroidWebView } from "@/lib/platform";
 
 export function HomeView() {
@@ -46,6 +47,7 @@ export function HomeView() {
   const [pendingImport, setPendingImport] = React.useState<{
     docs: PendingImportDoc[];
     assets: PendingImportAsset[];
+    details?: string[];
   } | null>(null);
   const [pasteOpen, setPasteOpen] = React.useState(false);
 
@@ -75,24 +77,31 @@ export function HomeView() {
     });
   };
 
+  const onPickFolderImport = async () => {
+    if (!isAndroidWebView()) {
+      folderRef.current?.click();
+      return;
+    }
+    setStatus("请选择笔记文件夹，扫描后确认导入位置…");
+    try {
+      const result = await pickLibraryFolderImport();
+      if (!result) {
+        setStatus("已取消选择文件夹");
+        return;
+      }
+      setPendingImport(result);
+      setStatus(result.details.slice(0, 2).join(" · "));
+    } catch (e) {
+      setStatus(e instanceof Error ? e.message : String(e));
+    }
+  };
+
   const shortcuts = [
     { title: "新建笔记", desc: "写一篇 Markdown", icon: FilePlus2, onClick: () => openCreateDocDialog({ type: "md" }) },
     { title: "新建页面", desc: "收藏 HTML", icon: Globe, onClick: () => openCreateDocDialog({ type: "html" }) },
     { title: "粘贴源码", desc: "快速收入片段", icon: FileCode2, onClick: onPaste },
     { title: "网页剪藏", desc: "剪贴板 → Markdown", icon: Globe, onClick: () => void onClipperMd() },
-    android
-      ? {
-          title: "导入笔记 zip",
-          desc: "平板请压缩文件夹后再导入",
-          icon: Archive,
-          onClick: () => zipNotesRef.current?.click(),
-        }
-      : {
-          title: "导入文件夹",
-          desc: "保留目录结构",
-          icon: FolderInput,
-          onClick: () => folderRef.current?.click(),
-        },
+    { title: "导入文件夹", desc: "保留目录结构", icon: FolderInput, onClick: () => void onPickFolderImport() },
     ...(quizBadge > 0
       ? [
           {
@@ -151,6 +160,13 @@ export function HomeView() {
               <div className="text-xs text-[var(--muted)] mt-1">{s.desc}</div>
             </button>
           ))}
+          {android && (
+            <button type="button" onClick={() => zipNotesRef.current?.click()} className="card-surface hover-lift p-4 text-left">
+              <Archive className="h-5 w-5 text-[var(--accent)] mb-3" />
+              <div className="font-serif font-semibold">导入笔记 zip</div>
+              <div className="text-xs text-[var(--muted)] mt-1">也可从压缩包导入笔记</div>
+            </button>
+          )}
         </section>
         <input
           ref={folderRef}
@@ -330,6 +346,7 @@ export function HomeView() {
         open={!!(pendingImport && (pendingImport.docs.length || pendingImport.assets.length))}
         files={pendingImport?.docs ?? null}
         assets={pendingImport?.assets ?? null}
+        details={pendingImport?.details}
         onClose={() => setPendingImport(null)}
       />
       <PasteSourceDialog open={pasteOpen} onClose={() => setPasteOpen(false)} />

@@ -52,9 +52,9 @@ export function directoryPickerSupported(input: {
 }
 
 /**
- * 能不能用「选整目录」导入笔记（FSA 或 webkitdirectory）。
+ * 能不能用 Web 目录选择器导入笔记（FSA 或 webkitdirectory，不含原生 SAF）。
  * 安卓两者都不可靠：FSA 会 NPE；webkitdirectory 系统选择器选不了文件夹。
- * 安卓请走「导入笔记 zip」。
+ * Android APK 另走一次性 SAF；平板浏览器请用「导入笔记 zip」。
  */
 export function folderDirectoryImportSupported(input: {
   userAgent?: string | null;

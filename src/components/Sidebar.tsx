@@ -68,6 +68,7 @@ import { isIdeNoteRootFolder } from "@/lib/ide/captureNote";
 import { blobToBase64 } from "@/lib/storage/contentApi";
 import { isAndroidWebView } from "@/lib/platform";
 import { parseLibraryNotesZip } from "@/lib/importLibraryZip";
+import { pickLibraryFolderImport } from "@/lib/importLibraryFolder";
 import { ReadingProgressMark } from "./ReadingProgressMark";
 import { subscribeReadingProgress } from "@/lib/readingProgress";
 
@@ -486,6 +487,7 @@ export function Sidebar() {
   const [pendingImport, setPendingImport] = React.useState<{
     docs: PendingImportDoc[];
     assets: PendingImportAsset[];
+    details?: string[];
   } | null>(null);
   const [expanded, setExpanded] = React.useState<Set<string>>(() => new Set());
   const [folderMenu, setFolderMenu] = React.useState<{
@@ -875,13 +877,23 @@ export function Sidebar() {
 
   const onPickLibraryNotesZip = () => zipNotesRef.current?.click();
 
-  const onPickFolderImport = () => {
-    if (isAndroidWebView()) {
-      setStatus("平板无法选择整文件夹，请先压缩成 zip，再用「导入笔记 zip」");
-      onPickLibraryNotesZip();
+  const onPickFolderImport = async () => {
+    if (!isAndroidWebView()) {
+      folderRef.current?.click();
       return;
     }
-    folderRef.current?.click();
+    setStatus("请选择笔记文件夹，扫描后确认导入位置…");
+    try {
+      const result = await pickLibraryFolderImport();
+      if (!result) {
+        setStatus("已取消选择文件夹");
+        return;
+      }
+      setPendingImport(result);
+      setStatus(result.details.slice(0, 2).join(" · "));
+    } catch (e) {
+      setStatus(e instanceof Error ? e.message : String(e));
+    }
   };
 
   const onPickProjectFolder = () => {
@@ -1772,6 +1784,7 @@ export function Sidebar() {
         open={!!(pendingImport && (pendingImport.docs.length || pendingImport.assets.length))}
         files={pendingImport?.docs ?? null}
         assets={pendingImport?.assets ?? null}
+        details={pendingImport?.details}
         onClose={() => setPendingImport(null)}
       />
             <TrashPreviewDialog

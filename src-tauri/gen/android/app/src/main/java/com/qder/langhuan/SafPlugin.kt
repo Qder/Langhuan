@@ -285,6 +285,162 @@ class SafPlugin(private val activity: Activity) : Plugin(activity) {
     }.start()
   }
 
+  /** One-shot 藏书阁 import. Never changes the bound tree or writes source files. */
+  @Command
+  fun pickAndScanLibrary(invoke: Invoke) {
+    val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+      addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+      addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+    }
+    startActivityForResult(invoke, intent, "onPickLibrary")
+  }
+
+  @ActivityCallback
+  fun onPickLibrary(invoke: Invoke, result: ActivityResult) {
+    if (result.resultCode != Activity.RESULT_OK) {
+      invoke.reject("已取消选择文件夹")
+      return
+    }
+    val uri = result.data?.data
+    if (uri == null) {
+      invoke.reject("未选择文件夹")
+      return
+    }
+    Thread {
+      var taken = false
+      try {
+        // Do not release an existing sync binding's read grant, even if the
+        // user picks that very same directory for a one-shot import.
+        val alreadyReadable = activity.contentResolver.persistedUriPermissions.any {
+          it.uri == uri && it.isReadPermission
+        }
+        if (!alreadyReadable) {
+          try {
+            activity.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            taken = true
+          } catch (_: SecurityException) {
+            // Some providers only supply a session grant.
+          }
+        }
+        val root = DocumentFile.fromTreeUri(activity, uri)
+          ?: throw IllegalStateException("无法打开所选文件夹")
+        if (!root.canRead()) throw IllegalStateException("没有读取权限，请重新选择文件夹")
+        val out = scanLibraryTree(root)
+        activity.runOnUiThread { invoke.resolve(out) }
+      } catch (ex: Exception) {
+        activity.runOnUiThread { invoke.reject(ex.message ?: "读取文件夹失败") }
+      } finally {
+        if (taken) {
+          try {
+            activity.contentResolver.releasePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+          } catch (_: Exception) {
+            // Provider may already have revoked the temporary grant.
+          }
+        }
+      }
+    }.start()
+  }
+
+  private fun scanLibraryTree(root: DocumentFile): JSObject {
+    val docs = JSArray()
+    val assets = JSArray()
+    val skipped = JSArray()
+    var truncated = false
+    var kept = 0
+    var totalBytes = 0L
+    fun skip(path: String, reason: String) {
+      val item = JSObject()
+      item.put("path", path)
+      item.put("reason", reason)
+      skipped.put(item)
+    }
+    fun walk(dir: DocumentFile, prefix: String, depth: Int) {
+      if (depth > MAX_DEPTH) {
+        skip(prefix, "目录嵌套过深（20 层）")
+        return
+      }
+      for (child in dir.listFiles().sortedBy { it.name ?: "" }) {
+        val name = child.name ?: continue
+        val path = if (prefix.isEmpty()) name else "$prefix/$name"
+        if (shouldIgnore(name) || name == "." || name == ".." || name.contains('/') || name.contains('\\')) {
+          skip(path, "忽略目录或文件规则")
+          continue
+        }
+        if (child.isDirectory) {
+          walk(child, path, depth + 1)
+          continue
+        }
+        if (!child.isFile) continue
+        val lower = name.lowercase()
+        val text = isTextNote(lower)
+        // Match importable.ts / notes zip, not sync's broader ico/pdf assets.
+        if (!text && (!isImage(lower) || lower.endsWith(".ico"))) {
+          skip(path, "不支持的笔记或图片类型")
+          continue
+        }
+        if (kept >= MAX_FILES) {
+          truncated = true
+          skip(path, "超过 2000 文件上限")
+          continue
+        }
+        if (child.length() > MAX_FILE_BYTES) {
+          skip(path, "单文件超过 8 MiB")
+          continue
+        }
+        if (totalBytes + child.length() > MAX_TOTAL_BYTES) {
+          truncated = true
+          skip(path, "合计超过 64 MiB")
+          continue
+        }
+        // Bounded read: provider-reported length may be missing or stale.
+        val bytes = try {
+          activity.contentResolver.openInputStream(child.uri)?.use { input ->
+            val out = ByteArrayOutputStream()
+            val buffer = ByteArray(8192)
+            while (true) {
+              val n = input.read(buffer)
+              if (n < 0) break
+              if (out.size().toLong() + n > MAX_FILE_BYTES) throw IllegalArgumentException("单文件超过 8 MiB")
+              out.write(buffer, 0, n)
+            }
+            out.toByteArray()
+          } ?: throw IllegalStateException("读取失败")
+        } catch (ex: Exception) {
+          skip(path, ex.message ?: "读取失败")
+          continue
+        }
+        if (totalBytes + bytes.size > MAX_TOTAL_BYTES) {
+          truncated = true
+          skip(path, "合计超过 64 MiB")
+          continue
+        }
+        val item = JSObject()
+        item.put("path", path)
+        item.put("size", bytes.size)
+        if (text) {
+          item.put("content", String(bytes, StandardCharsets.UTF_8))
+          docs.put(item)
+        } else {
+          item.put("base64", Base64.encodeToString(bytes, Base64.NO_WRAP))
+          item.put("mime", mimeForImage(lower))
+          assets.put(item)
+        }
+        kept += 1
+        totalBytes += bytes.size
+      }
+    }
+    // Keep the selected top folder just like webkitRelativePath / notes zip.
+    val top = root.name ?: "笔记"
+    if (shouldIgnore(top)) skip(top, "忽略目录或文件规则")
+    else walk(root, top, 0)
+    val out = JSObject()
+    out.put("docs", docs)
+    out.put("assets", assets)
+    out.put("skipped", skipped)
+    out.put("truncated", truncated)
+    return out
+  }
+
   @Command
   fun writeText(invoke: Invoke) {
     val args = invoke.parseArgs(SafWriteTextArgs::class.java)

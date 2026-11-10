@@ -114,3 +114,27 @@ export async function pickAndScanSafProject(): Promise<SafProjectScan | null> {
     throw e;
   }
 }
+
+/** Notes + binary images, deliberately not the IDE's files/text payload. */
+export type SafLibraryScan = {
+  docs: SafDoc[];
+  assets: SafAsset[];
+  skipped: SafProjectSkip[];
+  truncated: boolean;
+};
+
+export async function pickAndScanSafLibrary(): Promise<SafLibraryScan | null> {
+  if (!isAndroidSafAvailable()) {
+    throw new Error("当前环境不能选择系统文件夹。请用琅嬛 Android 应用，或使用「导入笔记 zip」。");
+  }
+  try {
+    const raw = await invoke<SafLibraryScan>("android_saf_pick_and_scan_library");
+    if (!raw || !Array.isArray(raw.docs) || !Array.isArray(raw.assets) || !Array.isArray(raw.skipped)) {
+      throw new Error("文件夹扫描结果无效，请重新选择");
+    }
+    return raw;
+  } catch (e) {
+    if (isSafPickCancelled(e)) return null;
+    throw e;
+  }
+}

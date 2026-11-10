@@ -105,6 +105,16 @@ pub struct SafProjectScan {
     pub truncated: bool,
 }
 
+/// Separate from sync scans (numeric skipped) and IDE project scans (text only).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SafLibraryScan {
+    pub docs: Vec<SafDoc>,
+    pub assets: Vec<SafAsset>,
+    pub skipped: Vec<SafProjectSkip>,
+    pub truncated: bool,
+}
+
 #[cfg(target_os = "android")]
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -216,6 +226,23 @@ pub async fn android_saf_pick_and_scan_project(app: AppHandle) -> Result<SafProj
     {
         let _ = app;
         Err("仅 Android 应用支持选择工程文件夹".into())
+    }
+}
+
+#[tauri::command]
+pub async fn android_saf_pick_and_scan_library(app: AppHandle) -> Result<SafLibraryScan, String> {
+    #[cfg(target_os = "android")]
+    {
+        bridge(&app)?
+            .0
+            .run_mobile_plugin_async::<SafLibraryScan>("pickAndScanLibrary", ())
+            .await
+            .map_err(|e| e.to_string())
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = app;
+        Err(not_android())
     }
 }
 

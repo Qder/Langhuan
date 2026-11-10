@@ -1,8 +1,8 @@
 /**
  * 藏书阁：把「笔记文件夹」打成的 zip 解成可导入的 docs/assets。
  *
- * 安卓 WebView 不能整目录授权（FSA 会 NPE；webkitdirectory 也选不了文件夹），
- * 所以笔记导入走 zip → 仍写入库 content/（经 importFiles / importAssets），
+ * 安卓可以一次性 SAF 选夹，也保留 zip 导入入口（FSA 会 NPE）。
+ * 两者仍写入库 content/（经 importFiles / importAssets），
  * 与读码工程沙箱（不写 content/）不同。
  */
 import JSZip from "jszip";

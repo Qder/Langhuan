@@ -107,11 +107,13 @@ export function ImportFolderDialog({
   open,
   files,
   assets = null,
+  details = [],
   onClose,
 }: {
   open: boolean;
   files: PendingImportDoc[] | null;
   assets?: PendingImportAsset[] | null;
+  details?: string[];
   onClose: () => void;
 }) {
   const documents = useStore((s) => s.documents);
@@ -195,6 +197,15 @@ export function ImportFolderDialog({
             {importPreviewLabel(list, assetList.length)}
           </p>
         </div>
+
+        {details.length > 0 && (
+          <details className="text-xs text-[var(--muted)]">
+            <summary className="cursor-pointer">扫描详情 / 跳过原因</summary>
+            <div className="mt-2 max-h-32 overflow-y-auto whitespace-pre-wrap break-all scroll-thin">
+              {details.map((line, i) => <p key={i}>{line}</p>)}
+            </div>
+          </details>
+        )}
 
         <div
           className="space-y-0.5 max-h-56 overflow-y-auto scroll-thin rounded-xl border border-[var(--border)] p-1.5"
