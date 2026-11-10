@@ -9,6 +9,8 @@ use std::sync::Mutex;
 
 // All metadata read/modify/write and scans share this non-reentrant lock.
 static LIBRARY_META_LOCK: Mutex<()> = Mutex::new(());
+#[path = "backup_native.rs"]
+mod backup;
 
 fn atomic_write(file: &Path, data: &[u8]) -> Result<(), String> {
     let parent = file.parent().ok_or("文件没有父目录")?;
@@ -212,6 +214,7 @@ fn mime_for_path(rel: &str) -> String {
 pub fn resolve_content_root(app: &AppHandle) -> Result<PathBuf, String> {
     if let Ok(p) = std::env::var("LANGHUAN_CONTENT") {
         let pb = PathBuf::from(p);
+        backup::recover_root(&pb)?;
         fs::create_dir_all(&pb).map_err(|e| e.to_string())?;
         return Ok(pb);
     }
@@ -221,7 +224,8 @@ pub fn resolve_content_root(app: &AppHandle) -> Result<PathBuf, String> {
     if cfg!(debug_assertions) && !cfg!(target_os = "android") {
         let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let repo_content = manifest_dir.join("../content");
-        if repo_content.is_dir() {
+        if repo_content.is_dir() || backup::has_pending(&repo_content) {
+            backup::recover_root(&repo_content)?;
             return Ok(repo_content.canonicalize().unwrap_or(repo_content));
         }
     }
@@ -229,7 +233,8 @@ pub fn resolve_content_root(app: &AppHandle) -> Result<PathBuf, String> {
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
             let portable = dir.join("content");
-            if portable.is_dir() {
+            if portable.is_dir() || backup::has_pending(&portable) {
+                backup::recover_root(&portable)?;
                 return Ok(portable.canonicalize().unwrap_or(portable));
             }
         }
@@ -240,6 +245,7 @@ pub fn resolve_content_root(app: &AppHandle) -> Result<PathBuf, String> {
         .app_data_dir()
         .map_err(|e| format!("无法解析应用数据目录: {e}"))?;
     let root = data.join("琅嬛").join("content");
+    backup::recover_root(&root)?;
     fs::create_dir_all(&root).map_err(|e| e.to_string())?;
     Ok(root)
 }
@@ -686,6 +692,7 @@ pub fn purge_trash_item(app: &AppHandle, id: String) -> Result<bool, String> {
 }
 
 pub fn ensure_library_dir(app: &AppHandle, rel_dir: String) -> Result<(), String> {
+    let _guard = LIBRARY_META_LOCK.lock().map_err(|_| "存储锁不可用")?;
     let root = resolve_content_root(app)?;
     let rel = safe_rel_path(&rel_dir);
     if rel.is_empty() {
@@ -695,6 +702,7 @@ pub fn ensure_library_dir(app: &AppHandle, rel_dir: String) -> Result<(), String
 }
 
 pub fn read_file_base64(app: &AppHandle, rel_path: String) -> Result<(String, String, String), String> {
+    let _guard = LIBRARY_META_LOCK.lock().map_err(|_| "存储锁不可用")?;
     let root = resolve_content_root(app)?;
     let rel = safe_rel_path(&rel_path);
     if rel.is_empty() {
@@ -706,6 +714,7 @@ pub fn read_file_base64(app: &AppHandle, rel_path: String) -> Result<(String, St
 }
 
 pub fn content_root_path(app: &AppHandle) -> Result<String, String> {
+    let _guard = LIBRARY_META_LOCK.lock().map_err(|_| "存储锁不可用")?;
     resolve_content_root(app).map(|p| p.to_string_lossy().to_string())
 }
 
@@ -886,4 +895,10 @@ mod learning_tests {
         assert!(learning_kind(".langhuan/versions/../secrets.json").is_none());
         assert_eq!(encoded_doc_id("文/档"), "%E6%96%87%2F%E6%A1%A3");
     }
+}
+
+/// One library lock covers staging/root replacement and every normal mutation.
+pub fn library_backup(app: &AppHandle, request: serde_json::Value) -> Result<serde_json::Value, String> {
+    let _guard = LIBRARY_META_LOCK.lock().map_err(|_| "存储锁不可用")?;
+    backup::dispatch(&resolve_content_root(app)?, request)
 }

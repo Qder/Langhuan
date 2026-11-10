@@ -13,5 +13,6 @@ commands.allow = [
   "library_read_file",
   "library_read_learning",
   "library_write_learning",
+  "library_backup",
   "library_bulk"
 ]

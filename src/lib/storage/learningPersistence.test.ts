@@ -174,3 +174,6 @@ describe("learning integration: simulated IDB + localStorage and real content fi
     spy.mockRestore(); await quizStore.getState().persistQuizStore();
   });
 });
+
+// Restore-generation adoption has a dedicated transaction suite.
+vi.mock("./backupAdoption", () => ({ ensureBackupAdoption: vi.fn(async () => undefined) }));

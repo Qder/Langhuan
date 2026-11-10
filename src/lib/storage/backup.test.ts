@@ -1,5 +1,5 @@
 /**
- * @vitest-environment jsdom
+ * @vitest-environment node
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import JSZip from "jszip";
@@ -43,7 +43,7 @@ describe("buildLibraryZip / parseLibraryZip", () => {
       trash: [],
     };
     const blob = await buildLibraryZip(payload);
-    const zip = await JSZip.loadAsync(blob);
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
     const names = Object.keys(zip.files);
     expect(names.some((n) => n.endsWith("files/notes/deep/a.md"))).toBe(true);
     expect(names.some((n) => n.endsWith("files/root.md"))).toBe(true);

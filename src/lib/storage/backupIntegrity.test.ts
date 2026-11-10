@@ -20,8 +20,8 @@ vi.mock("../assets/store", () => ({
   putAssetBlob: vi.fn(async (id: string, blob: Blob) => {
     blobs.set(id, blob);
   }),
-  base64ToBlob: vi.fn(),
-  blobToBase64: vi.fn(async () => ""),
+  base64ToBlob: vi.fn((s: string, mime: string) => new Blob([Buffer.from(s, "base64")], { type: mime })),
+  blobToBase64: vi.fn(async (blob: Blob) => Buffer.from(await blob.arrayBuffer()).toString("base64")),
 }));
 
 function doc(partial: Partial<Document> & Pick<Document, "path" | "content">): Document {
@@ -125,7 +125,8 @@ describe("backup integrity", () => {
     expect(parsed.payload.documents[0]?.content).toContain("hello");
     expect(parsed.payload.assets).toHaveLength(1);
     expect(parsed.payload.annotations).toHaveLength(1);
-    expect(blobs.has("asset1")).toBe(true);
+    expect(blobs.has("asset1")).toBe(false);
+    expect(parsed.payload.assetBinaries?.asset1).toBe(Buffer.from(await png.arrayBuffer()).toString("base64"));
   });
 
   it("flags missing asset binary in zip vs manifest", async () => {

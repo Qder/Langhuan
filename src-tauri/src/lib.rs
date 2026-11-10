@@ -125,6 +125,11 @@ fn library_write_learning(app: AppHandle, path: String, content: String) -> Resu
     content::write_learning_file(&app, path, content)
 }
 
+#[tauri::command]
+fn library_backup(app: AppHandle, request: serde_json::Value) -> Result<serde_json::Value, String> {
+    content::library_backup(&app, request)
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct BulkArgs {
@@ -223,6 +228,7 @@ pub fn run() {
             library_read_file,
             library_read_learning,
             library_write_learning,
+            library_backup,
             library_bulk,
             explain::ide_explain,
             explain::ide_explain_cancel,

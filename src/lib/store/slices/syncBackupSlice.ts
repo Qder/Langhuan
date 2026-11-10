@@ -1,6 +1,8 @@
 "use client";
+import { fetchBackupRestoreState } from "../../storage/backupApi";
 
 import type { StateCreator } from "zustand";
+import { readScrollMemoryMap } from "../../scrollMemory";
 import { hydrateLearningState } from "../../storage/learningPersistence";
 import { keepContentDrafts } from "../helpers/persistSchedule";
 import type { Document, TrashItem } from "../../types";
@@ -87,6 +89,8 @@ export const createSyncBackupSlice: StateCreator<
         annotations: get().annotations,
         readingPrefs: get().readingPrefs,
         quizDocs: get().quizDocs,
+        savedSearches: get().savedSearches,
+        readingProgress: readScrollMemoryMap(),
       }),
   importLibrary: async (payload, mode) => {
         const beforeDocuments = get().documents;
@@ -225,6 +229,12 @@ export const createSyncBackupSlice: StateCreator<
             void saveAssetMetaList(snap.assets);
             get().setStatus(`已从 content/ 载入 ${snap.documents.length} 篇`);
             void get().refreshStorageUsage();
+            return;
+          }
+          // A deliberately empty restored library must not resurrect IDB notes or seed examples.
+          if ((await fetchBackupRestoreState())?.generation) {
+            set({ documents: [], assets: [], trash: [], activeId: null });
+            get().setStatus("已载入恢复后的空库；未重新写入旧库或示例");
             return;
           }
           if (pending && (pending.documents.length || pending.assets.length)) {

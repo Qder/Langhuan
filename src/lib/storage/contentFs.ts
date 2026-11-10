@@ -5,7 +5,8 @@ import { isLearningPath, parseLearningFile, type LearningFile } from "./learning
  */
 import { promises as fs } from "fs";
 import path from "path";
-import { randomUUID } from "crypto";
+import { randomUUID, createHash } from "crypto";
+import { validateBackupTree, validateBackupPath, type BackupTree, type BackupSnapshot, type RestoreStage, type StoredBackup } from "./backupProtocol";
 import type { AssetMeta, Document, TrashItem } from "../types";
 import { libraryDocTypeFromPath, normalizeImportedPath } from "../importable";
 import { FS_INDEX_DIR, FS_INDEX_FILE, FS_QUIZ_FILE } from "./constants";
@@ -41,7 +42,7 @@ export { safeRelPath };
 /** One process-wide queue, including Next route bundles/HMR. Never nest it. */
 const metaQueue = globalThis as typeof globalThis & { __langhuanMetaTail?: Promise<unknown> };
 function withLibraryLock<T>(task: () => Promise<T>): Promise<T> {
-  const run = (metaQueue.__langhuanMetaTail ?? Promise.resolve()).then(task, task);
+  const run = (metaQueue.__langhuanMetaTail ?? Promise.resolve()).then(async () => { await recoverRestoreUnlocked(); return task(); }, async () => { await recoverRestoreUnlocked(); return task(); });
   metaQueue.__langhuanMetaTail = run.catch(() => undefined);
   return run;
 }
@@ -138,7 +139,7 @@ export function absFromRel(rel: string): string {
   return abs;
 }
 
-export async function ensureContentTree(): Promise<void> {
+async function ensureContentTreeUnlocked(): Promise<void> {
   await fs.mkdir(metaDir(), { recursive: true });
 }
 
@@ -167,7 +168,7 @@ export async function readIndex(): Promise<FsIndex> {
 }
 
 async function writeIndexUnlocked(index: FsIndex): Promise<void> {
-  await ensureContentTree();
+  await ensureContentTreeUnlocked();
   const file = path.join(metaDir(), FS_INDEX_FILE);
   await atomicWrite(file, JSON.stringify(index, null, 2) + "\n");
 }
@@ -186,7 +187,7 @@ export async function readAssetsIndex(): Promise<AssetMeta[]> {
 }
 
 async function writeAssetsIndexUnlocked(list: AssetMeta[]): Promise<void> {
-  await ensureContentTree();
+  await ensureContentTreeUnlocked();
   const file = path.join(metaDir(), ASSETS_INDEX_FILE);
   await atomicWrite(file, JSON.stringify(list, null, 2) + "\n");
 }
@@ -205,7 +206,7 @@ export async function readTrashIndex(): Promise<TrashItem[]> {
 }
 
 async function writeTrashIndexUnlocked(list: TrashItem[]): Promise<void> {
-  await ensureContentTree();
+  await ensureContentTreeUnlocked();
   const file = path.join(metaDir(), TRASH_INDEX_FILE);
   await atomicWrite(file, JSON.stringify(list, null, 2) + "\n");
 }
@@ -221,7 +222,7 @@ export async function readQuizStore(): Promise<QuizStoreFile> {
 }
 
 async function writeQuizStoreUnlocked(store: QuizStoreFile): Promise<void> {
-  await ensureContentTree();
+  await ensureContentTreeUnlocked();
   const file = path.join(metaDir(), QUIZ_INDEX_FILE);
   const payload: QuizStoreFile = {
     format: "langhuan-quiz",
@@ -253,8 +254,8 @@ async function walkFiles(dir: string, prefix: string, out: string[]): Promise<vo
   }
 }
 
-export async function listRelativeFiles(): Promise<string[]> {
-  await ensureContentTree();
+async function listRelativeFilesUnlocked(): Promise<string[]> {
+  await ensureContentTreeUnlocked();
   const out: string[] = [];
   await walkFiles(contentRoot(), "", out);
   return out;
@@ -299,11 +300,11 @@ function newId(prefix = "fs"): string {
 }
 
 async function scanLibraryUnlocked(): Promise<LibrarySnapshot> {
-  await ensureContentTree();
+  await ensureContentTreeUnlocked();
   const index = await readIndex();
   const assetsMeta = await readAssetsIndex();
   const trash = await readTrashIndex();
-  const files = await listRelativeFiles();
+  const files = await listRelativeFilesUnlocked();
 
   const documents: Document[] = [];
   const assetByPath = new Map(assetsMeta.map((a) => [safeRelPath(a.path), a]));
@@ -371,9 +372,9 @@ async function scanLibraryUnlocked(): Promise<LibrarySnapshot> {
   await writeIndexUnlocked(nextIndex);
   await writeAssetsIndexUnlocked(present);
 
-  const { projects, projectTexts } = await readProjectSnapshot();
-  const cssIndexes = await readCssIndexes();
-  const jsIndexes = await readJsIndexes();
+  const { projects, projectTexts } = await readProjectSnapshotUnlocked();
+  const cssIndexes = await readCssIndexesUnlocked();
+  const jsIndexes = await readJsIndexesUnlocked();
   return { documents, assets: present, trash, projects, projectTexts, cssIndexes, jsIndexes };
 }
 
@@ -400,7 +401,7 @@ async function writeTextDocUnlocked(doc: {
   updatedAt?: number;
   previousPath?: string;
 }): Promise<Document> {
-  await ensureContentTree();
+  await ensureContentTreeUnlocked();
   const rel = safeRelPath(doc.path);
   if (!rel) throw new Error("路径无效");
   const abs = absFromRel(rel);
@@ -459,7 +460,7 @@ async function writeAssetBinaryUnlocked(input: {
   docId?: string;
   createdAt?: number;
 }): Promise<AssetMeta> {
-  await ensureContentTree();
+  await ensureContentTreeUnlocked();
   const rel = safeRelPath(input.path);
   if (!rel) throw new Error("路径无效");
   const abs = absFromRel(rel);
@@ -567,7 +568,7 @@ async function purgeTrashItemUnlocked(id: string): Promise<boolean> {
   return true;
 }
 
-export async function ensureLibraryDir(relDir: string): Promise<void> {
+async function ensureLibraryDirUnlocked(relDir: string): Promise<void> {
   const rel = safeRelPath(relDir);
   if (!rel) return;
   await fs.mkdir(absFromRel(rel), { recursive: true });
@@ -612,8 +613,8 @@ async function isFile(abs: string): Promise<boolean> {
  * 找出所有项目根：同时含 `<root>/.langhuan/project.json` 的目录。
  * 跳过 node_modules / .git 等下钻，避免深目录拖慢扫描。
  */
-export async function listProjectRoots(): Promise<string[]> {
-  await ensureContentTree();
+async function listProjectRootsUnlocked(): Promise<string[]> {
+  await ensureContentTreeUnlocked();
   const out: string[] = [];
   const walk = async (abs: string, rel: string) => {
     let ents;
@@ -642,13 +643,13 @@ export async function listProjectRoots(): Promise<string[]> {
  * 读全部项目元数据 + 内联用的文本缓存（css/js，带大小上限）。
  * 坏掉的 project.json 只跳过该项目，不影响其它项目。
  */
-export async function readProjectSnapshot(): Promise<{
+async function readProjectSnapshotUnlocked(): Promise<{
   projects: ProjectMeta[];
   projectTexts: Record<string, Record<string, string>>;
 }> {
   const projects: ProjectMeta[] = [];
   const projectTexts: Record<string, Record<string, string>> = {};
-  for (const root of await listProjectRoots()) {
+  for (const root of await listProjectRootsUnlocked()) {
     try {
       const raw = await fs.readFile(absFromRel(projectMetaPath(root)), "utf8");
       const meta = parseProjectMeta(JSON.parse(raw), root);
@@ -676,7 +677,7 @@ export async function readProjectSnapshot(): Promise<{
 
 /** 原样写一个文本文件（项目资源：css/js/其他），不进正文索引。 */
 async function writeRawTextFileUnlocked(relPath: string, content: string): Promise<string> {
-  await ensureContentTree();
+  await ensureContentTreeUnlocked();
   const rel = assertNotLibraryMeta(relPath);
   const abs = absFromRel(rel);
   await fs.mkdir(path.dirname(abs), { recursive: true });
@@ -686,7 +687,7 @@ async function writeRawTextFileUnlocked(relPath: string, content: string): Promi
 
 /** 原样写一个二进制文件（项目里的图片等），不进附件索引。 */
 async function writeRawBase64FileUnlocked(relPath: string, base64: string): Promise<string> {
-  await ensureContentTree();
+  await ensureContentTreeUnlocked();
   const rel = assertNotLibraryMeta(relPath);
   const abs = absFromRel(rel);
   await fs.mkdir(path.dirname(abs), { recursive: true });
@@ -710,7 +711,7 @@ const CSS_INDEX_MAX_BYTES = 4 * 1024 * 1024;
 
 /** 写一个 CSS 索引文件：content/.langhuan/index/css/<hash>.json（源文件不动）。 */
 async function writeCssIndexUnlocked(index: CssFileIndex): Promise<string> {
-  await ensureContentTree();
+  await ensureContentTreeUnlocked();
   const rel = cssIndexPath(index.file);
   const abs = absFromRel(rel);
   await fs.mkdir(path.dirname(abs), { recursive: true });
@@ -719,8 +720,8 @@ async function writeCssIndexUnlocked(index: CssFileIndex): Promise<string> {
 }
 
 /** 读全部 CSS 索引；坏文件 / 超大文件跳过，不影响其它。 */
-export async function readCssIndexes(): Promise<CssFileIndex[]> {
-  await ensureContentTree();
+async function readCssIndexesUnlocked(): Promise<CssFileIndex[]> {
+  await ensureContentTreeUnlocked();
   const dir = absFromRel(CSS_INDEX_DIR);
   let names: string[];
   try {
@@ -751,7 +752,7 @@ const JS_INDEX_MAX_BYTES = 4 * 1024 * 1024;
 
 /** 写一个 JS 符号索引：content/.langhuan/index/js/<hash>.json（源文件不动）。 */
 async function writeJsIndexUnlocked(index: JsFileIndex): Promise<string> {
-  await ensureContentTree();
+  await ensureContentTreeUnlocked();
   const rel = jsIndexPath(index.file);
   const abs = absFromRel(rel);
   await fs.mkdir(path.dirname(abs), { recursive: true });
@@ -760,8 +761,8 @@ async function writeJsIndexUnlocked(index: JsFileIndex): Promise<string> {
 }
 
 /** 读全部 JS 索引；坏文件 / 超大文件跳过，不影响其它。删掉能重建。 */
-export async function readJsIndexes(): Promise<JsFileIndex[]> {
-  await ensureContentTree();
+async function readJsIndexesUnlocked(): Promise<JsFileIndex[]> {
+  await ensureContentTreeUnlocked();
   const dir = absFromRel(JS_INDEX_DIR);
   let names: string[];
   try {
@@ -864,3 +865,136 @@ export function writeLearningFile(rel: string, value: LearningFile): Promise<voi
     await atomicWrite(absFromRel(rel), raw);
   });
 }
+
+export function ensureContentTree(): Promise<void> { return withLibraryLock(ensureContentTreeUnlocked); }
+export function ensureLibraryDir(relDir: string): Promise<void> { return withLibraryLock(() => ensureLibraryDirUnlocked(relDir)); }
+
+function recoveryRoot(): string { return path.join(path.dirname(contentRoot()), `.${path.basename(contentRoot())}-recovery`); }
+async function exists(file: string): Promise<boolean> { try { await fs.lstat(file); return true; } catch (e) { if ((e as NodeJS.ErrnoException).code === "ENOENT") return false; throw e; } }
+async function recoverRestoreUnlocked(): Promise<void> {
+  const journal = path.join(recoveryRoot(), "pending.json");
+  let job: { id: string }; try { job = JSON.parse(await fs.readFile(journal, "utf8")); } catch (e) { if ((e as NodeJS.ErrnoException).code === "ENOENT") return; throw e; }
+  if (!/^[a-zA-Z0-9_-]{1,100}$/.test(job.id)) throw new Error("恢复事务记录损坏，请保留恢复目录后检查");
+  const old = path.join(recoveryRoot(), "archives", job.id);
+  if (!await exists(contentRoot())) { if (!await exists(old)) throw new Error("主库与恢复原库均缺失，已停止初始化"); await fs.rename(old, contentRoot()); }
+  await fs.unlink(journal);
+}
+async function readBackupTreeAt(root: string): Promise<BackupTree> {
+  const files: BackupTree["files"] = []; let bytes = 0;
+  async function walk(dir: string, prefix: string) {
+    for (const ent of await fs.readdir(dir, { withFileTypes: true })) {
+      if (ent.name.endsWith(".tmp") || ent.name === ".git" || ent.name === "node_modules") continue;
+      const rel = prefix ? `${prefix}/${ent.name}` : ent.name; validateBackupPath(rel);
+      const abs = path.join(dir, ent.name);
+      if (ent.isSymbolicLink()) throw new Error(`备份不跟随符号链接：${rel}`);
+      if (ent.isDirectory()) await walk(abs, rel);
+      else if (ent.isFile()) { const data = await fs.readFile(abs); bytes += data.length; if (bytes > 512 * 1024 * 1024 || files.length >= 20000) throw new Error("知识库超过备份大小/文件数限制"); files.push({ path: rel, base64: data.toString("base64") }); }
+    }
+  }
+  if (await exists(root)) await walk(root, "");
+  files.sort((a, b) => a.path.localeCompare(b.path)); return { files };
+}
+function treeFingerprint(tree: BackupTree): string {
+  const hash = createHash("sha256"); for (const f of [...tree.files].sort((a, b) => a.path.localeCompare(b.path))) { hash.update(f.path); hash.update("\0"); hash.update(f.base64); hash.update("\0"); } return hash.digest("hex");
+}
+export function snapshotBackupLibrary(): Promise<BackupSnapshot> {
+  return withLibraryLock(async () => { const tree = await readBackupTreeAt(contentRoot()); return { ...tree, fingerprint: treeFingerprint(tree), root: contentRoot() }; });
+}
+export function stageBackupLibrary(tree: BackupTree, mode: "merge" | "replace", expectedFingerprint: string): Promise<RestoreStage> {
+  return withLibraryLock(async () => {
+    if (!["merge", "replace"].includes(mode)) throw new Error("恢复模式无效");
+    validateBackupTree(tree);
+    const live = await readBackupTreeAt(contentRoot()); const baseFingerprint = treeFingerprint(live);
+    if (baseFingerprint !== expectedFingerprint) throw new Error("预览后主库已变化，请重新预览；未应用任何恢复内容");
+    const id = randomUUID(); const dir = path.join(recoveryRoot(), "stages", id); const target = path.join(dir, "library");
+    await fs.mkdir(target, { recursive: true });
+    if (mode === "merge") for (const f of live.files) await atomicWrite(path.join(target, f.path), Buffer.from(f.base64, "base64"));
+    for (const f of tree.files) { const abs = path.join(target, f.path); await atomicWrite(abs, Buffer.from(f.base64, "base64")); if ((await fs.readFile(abs)).toString("base64") !== f.base64) throw new Error(`隔离恢复校验失败：${f.path}`); }
+    await atomicWrite(path.join(target, ".langhuan/restore-state.json"), JSON.stringify({ format: "langhuan-restore", version: 1, generation: id }));
+    const stage: RestoreStage = { id, path: target, baseFingerprint, fingerprint: treeFingerprint(await readBackupTreeAt(target)) };
+    await atomicWrite(path.join(dir, "stage.json"), JSON.stringify(stage)); return stage;
+  });
+}
+export function applyStagedBackup(id: string): Promise<{ generation: string; archive: string }> {
+  return withLibraryLock(async () => {
+    if (!/^[a-zA-Z0-9_-]{1,100}$/.test(id)) throw new Error("恢复标识无效");
+    const dir = path.join(recoveryRoot(), "stages", id); const stage = JSON.parse(await fs.readFile(path.join(dir, "stage.json"), "utf8")) as RestoreStage;
+    if (stage.id !== id || stage.fingerprint !== treeFingerprint(await readBackupTreeAt(path.join(dir, "library")))) throw new Error("隔离副本已变化/损坏，拒绝替换主库");
+    if (stage.baseFingerprint !== treeFingerprint(await readBackupTreeAt(contentRoot()))) throw new Error("主库自预览后已变化，请重新预览");
+    const archive = path.join(recoveryRoot(), "archives", id); await fs.mkdir(path.dirname(archive), { recursive: true });
+    const journal = path.join(recoveryRoot(), "pending.json"); await atomicWrite(journal, JSON.stringify({ id }));
+    await fs.rename(contentRoot(), archive);
+    try { await fs.rename(path.join(dir, "library"), contentRoot()); }
+    catch (e) { if (!await exists(contentRoot())) await fs.rename(archive, contentRoot()); await fs.unlink(journal).catch(() => undefined); throw e; }
+    await fs.unlink(journal).catch(() => undefined);
+    return { generation: id, archive };
+  });
+}
+export function storeAutomaticBackup(base64: string, keep: number): Promise<StoredBackup[]> {
+  return withLibraryLock(async () => {
+    if (!Number.isInteger(keep) || keep < 1 || keep > 50) throw new Error("保留数量须为 1–50");
+    const data = Buffer.from(base64, "base64"); if (data.length > 512 * 1024 * 1024 || data[0] !== 80 || data[1] !== 75) throw new Error("ZIP 数据无效/过大");
+    const zip = await import("jszip"); const archive = await zip.default.loadAsync(data, { checkCRC32: true });
+    const manifestFile = archive.file("langhuan-backup/manifest.json"); if (!manifestFile) throw new Error("自动备份缺少完整清单，未轮换旧备份");
+    const manifest = JSON.parse(await manifestFile.async("string")) as { format: string; version: number; documents: { path: string }[]; assets?: { path: string }[]; trash?: { doc: { id: string; path: string } }[]; learningFiles: string[]; entryDigests: Record<string, string> };
+    if (manifest.format !== "langhuan-backup" || manifest.version !== 3 || !Array.isArray(manifest.documents) || !Array.isArray(manifest.learningFiles) || !manifest.entryDigests || !Array.isArray(manifest.assets ?? []) || !Array.isArray(manifest.trash ?? [])) throw new Error("自动备份清单格式无效");
+    for (const name of ["annotations.json", "quiz.json", "saved-searches.json", "reading-progress.json"]) if (!manifest.learningFiles.includes(`learning/${name}`)) throw new Error(`自动备份缺少学习文件：${name}`);
+    const refs = [...manifest.documents.map((d) => `files/${d.path}`), ...(manifest.assets ?? []).map((a) => `files/${a.path}`), ...(manifest.trash ?? []).map((t) => `files/_trash/${encodeURIComponent(t.doc.id)}__${t.doc.path}`), ...manifest.learningFiles];
+    if (new Set(refs.map((rel) => rel.toLowerCase())).size !== refs.length) throw new Error("自动备份存在重复条目");
+    let expanded = 0;
+    for (const rel of refs) {
+      validateBackupPath(rel); const entry = archive.file(`langhuan-backup/${rel}`); if (!entry) throw new Error(`自动备份缺失条目：${rel}`);
+      const bytes = await entry.async("nodebuffer"); expanded += bytes.length; if (expanded > 512 * 1024 * 1024) throw new Error("自动备份展开过大");
+      if (!/^[a-f0-9]{64}$/i.test(manifest.entryDigests[rel] ?? "") || createHash("sha256").update(bytes).digest("hex") !== manifest.entryDigests[rel]) throw new Error(`自动备份校验和不匹配：${rel}`);
+      if (rel.startsWith("learning/")) parseLearningFile(`.langhuan/${rel.slice(9)}`, bytes.toString("utf8"));
+    }
+    const previous = await listAutomaticBackupsUnlocked();
+    const stamp = Math.max(Date.now(), (previous[0]?.createdAt ?? 0) + 1);
+    const dir = path.join(recoveryRoot(), "backups"); const name = `auto-${stamp}-${randomUUID()}.zip`;
+    await atomicWrite(path.join(dir, name), data);
+    const all = await listAutomaticBackupsUnlocked();
+    // Only complete managed auto-*.zip files rotate; never archives/stages/user files.
+    for (const item of all.slice(keep)) await fs.unlink(item.path);
+    return all.slice(0, keep);
+  });
+}
+async function listAutomaticBackupsUnlocked(): Promise<StoredBackup[]> {
+  const dir = path.join(recoveryRoot(), "backups"); if (!await exists(dir)) return [];
+  const items: StoredBackup[] = [];
+  for (const name of await fs.readdir(dir)) if (/^auto-[0-9]+-[a-zA-Z0-9_-]+\.zip$/.test(name)) { const file = path.join(dir, name); const st = await fs.stat(file); if (st.isFile()) items.push({ name, bytes: st.size, createdAt: Number(name.split("-")[1]), path: file }); }
+  return items.sort((a, b) => b.createdAt - a.createdAt || b.name.localeCompare(a.name));
+}
+export function listAutomaticBackups(): Promise<StoredBackup[]> { return withLibraryLock(listAutomaticBackupsUnlocked); }
+export function readAutomaticBackup(name: string): Promise<string> {
+  return withLibraryLock(async () => { if (!/^auto-[0-9]+-[a-zA-Z0-9_-]+\.zip$/.test(name)) throw new Error("备份名称无效"); return (await fs.readFile(path.join(recoveryRoot(), "backups", name))).toString("base64"); });
+}
+
+export function readBackupRestoreState(): Promise<{ generation: string; files: BackupTree["files"] } | null> {
+  return withLibraryLock(async () => {
+    let state: { format: string; version: number; generation: string }; try { state = JSON.parse(await fs.readFile(path.join(metaDir(), "restore-state.json"), "utf8")); } catch (e) { if ((e as NodeJS.ErrnoException).code === "ENOENT") return null; throw e; }
+    if (state.format !== "langhuan-restore" || state.version !== 1 || !/^[a-zA-Z0-9_-]{1,100}$/.test(state.generation)) throw new Error("恢复标记损坏");
+    const tree = await readBackupTreeAt(metaDir());
+    return { generation: state.generation, files: tree.files.map((f) => ({ ...f, path: `.langhuan/${f.path}` })).filter((f) => isLearningPath(f.path)) };
+  });
+}
+
+export function listRelativeFiles(...args: Parameters<typeof listRelativeFilesUnlocked>): ReturnType<typeof listRelativeFilesUnlocked> { return withLibraryLock(() => listRelativeFilesUnlocked(...args)); }
+
+export function listProjectRoots(...args: Parameters<typeof listProjectRootsUnlocked>): ReturnType<typeof listProjectRootsUnlocked> { return withLibraryLock(() => listProjectRootsUnlocked(...args)); }
+
+export function readCssIndexes(...args: Parameters<typeof readCssIndexesUnlocked>): ReturnType<typeof readCssIndexesUnlocked> { return withLibraryLock(() => readCssIndexesUnlocked(...args)); }
+
+export function readJsIndexes(...args: Parameters<typeof readJsIndexesUnlocked>): ReturnType<typeof readJsIndexesUnlocked> { return withLibraryLock(() => readJsIndexesUnlocked(...args)); }
+
+export function readStagedBackup(id: string): Promise<BackupSnapshot> {
+  return withLibraryLock(async () => {
+    if (!/^[a-zA-Z0-9_-]{1,100}$/.test(id)) throw new Error("恢复标识无效");
+    const dir = path.join(recoveryRoot(), "stages", id); const target = path.join(dir, "library");
+    const stage = JSON.parse(await fs.readFile(path.join(dir, "stage.json"), "utf8")) as RestoreStage;
+    const tree = await readBackupTreeAt(target); const fingerprint = treeFingerprint(tree);
+    if (stage.id !== id || stage.fingerprint !== fingerprint) throw new Error("隔离副本已变化/损坏，拒绝下载或采用");
+    return { ...tree, fingerprint, root: target };
+  });
+}
+
+export function readProjectSnapshot(...args: Parameters<typeof readProjectSnapshotUnlocked>): ReturnType<typeof readProjectSnapshotUnlocked> { return withLibraryLock(() => readProjectSnapshotUnlocked(...args)); }

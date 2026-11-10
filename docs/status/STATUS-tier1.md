@@ -13,7 +13,7 @@
 
 ## 已知限制
 
-- 版本快照存于独立 IDB 键，导出 zip **不含**版本历史（含文档与回收站）。
+- 第 3/4 步后版本快照主存于 `.langhuan/versions/<docId>.json`，IDB 留回滚副本；ZIP v3 已含版本历史，旧包仍可导入。备份/隔离恢复与限制见 `STATUS-backup-integrity.md`。
 - 滚动比例同步等既有 HTML IDE 行为未改。
 - 配额/用量告警基于 content/ 内容估算（及可选 `navigator.storage.estimate()`），不同环境数字会有差异。
 - Tier 2 本地文件夹同步见 `STATUS-tier2-fs-sync.md`。

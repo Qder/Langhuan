@@ -74,3 +74,13 @@ export async function estimateVersionsBytes(docIds: string[]): Promise<number> {
   }
   return total;
 }
+
+/** Explicit confirmed restore only. Old keys remain, but the active rollback values
+ * must match the adopted library, or startup union would resurrect replaced history.
+ * The complete prior library is retained by the restore transaction in archives/. */
+export async function adoptRestoredVersions(restored: Record<string, DocVersion[]>): Promise<void> {
+  memory.clear();
+  const ids = new Set(Object.keys(restored));
+  for (const key of await keys()) if (typeof key === "string" && key.startsWith(VERSIONS_KEY_PREFIX)) ids.add(key.slice(VERSIONS_KEY_PREFIX.length));
+  for (const id of ids) await serializeLearning(versionPath(id), async () => { const list = restored[id] ?? []; await set(keyFor(id), list); memory.set(id, list); });
+}

@@ -6,10 +6,8 @@ import type { Annotation } from "../annotations";
 import type { ReadingPrefs } from "../readingPrefs";
 import type { QuizDoc } from "../quiz";
 import { getTags } from "../tags";
-import { getAssetBlob, putAssetBlob, base64ToBlob, blobToBase64 } from "../assets/store";
+import { getAssetBlob, base64ToBlob, blobToBase64 } from "../assets/store";
 import {
-  reportDigestMismatches,
-  reportMissingAssets,
   sha256Hex,
   verifyBackupPayload,
   type BackupIntegrityReport,
@@ -21,34 +19,33 @@ export {
   type BackupIntegrityReport,
 } from "./backupIntegrity";
 
-export const BACKUP_MANIFEST_VERSION = 2;
-
+import { normalizeAnnotation } from "../annotations";
+import type { DocVersion } from "../types";
+import type { SavedSearch } from "../searchQuery";
+import {
+  LEARNING_PATHS,
+  versionPath,
+  parseLearningFile,
+  type ProgressMap,
+  type LearningFile,
+} from "./learningData";
+export const BACKUP_MANIFEST_VERSION = 3;
 export type BackupManifest = {
   format: "langhuan-backup";
-  version: typeof BACKUP_MANIFEST_VERSION;
+  version: number;
   exportedAt: number;
   app: string;
-  documents: Array<{
-    id: string;
-    path: string;
-    type: Document["type"];
-    starred: boolean;
-    createdAt: number;
-    updatedAt: number;
-    tags: string[];
-  }>;
-  trash?: Array<{
-    deletedAt: number;
-    doc: BackupManifest["documents"][number];
-  }>;
+  documents: Array<Omit<Document, "content"> & { tags?: string[] }>;
+  trash?: Array<{ doc: Omit<Document, "content">; deletedAt: number }>;
   assets?: AssetMeta[];
   annotations?: Annotation[];
   readingPrefs?: ReadingPrefs;
   quizDocs?: QuizDoc[];
-  /** Optional asset id → sha-256 hex written at export time. */
   assetDigests?: Record<string, string>;
+  /** v3: complete learning files and hashes for every note/asset/metadata entry. */
+  learningFiles?: string[];
+  entryDigests?: Record<string, string>;
 };
-
 export type BackupPayload = {
   documents: Document[];
   trash: TrashItem[];
@@ -56,136 +53,205 @@ export type BackupPayload = {
   annotations?: Annotation[];
   readingPrefs?: ReadingPrefs;
   quizDocs?: QuizDoc[];
+  versions?: Record<string, DocVersion[]>;
+  savedSearches?: SavedSearch[];
+  readingProgress?: ProgressMap;
+  /** Detached bytes: parsing never inserts these into live IDB. */
+  assetBinaries?: Record<string, string>;
 };
-
-function safeZipPath(path: string): string {
-  return path.replace(/\\/g, "/").replace(/^\/+/, "").replace(/\.\./g, "_");
-}
-
-export async function buildLibraryZip(payload: BackupPayload): Promise<Blob> {
-  const { blob } = await buildLibraryZipDetailed(payload);
-  return blob;
-}
-
 export type BackupBuildResult = {
   blob: Blob;
   report: BackupIntegrityReport;
   missingAssetBlobs: string[];
 };
-
-/** Export with integrity report (missing IDB blobs listed). */
+export type BackupParseResult = {
+  payload: BackupPayload;
+  report: BackupIntegrityReport;
+  legacy: boolean;
+};
+export function safeBackupPath(value: string): string {
+  const p = value.replace(/\\/g, "/");
+  if (
+    !p ||
+    p.startsWith("/") ||
+    /^[A-Za-z]:/.test(p) ||
+    p.split("/").some((v) => !v || v === "." || v === "..") ||
+    p.includes("\0")
+  )
+    throw new Error(`不安全的备份路径：${value}`);
+  return p;
+}
+export function backupLearningFiles(
+  payload: BackupPayload,
+): [string, LearningFile][] {
+  return [
+    [
+      LEARNING_PATHS.annotations,
+      {
+        format: "langhuan-annotations",
+        version: 1,
+        annotations: payload.annotations ?? [],
+      },
+    ],
+    [
+      LEARNING_PATHS.quiz,
+      {
+        format: "langhuan-quiz",
+        version: 1,
+        updatedAt: Math.max(
+          0,
+          ...(payload.quizDocs ?? []).map((d) => d.updatedAt),
+        ),
+        docs: payload.quizDocs ?? [],
+      },
+    ],
+    [
+      LEARNING_PATHS.searches,
+      {
+        format: "langhuan-saved-searches",
+        version: 1,
+        searches: payload.savedSearches ?? [],
+      },
+    ],
+    [
+      LEARNING_PATHS.progress,
+      {
+        format: "langhuan-reading-progress",
+        version: 1,
+        progress: payload.readingProgress ?? {},
+      },
+    ],
+    ...Object.entries(payload.versions ?? {}).map(
+      ([docId, versions]) =>
+        [
+          versionPath(docId),
+          { format: "langhuan-versions", version: 1, docId, versions },
+        ] as [string, LearningFile],
+    ),
+  ];
+}
+export function assignBackupLearning(
+  payload: BackupPayload,
+  file: LearningFile,
+): void {
+  switch (file.format) {
+    case "langhuan-annotations":
+      payload.annotations = file.annotations;
+      break;
+    case "langhuan-quiz":
+      payload.quizDocs = file.docs;
+      break;
+    case "langhuan-saved-searches":
+      payload.savedSearches = file.searches;
+      break;
+    case "langhuan-reading-progress":
+      payload.readingProgress = file.progress;
+      break;
+    case "langhuan-versions":
+      (payload.versions ??= Object.create(null))[file.docId] = file.versions;
+      break;
+  }
+}
+const documentMeta = (d: Document): Omit<Document, "content"> => ({
+  id: d.id,
+  path: d.path,
+  type: d.type,
+  starred: d.starred,
+  createdAt: d.createdAt,
+  updatedAt: d.updatedAt,
+});
+const encoder = new TextEncoder();
+export async function buildLibraryZip(payload: BackupPayload): Promise<Blob> {
+  return (await buildLibraryZipDetailed(payload)).blob;
+}
 export async function buildLibraryZipDetailed(
-  payload: BackupPayload
+  payload: BackupPayload,
 ): Promise<BackupBuildResult> {
   const zip = new JSZip();
   const folder = zip.folder("langhuan-backup")!;
-  const docsMeta: BackupManifest["documents"] = [];
-
-  for (const d of payload.documents) {
-    const rel = safeZipPath(d.path);
-    folder.file(`files/${rel}`, d.content);
-    docsMeta.push({
-      id: d.id,
-      path: d.path,
-      type: d.type,
-      starred: d.starred,
-      createdAt: d.createdAt,
-      updatedAt: d.updatedAt,
-      tags: getTags(d),
-    });
-  }
-
-  const trashMeta: BackupManifest["trash"] = [];
-  for (const t of payload.trash) {
-    const d = t.doc;
-    const rel = safeZipPath(`_trash/${d.id}__${safeZipPath(d.path)}`);
-    folder.file(`files/${rel}`, d.content);
-    trashMeta.push({
-      deletedAt: t.deletedAt,
-      doc: {
-        id: d.id,
-        path: d.path,
-        type: d.type,
-        starred: d.starred,
-        createdAt: d.createdAt,
-        updatedAt: d.updatedAt,
-        tags: getTags(d),
-      },
-    });
-  }
-
-  const assets = payload.assets || [];
+  const entryDigests: Record<string, string> = {};
   const assetDigests: Record<string, string> = {};
   const missingAssetBlobs: string[] = [];
-  for (const a of assets) {
-    const blob = await getAssetBlob(a.id);
+  const used = new Set<string>();
+  async function add(name: string, bytes: Uint8Array) {
+    safeBackupPath(name);
+    if (used.has(name.toLowerCase())) throw new Error(`备份路径重复：${name}`);
+    used.add(name.toLowerCase());
+    folder.file(name, bytes);
+    entryDigests[name] = await sha256Hex(bytes);
+  }
+  for (const d of payload.documents)
+    await add(`files/${safeBackupPath(d.path)}`, encoder.encode(d.content));
+  for (const t of payload.trash)
+    await add(
+      `files/_trash/${encodeURIComponent(t.doc.id)}__${safeBackupPath(t.doc.path)}`,
+      encoder.encode(t.doc.content),
+    );
+  for (const a of payload.assets ?? []) {
+    const binary = payload.assetBinaries?.[a.id];
+    const blob =
+      binary === undefined
+        ? await getAssetBlob(a.id)
+        : base64ToBlob(binary, a.mime);
     if (!blob) {
       missingAssetBlobs.push(a.path);
       continue;
     }
-    folder.file(`files/${safeZipPath(a.path)}`, blob);
-    try {
-      assetDigests[a.id] = await sha256Hex(blob);
-    } catch {
-      /* optional */
-    }
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    await add(`files/${safeBackupPath(a.path)}`, bytes);
+    assetDigests[a.id] = await sha256Hex(bytes);
   }
-
-  if (payload.annotations?.length) {
-    folder.file("annotations.json", JSON.stringify(payload.annotations, null, 2));
+  const learningFiles: string[] = [];
+  for (const [rel, value] of backupLearningFiles(payload)) {
+    const raw = JSON.stringify(value, null, 2);
+    parseLearningFile(rel, raw);
+    const name = `learning/${rel.slice(".langhuan/".length)}`;
+    learningFiles.push(name);
+    await add(name, encoder.encode(raw));
   }
-  if (payload.quizDocs?.length) {
-    folder.file(
-      "quiz.json",
-      JSON.stringify(
-        {
-          format: "langhuan-quiz",
-          version: 1,
-          updatedAt: Date.now(),
-          docs: payload.quizDocs,
-        },
-        null,
-        2
-      )
-    );
-  }
-
   const manifest: BackupManifest = {
     format: "langhuan-backup",
-    version: BACKUP_MANIFEST_VERSION,
+    version: 3,
     exportedAt: Date.now(),
     app: "琅嬛 Langhuan",
-    documents: docsMeta,
-    trash: trashMeta,
-    assets,
+    documents: payload.documents.map((d) => ({
+      ...documentMeta(d),
+      tags: getTags(d),
+    })),
+    trash: payload.trash.map((t) => ({
+      doc: documentMeta(t.doc),
+      deletedAt: t.deletedAt,
+    })),
+    assets: payload.assets,
     annotations: payload.annotations,
-    readingPrefs: payload.readingPrefs,
     quizDocs: payload.quizDocs,
-    assetDigests: Object.keys(assetDigests).length ? assetDigests : undefined,
+    readingPrefs: payload.readingPrefs,
+    assetDigests,
+    entryDigests,
+    learningFiles,
   };
   folder.file("manifest.json", JSON.stringify(manifest, null, 2));
-  const out = await zip.generateAsync({ type: "blob", compression: "DEFLATE" });
-
-  const logical = verifyBackupPayload(payload);
-  const issues = [
-    ...logical.issues,
+  const bytes = await zip.generateAsync({
+    type: "uint8array",
+    compression: "DEFLATE",
+  });
+  const report = verifyBackupPayload(payload);
+  report.issues.push(
     ...missingAssetBlobs.map((path) => ({
       kind: "missing-asset-blob" as const,
-      message: `导出时找不到图片二进制「${path}」`,
+      message: `缺少附件二进制：${path}`,
       path,
     })),
-  ];
-  const report: BackupIntegrityReport = {
-    ok: issues.length === 0,
-    documents: payload.documents.length,
-    assetsListed: assets.length,
-    assetsRestored: assets.length - missingAssetBlobs.length,
-    annotations: payload.annotations?.length || 0,
-    issues,
+  );
+  report.ok = report.issues.length === 0;
+  report.assetsRestored =
+    (payload.assets?.length ?? 0) - missingAssetBlobs.length;
+  return {
+    blob: new Blob([bytes as BlobPart], { type: "application/zip" }),
+    report,
+    missingAssetBlobs,
   };
-  return { blob: out, report, missingAssetBlobs };
 }
-
 export function downloadBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -204,243 +270,336 @@ export function defaultBackupFilename(now = new Date()): string {
   return `langhuan-backup-${stamp}.zip`;
 }
 
-function looksLikeDocPath(p: string): boolean {
-  return /\.(md|html|htm|txt)$/i.test(p);
-}
-
-function looksLikeAssetPath(p: string): boolean {
-  return /\.(png|jpe?g|gif|webp|svg|avif|bmp|ico)$/i.test(p);
-}
-
-/**
- * Parse a Langhuan backup zip (or a plain folder of .md/.html).
- * Restores binary assets into IndexedDB when present.
- */
-export async function parseLibraryZip(file: Blob): Promise<BackupPayload> {
-  const zip = await JSZip.loadAsync(file);
-  const names = Object.keys(zip.files);
-
-  const manifestName = names.find(
-    (n) => n === "manifest.json" || n.endsWith("/manifest.json")
+export function backupHasBlockingIssues(
+  report: BackupIntegrityReport,
+): boolean {
+  return report.issues.some(
+    (i) =>
+      !["empty-document", "orphan-annotation", "conflict"].includes(i.kind),
   );
-
-  if (manifestName) {
-    const raw = await zip.files[manifestName].async("string");
-    const manifest = JSON.parse(raw) as BackupManifest;
-    if (manifest.format !== "langhuan-backup") {
-      throw new Error("不是琅嬛备份包（manifest.format 不匹配）");
-    }
-    const root = manifestName.includes("/")
-      ? manifestName.slice(0, manifestName.lastIndexOf("/") + 1)
-      : "";
-
-    const documents: Document[] = [];
-    for (const meta of manifest.documents || []) {
-      const candidates = [
-        `${root}files/${safeZipPath(meta.path)}`,
-        `files/${safeZipPath(meta.path)}`,
-        safeZipPath(meta.path),
-      ];
-      let content = "";
-      for (const c of candidates) {
-        if (zip.files[c]) {
-          content = await zip.files[c].async("string");
-          break;
-        }
-      }
-      documents.push({
-        id: meta.id,
-        path: meta.path,
-        type: meta.type,
-        content,
-        starred: !!meta.starred,
-        createdAt: meta.createdAt || Date.now(),
-        updatedAt: meta.updatedAt || Date.now(),
-      });
-    }
-
-    const trash: TrashItem[] = [];
-    for (const t of manifest.trash || []) {
-      const meta = t.doc;
-      const candidates = [
-        `${root}files/_trash/${meta.id}__${safeZipPath(meta.path)}`,
-        `files/_trash/${meta.id}__${safeZipPath(meta.path)}`,
-      ];
-      let content = "";
-      for (const c of candidates) {
-        if (zip.files[c]) {
-          content = await zip.files[c].async("string");
-          break;
-        }
-      }
-      trash.push({
-        deletedAt: t.deletedAt,
-        doc: {
-          id: meta.id,
-          path: meta.path,
-          type: meta.type,
-          content,
-          starred: !!meta.starred,
-          createdAt: meta.createdAt || Date.now(),
-          updatedAt: meta.updatedAt || Date.now(),
-        },
-      });
-    }
-
-    const assets: AssetMeta[] = [];
-    for (const a of manifest.assets || []) {
-      const candidates = [
-        `${root}files/${safeZipPath(a.path)}`,
-        `files/${safeZipPath(a.path)}`,
-      ];
-      for (const c of candidates) {
-        if (zip.files[c]) {
-          const blob = await zip.files[c].async("blob");
-          const typed = blob.type ? blob : new Blob([blob], { type: a.mime });
-          await putAssetBlob(a.id, typed);
-          assets.push({ ...a, size: typed.size || a.size });
-          break;
-        }
-      }
-    }
-
-    let annotations: Annotation[] | undefined = manifest.annotations;
-    const annName = names.find(
-      (n) => n === "annotations.json" || n.endsWith("/annotations.json")
-    );
-    if (annName) {
-      try {
-        annotations = JSON.parse(await zip.files[annName].async("string")) as Annotation[];
-      } catch {
-        /* keep manifest copy */
-      }
-    }
-
-    let quizDocs: QuizDoc[] | undefined = manifest.quizDocs;
-    const quizName = names.find(
-      (n) => n === "quiz.json" || n.endsWith("/quiz.json")
-    );
-    if (quizName) {
-      try {
-        const parsed = JSON.parse(await zip.files[quizName].async("string")) as {
-          docs?: QuizDoc[];
-        };
-        if (Array.isArray(parsed.docs)) quizDocs = parsed.docs;
-        else if (Array.isArray(parsed as unknown as QuizDoc[])) {
-          quizDocs = parsed as unknown as QuizDoc[];
-        }
-      } catch {
-        /* keep manifest copy */
-      }
-    }
-
-    return {
-      documents,
-      trash,
-      assets,
-      annotations,
-      readingPrefs: manifest.readingPrefs,
-      quizDocs,
-    };
-  }
-
-  // Fallback: treat zip as a loose tree of markdown/html (+ images)
-  const documents: Document[] = [];
-  const assets: AssetMeta[] = [];
-  for (const name of names) {
-    const entry = zip.files[name];
-    if (entry.dir) continue;
-    const rel = name.replace(/^[^/]+\//, "");
-    if (rel.startsWith("_trash/")) continue;
-    if (looksLikeDocPath(rel)) {
-      const content = await entry.async("string");
-      const type = /\.html?$/i.test(rel) ? "html" : "md";
-      const path = rel.replace(/\.txt$/i, ".md");
-      documents.push({
-        id: `import_${Math.random().toString(36).slice(2, 10)}`,
-        path,
-        type,
-        content,
-        starred: false,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      });
-    } else if (looksLikeAssetPath(rel)) {
-      const blob = await entry.async("blob");
-      const id = `asset_${Math.random().toString(36).slice(2, 10)}`;
-      const mime = blob.type || "application/octet-stream";
-      await putAssetBlob(id, blob);
-      assets.push({
-        id,
-        path: rel,
-        mime,
-        size: blob.size,
-        createdAt: Date.now(),
-      });
-    }
-  }
-  if (!documents.length && !assets.length) {
-    throw new Error("压缩包中没有可导入的 .md / .html / 图片文件");
-  }
-  return { documents, trash: [], assets };
 }
-
-
-export type BackupParseResult = {
-  payload: BackupPayload;
-  report: BackupIntegrityReport;
-};
-
-/** Parse + integrity: missing zip assets, digest mismatch, empty docs, orphan anns. */
+/** Pure preview: never writes IDB, files, notes or preferences. */
 export async function parseLibraryZipDetailed(
-  file: Blob
+  file: Blob,
 ): Promise<BackupParseResult> {
-  const zip = await JSZip.loadAsync(file);
-  const names = Object.keys(zip.files);
-  const manifestName = names.find(
-    (n) => n === "manifest.json" || n.endsWith("/manifest.json")
-  );
-
-  // Reuse parseLibraryZip for payload assembly (puts blobs).
-  const payload = await parseLibraryZip(file);
-  let report = verifyBackupPayload(payload);
-
-  if (manifestName) {
-    try {
-      const raw = await zip.files[manifestName].async("string");
-      const manifest = JSON.parse(raw) as BackupManifest;
-      const listed = manifest.assets || [];
-      const restoredIds = new Set((payload.assets || []).map((a) => a.id));
-      const missing = reportMissingAssets(listed, restoredIds);
-      const actualDigests: Record<string, string> = {};
-      for (const a of payload.assets || []) {
-        const blob = await getAssetBlob(a.id);
-        if (!blob) continue;
-        try {
-          actualDigests[a.id] = await sha256Hex(blob);
-        } catch {
-          /* optional */
-        }
-      }
-      const digestIssues = reportDigestMismatches(
-        manifest.assetDigests || {},
-        actualDigests
+  if (file.size > 512 * 1024 * 1024) throw new Error("ZIP 文件超过 512 MiB");
+  const zip = await JSZip.loadAsync(await file.arrayBuffer(), {
+    checkCRC32: true,
+  });
+  const entries = Object.entries(zip.files).filter(([, e]) => !e.dir);
+  if (entries.length > 20000) throw new Error("备份文件过多");
+  for (const [name, e] of entries)
+    safeBackupPath(
+      (e as typeof e & { unsafeOriginalName?: string }).unsafeOriginalName ??
+        name,
+    );
+  const manifestName = entries
+    .map(([n]) => n)
+    .find((n) => n === "manifest.json" || n.endsWith("/manifest.json"));
+  const issues: BackupIntegrityReport["issues"] = [];
+  let expanded = 0;
+  const read = async (name: string) => {
+    const entry = zip.file(name);
+    if (!entry) return null;
+    const bytes = await entry.async("uint8array");
+    expanded += bytes.byteLength;
+    if (expanded > 512 * 1024 * 1024)
+      throw new Error("解压内容超过 512 MiB，已停止预览");
+    return bytes;
+  };
+  const decode = (bytes: Uint8Array) =>
+    new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  const decodeDoc = (bytes: Uint8Array) =>
+    new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
+  const payload: BackupPayload = {
+    documents: [],
+    trash: [],
+    assets: [],
+    annotations: [],
+    quizDocs: [],
+    savedSearches: [],
+    readingProgress: {},
+    versions: Object.create(null),
+    assetBinaries: Object.create(null),
+  };
+  if (!manifestName) {
+    const commonRoot = entries.every(
+      ([n]) =>
+        n.includes("/") && n.split("/")[0] === entries[0][0].split("/")[0],
+    );
+    for (const [name] of entries) {
+      const rel = safeBackupPath(
+        commonRoot ? name.slice(name.indexOf("/") + 1) : name,
       );
-      report = {
-        ok: report.issues.length + missing.length + digestIssues.length === 0,
-        documents: payload.documents.length,
-        assetsListed: listed.length,
-        assetsRestored: restoredIds.size,
-        annotations: payload.annotations?.length || 0,
-        issues: [...report.issues, ...missing, ...digestIssues],
-      };
-    } catch {
-      /* keep logical report */
+      const bytes = await read(name);
+      if (!bytes) continue;
+      if (/\.(md|html?|txt)$/i.test(rel) && !rel.startsWith("_trash/"))
+        payload.documents.push({
+          id: `import_${crypto.randomUUID()}`,
+          path: rel.replace(/\.txt$/i, ".md"),
+          type: /\.(html?|svg)$/i.test(rel) ? "html" : "md",
+          content: decodeDoc(bytes),
+          starred: false,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        });
+      else if (/\.(png|jpe?g|webp|gif|svg|avif|bmp|ico)$/i.test(rel)) {
+        const id = `asset_${crypto.randomUUID()}`;
+        payload.assets!.push({
+          id,
+          path: rel,
+          mime: "application/octet-stream",
+          size: bytes.length,
+          createdAt: Date.now(),
+        });
+        payload.assetBinaries![id] = await blobToBase64(
+          new Blob([bytes as BlobPart]),
+        );
+      }
+    }
+    if (!payload.documents.length && !payload.assets!.length)
+      throw new Error("压缩包中没有可导入的 .md / .html / 图片文件");
+    return { payload, report: verifyBackupPayload(payload), legacy: true };
+  }
+  const manifest = JSON.parse(
+    decode((await read(manifestName))!),
+  ) as BackupManifest;
+  if (manifest.format !== "langhuan-backup")
+    throw new Error("不是琅嬛备份包（manifest.format 不匹配）");
+  if (![1, 2, 3].includes(manifest.version))
+    throw new Error("备份版本不受支持");
+  const root = manifestName.slice(
+    0,
+    manifestName.length - "manifest.json".length,
+  );
+  const seen = new Set<string>();
+  const obtain = async (relative: string, alternatives: string[] = []) => {
+    const name = [root + relative, relative, ...alternatives].find((n) =>
+      zip.file(n),
+    );
+    if (!name) return null;
+    const bytes = await read(name);
+    if (!bytes) return null;
+    const expected = manifest.entryDigests?.[relative];
+    if (
+      manifest.version === 3 &&
+      (!expected || !/^[a-f0-9]{64}$/i.test(expected))
+    )
+      issues.push({
+        kind: "corrupt-metadata",
+        path: relative,
+        message: `v3 条目缺少有效校验和：${relative}`,
+      });
+    if (expected && (await sha256Hex(bytes)) !== expected)
+      issues.push({
+        kind: "entry-digest-mismatch",
+        path: relative,
+        message: `校验和不匹配：${relative}`,
+      });
+    return bytes;
+  };
+  for (const meta of manifest.documents ?? []) {
+    safeBackupPath(meta.path);
+    const key = meta.path.toLowerCase();
+    if (seen.has(key))
+      issues.push({
+        kind: "duplicate-path",
+        path: meta.path,
+        message: `重复路径：${meta.path}`,
+      });
+    seen.add(key);
+    const legacy = meta.path.replace(/\.\./g, "_");
+    const bytes = await obtain(`files/${meta.path}`, [
+      meta.path,
+      ...(manifest.version < 3
+        ? [`${root}files/${legacy}`, `files/${legacy}`, legacy]
+        : []),
+    ]);
+    if (!bytes) {
+      issues.push({
+        kind: "missing-document-file",
+        path: meta.path,
+        message: `缺少正文：${meta.path}`,
+      });
+      continue;
+    }
+    payload.documents.push({
+      ...meta,
+      type: meta.type ?? (/\.(html?|svg)$/i.test(meta.path) ? "html" : "md"),
+      content: decodeDoc(bytes),
+      starred: !!meta.starred,
+      createdAt: meta.createdAt || 0,
+      updatedAt: meta.updatedAt || 0,
+    });
+  }
+  for (const t of manifest.trash ?? []) {
+    safeBackupPath(t.doc.path);
+    const legacyTrash = `files/_trash/${t.doc.id}__${t.doc.path}`.replace(
+      /\.\./g,
+      "_",
+    );
+    const bytes = await obtain(
+      `files/_trash/${encodeURIComponent(t.doc.id)}__${t.doc.path}`,
+      [`${root}${legacyTrash}`, legacyTrash],
+    );
+    if (!bytes) {
+      issues.push({
+        kind: "missing-document-file",
+        path: t.doc.path,
+        message: `缺少回收站正文：${t.doc.path}`,
+      });
+      continue;
+    }
+    payload.trash.push({
+      deletedAt: t.deletedAt,
+      doc: {
+        ...t.doc,
+        type:
+          t.doc.type ?? (/\.(html?|svg)$/i.test(t.doc.path) ? "html" : "md"),
+        starred: !!t.doc.starred,
+        createdAt: t.doc.createdAt || 0,
+        updatedAt: t.doc.updatedAt || 0,
+        content: decodeDoc(bytes),
+      },
+    });
+  }
+  for (const a of manifest.assets ?? []) {
+    safeBackupPath(a.path);
+    const bytes = await obtain(
+      `files/${a.path}`,
+      manifest.version < 3
+        ? [
+            `${root}files/${a.path.replace(/\.\./g, "_")}`,
+            `files/${a.path.replace(/\.\./g, "_")}`,
+          ]
+        : [],
+    );
+    if (!bytes) {
+      issues.push({
+        kind: "missing-asset-in-zip",
+        path: a.path,
+        message: `清单附件缺失：${a.path}`,
+      });
+      continue;
+    }
+    if (
+      manifest.assetDigests?.[a.id] &&
+      (await sha256Hex(bytes)) !== manifest.assetDigests[a.id]
+    )
+      issues.push({
+        kind: "asset-digest-mismatch",
+        id: a.id,
+        message: `附件校验和不匹配：${a.path}`,
+      });
+    if (seen.has(a.path.toLowerCase()))
+      issues.push({
+        kind: "duplicate-path",
+        path: a.path,
+        message: `正文/附件路径冲突：${a.path}`,
+      });
+    seen.add(a.path.toLowerCase());
+    payload.assets!.push({
+      ...a,
+      mime: a.mime || "application/octet-stream",
+      createdAt: a.createdAt || 0,
+      size: bytes.length,
+    });
+    payload.assetBinaries![a.id] = await blobToBase64(
+      new Blob([bytes as BlobPart], { type: a.mime }),
+    );
+  }
+  const oldAnnotations = manifest.annotations;
+  const oldQuiz = manifest.quizDocs;
+  payload.annotations = (oldAnnotations ?? []).map((a) =>
+    normalizeAnnotation(a),
+  );
+  payload.quizDocs = normalizeOldQuiz(oldQuiz ?? []);
+  payload.readingPrefs = manifest.readingPrefs;
+  if (manifest.version < 3) {
+    for (const [name, kind] of [
+      ["annotations.json", "ann"],
+      ["quiz.json", "quiz"],
+    ] as const) {
+      const bytes = await obtain(name);
+      if (!bytes) continue;
+      try {
+        const value = JSON.parse(decode(bytes));
+        if (kind === "ann")
+          payload.annotations = (
+            Array.isArray(value) ? value : value.annotations
+          ).map(normalizeAnnotation);
+        else
+          payload.quizDocs = normalizeOldQuiz(
+            Array.isArray(value) ? value : value.docs,
+          );
+      } catch {
+        issues.push({
+          kind: "corrupt-metadata",
+          path: name,
+          message: `旧元数据损坏：${name}`,
+        });
+      }
     }
   }
-
-  return { payload, report };
+  for (const name of manifest.learningFiles ?? []) {
+    safeBackupPath(name);
+    if (!name.startsWith("learning/")) throw new Error("学习文件路径无效");
+    const bytes = await obtain(name);
+    if (!bytes) {
+      issues.push({
+        kind: "corrupt-metadata",
+        path: name,
+        message: `缺少学习文件：${name}`,
+      });
+      continue;
+    }
+    try {
+      assignBackupLearning(
+        payload,
+        parseLearningFile(`.langhuan/${name.slice(9)}`, decode(bytes)),
+      );
+    } catch (e) {
+      issues.push({
+        kind: "corrupt-metadata",
+        path: name,
+        message: `学习文件损坏：${name}（${String(e)}）`,
+      });
+    }
+  }
+  if (manifest.version === 3)
+    for (const rel of Object.values(LEARNING_PATHS))
+      if (!manifest.learningFiles?.includes(`learning/${rel.slice(10)}`))
+        issues.push({
+          kind: "corrupt-metadata",
+          path: rel,
+          message: `v3 清单缺少 ${rel}`,
+        });
+  for (const [rel, value] of backupLearningFiles(payload)) {
+    try {
+      parseLearningFile(rel, JSON.stringify(value));
+    } catch (e) {
+      issues.push({
+        kind: "corrupt-metadata",
+        path: rel,
+        message: `学习数据格式损坏：${rel}（${String(e)}）`,
+      });
+    }
+  }
+  const report = verifyBackupPayload(payload);
+  report.issues.push(...issues);
+  report.ok = report.issues.length === 0;
+  report.assetsListed = manifest.assets?.length ?? 0;
+  report.assetsRestored = payload.assets!.length;
+  return { payload, report, legacy: manifest.version < 3 };
 }
-
-// re-export helpers used by tests / tooling
+function normalizeOldQuiz(docs: QuizDoc[]): QuizDoc[] {
+  return (docs ?? []).map((d) => ({
+    ...d,
+    updatedAt: d.updatedAt ?? 0,
+    items: (d.items ?? []).map((i) => ({ ...i, updatedAt: i.updatedAt ?? 0 })),
+  }));
+}
+export async function parseLibraryZip(file: Blob): Promise<BackupPayload> {
+  return (await parseLibraryZipDetailed(file)).payload;
+}
 export { blobToBase64, base64ToBlob };

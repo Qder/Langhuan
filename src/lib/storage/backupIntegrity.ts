@@ -15,7 +15,12 @@ export type BackupIntegrityIssue = {
     | "empty-document"
     | "missing-document-file"
     | "orphan-annotation"
-    | "count-mismatch";
+    | "count-mismatch"
+    | "corrupt-metadata"
+    | "entry-digest-mismatch"
+    | "unsafe-path"
+    | "duplicate-path"
+    | "conflict";
   message: string;
   id?: string;
   path?: string;
@@ -98,7 +103,10 @@ export function verifyBackupPayload(payload: BackupPayload): BackupIntegrityRepo
   const anns = payload.annotations || [];
   const docIds = new Set(docs.map((d) => d.id));
 
+  const seenIds = new Set<string>(); const seenAssets = new Set<string>();
+  for (const asset of assets) { if (!asset.id || seenAssets.has(asset.id)) issues.push({ kind: "corrupt-metadata", message: `附件标识缺失/重复：${asset.path}`, path: asset.path }); seenAssets.add(asset.id); }
   for (const d of docs) {
+    if (!d.id || seenIds.has(d.id)) issues.push({ kind: "corrupt-metadata", message: `笔记标识缺失/重复：${d.path}`, path: d.path }); seenIds.add(d.id);
     if (!String(d.content ?? "").trim()) {
       issues.push({
         kind: "empty-document",

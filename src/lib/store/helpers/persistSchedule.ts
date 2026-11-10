@@ -127,3 +127,5 @@ export function scheduleContentPersist(
     return r;
   });
 }
+
+export async function waitForContentWrites(): Promise<void> { await Promise.all([...pathWriteChains.values()]); }

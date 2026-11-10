@@ -1,4 +1,5 @@
 "use client";
+import { useAutomaticBackup } from "@/lib/useAutomaticBackup";
 
 import * as React from "react";
 import { useStore } from "@/lib/store"
@@ -45,6 +46,7 @@ import { isTocPanelOpen, closeTocPanel, requestToggleToc } from "@/lib/tocPanel"
 import { shouldHandlePreviewUndoShortcut } from "@/lib/previewUndo";
 
 export function AppShell() {
+  useAutomaticBackup();
   const hydrated = useStore((s) => s.hydrated);
   const appMode = useStore((s) => s.appMode);
   const activeId = useStore((s) => s.activeId);
