@@ -69,11 +69,12 @@ export const createAssetsSlice: StateCreator<
   quizDocs: [],
   importAssets: async (files, opts) => {
         let m = 0;
+        const errors: string[] = [];
         const docs = get().documents;
-        const nextAssets = [...get().assets];
+        const addedAssets: AssetMeta[] = [];
         const pathSet = new Set<string>([
           ...docs.map((d) => d.path),
-          ...nextAssets.map((a) => a.path),
+          ...get().assets.map((a) => a.path),
         ]);
 
         for (const f of files) {
@@ -108,9 +109,6 @@ export const createAssetsSlice: StateCreator<
             createdAt: Date.now(),
             docId: nearest?.id,
           };
-          nextAssets.push(meta);
-          m += 1;
-
           try {
             const b64 = await blobToBase64(blob);
             await putLibraryAsset({
@@ -123,8 +121,11 @@ export const createAssetsSlice: StateCreator<
             });
           } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
-            get().setStatus(`附件写入 content/ 失败：${msg}`);
+            errors.push(`${path}：${msg}`);
+            continue;
           }
+          addedAssets.push(meta);
+          m += 1;
 
           try {
             const { writeThroughAssetBinary } = await import("../../storage/fsSync");
@@ -135,11 +136,13 @@ export const createAssetsSlice: StateCreator<
         }
 
         if (m) {
-          set({ assets: nextAssets });
-          void saveAssetMetaList(nextAssets);
+          const assets = [...get().assets, ...addedAssets];
+          set({ assets });
+          void saveAssetMetaList(assets);
           void get().refreshStorageUsage();
           if (!opts?.quiet) get().setStatus(`已导入 ${m} 张图片`);
         }
+        if (errors.length) get().setStatus(`附件导入失败（${errors.length} 项，可重新选择重试）：${errors.join("；")}`);
         return m;
       },
   ingestImageFile: async (docId, file, filename) => {
@@ -180,9 +183,6 @@ export const createAssetsSlice: StateCreator<
           createdAt: Date.now(),
           docId,
         };
-        const assets = [...get().assets, meta];
-        set({ assets });
-        void saveAssetMetaList(assets);
         try {
           const b64 = await blobToBase64(blob);
           await putLibraryAsset({
@@ -195,8 +195,12 @@ export const createAssetsSlice: StateCreator<
           });
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
-          get().setStatus(`附件写入 content/ 失败：${msg}`);
+          get().setStatus(`附件写入 content/ 失败，请重新选择重试：${msg}`);
+          return null;
         }
+        const assets = [...get().assets, meta];
+        set({ assets });
+        void saveAssetMetaList(assets);
         const href = relativeAssetHref(doc.path, path);
         const snippet = markdownImageSnippet(href, sanitizeAssetFilename(name).replace(/\.[^.]+$/, ""));
         get().setStatus(`已入库图片 ${basename(path)}`);
@@ -209,26 +213,22 @@ export const createAssetsSlice: StateCreator<
         }
         return { href, snippet, asset: meta };
       },
-  removeAsset: (id) => {
-        const victim = get().assets.find((a) => a.id === id);
-        void deleteAssetBlob(id);
-        const assets = get().assets.filter((a) => a.id !== id);
-        set({ assets });
-        void saveAssetMetaList(assets);
-        if (victim) {
-          void deleteLibraryAsset(victim.path)
-            .then(() => {
-              get().setStatus("已删除附件");
-            })
-            .catch((e) => {
-              const msg = e instanceof Error ? e.message : String(e);
-              get().setStatus(`删除附件失败：${msg}`);
-            });
-        } else {
-          get().setStatus("已删除附件");
-        }
-        void get().refreshStorageUsage();
-      },
+  removeAsset: async (id) => {
+    const victim = get().assets.find((a) => a.id === id);
+    if (!victim) return;
+    try {
+      await deleteLibraryAsset(victim.path);
+    } catch (e) {
+      get().setStatus(`删除附件失败，附件已保留，可重试：${e instanceof Error ? e.message : String(e)}`);
+      return;
+    }
+    const assets = get().assets.filter((a) => a.id !== id);
+    set({ assets });
+    await saveAssetMetaList(assets).catch(() => undefined);
+    await deleteAssetBlob(id).catch(() => undefined);
+    get().setStatus("已删除附件");
+    void get().refreshStorageUsage();
+  },
   assetsForDoc: (docId) => {
         const doc = get().documents.find((d) => d.id === docId);
         const all = get().assets;
@@ -283,7 +283,7 @@ export const createAssetsSlice: StateCreator<
           version: 1,
           updatedAt: Date.now(),
           docs,
-        });
+        }).catch((e) => get().setStatus(`练习记录写入失败，本机记录已保留，可再次保存重试：${e instanceof Error ? e.message : String(e)}`));
       },
   upsertQuizDoc: (doc) => {
         set((s) => ({ quizDocs: upsertQuizDoc(s.quizDocs, doc) }));

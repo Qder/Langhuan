@@ -4,6 +4,7 @@
  */
 import { promises as fs } from "fs";
 import path from "path";
+import { randomUUID } from "crypto";
 import type { AssetMeta, Document, TrashItem } from "../types";
 import { libraryDocTypeFromPath, normalizeImportedPath } from "../importable";
 import { FS_INDEX_DIR, FS_INDEX_FILE, FS_QUIZ_FILE } from "./constants";
@@ -35,6 +36,39 @@ import {
 } from "../locate/jsIndex";
 
 export { safeRelPath };
+
+/** One process-wide queue, including Next route bundles/HMR. Never nest it. */
+const metaQueue = globalThis as typeof globalThis & { __langhuanMetaTail?: Promise<unknown> };
+function withLibraryLock<T>(task: () => Promise<T>): Promise<T> {
+  const run = (metaQueue.__langhuanMetaTail ?? Promise.resolve()).then(task, task);
+  metaQueue.__langhuanMetaTail = run.catch(() => undefined);
+  return run;
+}
+
+/** Same-directory replacement; a failed rename never deletes the destination.
+ * No unlink-and-retry fallback on Windows/filesystems that reject replacement.
+ */
+async function atomicWrite(file: string, data: string | Buffer): Promise<void> {
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  const tmp = path.join(path.dirname(file), `.${path.basename(file)}.${randomUUID()}.tmp`);
+  try {
+    const handle = await fs.open(tmp, "wx");
+    try {
+      await handle.writeFile(data);
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    await fs.rename(tmp, file);
+  } finally {
+    await fs.unlink(tmp).catch(() => undefined);
+  }
+}
+
+async function unlinkIfPresent(file: string): Promise<void> {
+  try { await fs.unlink(file); }
+  catch (e) { if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e; }
+}
 
 export const CONTENT_DIRNAME = "content";
 export const ASSETS_INDEX_FILE = "assets.json";
@@ -122,18 +156,19 @@ export async function readIndex(): Promise<FsIndex> {
     const raw = await fs.readFile(file, "utf8");
     const parsed = JSON.parse(raw) as FsIndex;
     if (parsed.format !== "langhuan-fs-index" || !parsed.documents) {
-      return emptyIndex();
+      throw new Error("index.json 格式无效，已停止写入以保护元数据");
     }
     return parsed;
-  } catch {
-    return emptyIndex();
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return emptyIndex();
+    throw e;
   }
 }
 
-export async function writeIndex(index: FsIndex): Promise<void> {
+async function writeIndexUnlocked(index: FsIndex): Promise<void> {
   await ensureContentTree();
   const file = path.join(metaDir(), FS_INDEX_FILE);
-  await fs.writeFile(file, JSON.stringify(index, null, 2) + "\n", "utf8");
+  await atomicWrite(file, JSON.stringify(index, null, 2) + "\n");
 }
 
 export async function readAssetsIndex(): Promise<AssetMeta[]> {
@@ -141,16 +176,18 @@ export async function readAssetsIndex(): Promise<AssetMeta[]> {
   try {
     const raw = await fs.readFile(file, "utf8");
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as AssetMeta[]) : [];
-  } catch {
-    return [];
+    if (!Array.isArray(parsed)) throw new Error("Assets 元数据格式无效");
+    return parsed as AssetMeta[];
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw e;
   }
 }
 
-export async function writeAssetsIndex(list: AssetMeta[]): Promise<void> {
+async function writeAssetsIndexUnlocked(list: AssetMeta[]): Promise<void> {
   await ensureContentTree();
   const file = path.join(metaDir(), ASSETS_INDEX_FILE);
-  await fs.writeFile(file, JSON.stringify(list, null, 2) + "\n", "utf8");
+  await atomicWrite(file, JSON.stringify(list, null, 2) + "\n");
 }
 
 export async function readTrashIndex(): Promise<TrashItem[]> {
@@ -158,16 +195,18 @@ export async function readTrashIndex(): Promise<TrashItem[]> {
   try {
     const raw = await fs.readFile(file, "utf8");
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as TrashItem[]) : [];
-  } catch {
-    return [];
+    if (!Array.isArray(parsed)) throw new Error("Trash 元数据格式无效");
+    return parsed as TrashItem[];
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw e;
   }
 }
 
-export async function writeTrashIndex(list: TrashItem[]): Promise<void> {
+async function writeTrashIndexUnlocked(list: TrashItem[]): Promise<void> {
   await ensureContentTree();
   const file = path.join(metaDir(), TRASH_INDEX_FILE);
-  await fs.writeFile(file, JSON.stringify(list, null, 2) + "\n", "utf8");
+  await atomicWrite(file, JSON.stringify(list, null, 2) + "\n");
 }
 
 export async function readQuizStore(): Promise<QuizStoreFile> {
@@ -180,7 +219,7 @@ export async function readQuizStore(): Promise<QuizStoreFile> {
   }
 }
 
-export async function writeQuizStore(store: QuizStoreFile): Promise<void> {
+async function writeQuizStoreUnlocked(store: QuizStoreFile): Promise<void> {
   await ensureContentTree();
   const file = path.join(metaDir(), QUIZ_INDEX_FILE);
   const payload: QuizStoreFile = {
@@ -189,17 +228,13 @@ export async function writeQuizStore(store: QuizStoreFile): Promise<void> {
     updatedAt: store.updatedAt || Date.now(),
     docs: Array.isArray(store.docs) ? store.docs : [],
   };
-  await fs.writeFile(file, JSON.stringify(payload, null, 2) + "\n", "utf8");
+  await atomicWrite(file, JSON.stringify(payload, null, 2) + "\n");
 }
 
 
 async function walkFiles(dir: string, prefix: string, out: string[]): Promise<void> {
-  let entries;
-  try {
-    entries = await fs.readdir(dir, { withFileTypes: true });
-  } catch {
-    return;
-  }
+  // An incomplete scan must not replace the complete persisted index.
+  const entries = await fs.readdir(dir, { withFileTypes: true });
   for (const ent of entries) {
     if (ent.name.startsWith(".")) continue;
     if (ent.name === "node_modules" || ent.name === ".git") continue;
@@ -259,7 +294,7 @@ function newId(prefix = "fs"): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}_${Date.now().toString(36)}`;
 }
 
-export async function scanLibrary(): Promise<LibrarySnapshot> {
+async function scanLibraryUnlocked(): Promise<LibrarySnapshot> {
   await ensureContentTree();
   const index = await readIndex();
   const assetsMeta = await readAssetsIndex();
@@ -329,8 +364,8 @@ export async function scanLibrary(): Promise<LibrarySnapshot> {
       lastSyncedAt: now,
     };
   }
-  await writeIndex(nextIndex);
-  await writeAssetsIndex(present);
+  await writeIndexUnlocked(nextIndex);
+  await writeAssetsIndexUnlocked(present);
 
   const { projects, projectTexts } = await readProjectSnapshot();
   const cssIndexes = await readCssIndexes();
@@ -352,7 +387,7 @@ export async function readFileBytes(
   }
 }
 
-export async function writeTextDoc(doc: {
+async function writeTextDocUnlocked(doc: {
   path: string;
   content: string;
   id: string;
@@ -364,21 +399,23 @@ export async function writeTextDoc(doc: {
   await ensureContentTree();
   const rel = safeRelPath(doc.path);
   if (!rel) throw new Error("路径无效");
-  if (doc.previousPath) {
-    const prev = safeRelPath(doc.previousPath);
-    if (prev && prev !== rel) {
-      try {
-        await fs.unlink(absFromRel(prev));
-      } catch {
-        /* missing ok */
-      }
-    }
-  }
   const abs = absFromRel(rel);
   await fs.mkdir(path.dirname(abs), { recursive: true });
-  await fs.writeFile(abs, doc.content, "utf8");
-  const now = Date.now();
   const index = await readIndex();
+  if (doc.previousPath && safeRelPath(doc.previousPath) !== rel) {
+    const target = index.documents[rel];
+    if (target && target.id !== doc.id) throw new Error("移动目标已被其他笔记占用");
+    if (!target) {
+      // Permit retrying an identical orphan left by a failed index commit.
+      const existing = await fs.readFile(abs, "utf8").catch((e: NodeJS.ErrnoException) => {
+        if (e.code === "ENOENT") return undefined;
+        throw e;
+      });
+      if (existing !== undefined && existing !== doc.content) throw new Error("移动目标已被其他文件占用");
+    }
+  }
+  await atomicWrite(abs, doc.content);
+  const now = Date.now();
   if (doc.previousPath) {
     const prev = safeRelPath(doc.previousPath);
     if (prev && prev !== rel) delete index.documents[prev];
@@ -393,7 +430,12 @@ export async function writeTextDoc(doc: {
   };
   index.documents[rel] = entry;
   index.updatedAt = now;
-  await writeIndex(index);
+  await writeIndexUnlocked(index);
+  // A leftover old file is safer than undoing an already committed new file.
+  if (doc.previousPath) {
+    const prev = safeRelPath(doc.previousPath);
+    if (prev && prev !== rel) await unlinkIfPresent(absFromRel(prev)).catch(() => undefined);
+  }
   return {
     id: entry.id,
     path: normalizeImportedPath(rel),
@@ -405,7 +447,7 @@ export async function writeTextDoc(doc: {
   };
 }
 
-export async function writeAssetBinary(input: {
+async function writeAssetBinaryUnlocked(input: {
   path: string;
   data: Buffer;
   mime?: string;
@@ -418,8 +460,8 @@ export async function writeAssetBinary(input: {
   if (!rel) throw new Error("路径无效");
   const abs = absFromRel(rel);
   await fs.mkdir(path.dirname(abs), { recursive: true });
-  await fs.writeFile(abs, input.data);
   const list = await readAssetsIndex();
+  await atomicWrite(abs, input.data);
   const existing = list.find((a) => safeRelPath(a.path) === rel);
   const meta: AssetMeta = {
     id: input.id || existing?.id || newId("asset"),
@@ -431,11 +473,11 @@ export async function writeAssetBinary(input: {
   };
   const next = list.filter((a) => safeRelPath(a.path) !== rel);
   next.push(meta);
-  await writeAssetsIndex(next);
+  await writeAssetsIndexUnlocked(next);
   return meta;
 }
 
-export async function softDeleteDoc(relPath: string): Promise<TrashItem | null> {
+async function softDeleteDocUnlocked(relPath: string): Promise<TrashItem | null> {
   const rel = safeRelPath(relPath);
   if (!rel) return null;
   const index = await readIndex();
@@ -443,8 +485,9 @@ export async function softDeleteDoc(relPath: string): Promise<TrashItem | null> 
   let content = "";
   try {
     content = normalizeNewlines(await fs.readFile(absFromRel(rel), "utf8"));
-  } catch {
-    return null;
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw e;
   }
   const doc: Document = {
     id: meta?.id || newId("doc"),
@@ -455,62 +498,68 @@ export async function softDeleteDoc(relPath: string): Promise<TrashItem | null> 
     createdAt: meta?.createdAt ?? Date.now(),
     updatedAt: meta?.updatedAt ?? Date.now(),
   };
-  try {
-    await fs.unlink(absFromRel(rel));
-  } catch {
-    /* ignore */
-  }
-  delete index.documents[rel];
-  index.updatedAt = Date.now();
-  await writeIndex(index);
   const item: TrashItem = { doc, deletedAt: Date.now() };
   const trash = await readTrashIndex();
   const next = [item, ...trash.filter((t) => t.doc.id !== doc.id)];
-  await writeTrashIndex(next);
+  await writeTrashIndexUnlocked(next);
+  await unlinkIfPresent(absFromRel(rel));
+  delete index.documents[rel];
+  index.updatedAt = Date.now();
+  await writeIndexUnlocked(index);
   return item;
 }
 
-export async function hardDeletePath(relPath: string): Promise<boolean> {
+async function hardDeletePathUnlocked(relPath: string): Promise<boolean> {
   const rel = safeRelPath(relPath);
   if (!rel) return false;
-  try {
-    await fs.unlink(absFromRel(rel));
-  } catch {
-    /* missing */
-  }
   const index = await readIndex();
+  const assets = await readAssetsIndex();
   if (index.documents[rel]) {
     delete index.documents[rel];
     index.updatedAt = Date.now();
-    await writeIndex(index);
+    await writeIndexUnlocked(index);
   }
-  const assets = await readAssetsIndex();
   const nextAssets = assets.filter((a) => safeRelPath(a.path) !== rel);
-  if (nextAssets.length !== assets.length) await writeAssetsIndex(nextAssets);
+  if (nextAssets.length !== assets.length) await writeAssetsIndexUnlocked(nextAssets);
+  // Metadata failure leaves the binary available for retry / rescan.
+  await unlinkIfPresent(absFromRel(rel));
   return true;
 }
 
-export async function restoreTrashItem(id: string): Promise<Document | null> {
+async function restoreTrashItemUnlocked(id: string): Promise<Document | null> {
   const trash = await readTrashIndex();
   const item = trash.find((t) => t.doc.id === id);
   if (!item) return null;
-  const written = await writeTextDoc({
-    path: item.doc.path,
+  const index = await readIndex();
+  const original = safeRelPath(item.doc.path);
+  const ext = path.posix.extname(original);
+  const stem = original.slice(0, original.length - ext.length);
+  let target = original;
+  for (let n = 1; ; n++) {
+    const occupied = Boolean(index.documents[target]) || await fs.lstat(absFromRel(target)).then(() => true, (e: NodeJS.ErrnoException) => {
+      if (e.code === "ENOENT") return false;
+      throw e;
+    });
+    if (!occupied) break;
+    target = `${stem} (${n})${ext}`;
+  }
+  const written = await writeTextDocUnlocked({
+    path: target,
     content: item.doc.content,
-    id: item.doc.id,
+    id: Object.values(index.documents).some((entry) => entry.id === item.doc.id) ? newId("doc") : item.doc.id,
     starred: item.doc.starred,
     createdAt: item.doc.createdAt,
     updatedAt: Date.now(),
   });
-  await writeTrashIndex(trash.filter((t) => t.doc.id !== id));
+  await writeTrashIndexUnlocked(trash.filter((t) => t.doc.id !== id));
   return written;
 }
 
-export async function purgeTrashItem(id: string): Promise<boolean> {
+async function purgeTrashItemUnlocked(id: string): Promise<boolean> {
   const trash = await readTrashIndex();
   const next = trash.filter((t) => t.doc.id !== id);
   if (next.length === trash.length) return false;
-  await writeTrashIndex(next);
+  await writeTrashIndexUnlocked(next);
   return true;
 }
 
@@ -622,22 +671,22 @@ export async function readProjectSnapshot(): Promise<{
 }
 
 /** 原样写一个文本文件（项目资源：css/js/其他），不进正文索引。 */
-export async function writeRawTextFile(relPath: string, content: string): Promise<string> {
+async function writeRawTextFileUnlocked(relPath: string, content: string): Promise<string> {
   await ensureContentTree();
   const rel = assertNotLibraryMeta(relPath);
   const abs = absFromRel(rel);
   await fs.mkdir(path.dirname(abs), { recursive: true });
-  await fs.writeFile(abs, content, "utf8");
+  await atomicWrite(abs, content);
   return rel;
 }
 
 /** 原样写一个二进制文件（项目里的图片等），不进附件索引。 */
-export async function writeRawBase64File(relPath: string, base64: string): Promise<string> {
+async function writeRawBase64FileUnlocked(relPath: string, base64: string): Promise<string> {
   await ensureContentTree();
   const rel = assertNotLibraryMeta(relPath);
   const abs = absFromRel(rel);
   await fs.mkdir(path.dirname(abs), { recursive: true });
-  await fs.writeFile(abs, Buffer.from(base64, "base64"));
+  await atomicWrite(abs, Buffer.from(base64, "base64"));
   return rel;
 }
 
@@ -656,12 +705,12 @@ function assertNotLibraryMeta(relPath: string): string {
 const CSS_INDEX_MAX_BYTES = 4 * 1024 * 1024;
 
 /** 写一个 CSS 索引文件：content/.langhuan/index/css/<hash>.json（源文件不动）。 */
-export async function writeCssIndex(index: CssFileIndex): Promise<string> {
+async function writeCssIndexUnlocked(index: CssFileIndex): Promise<string> {
   await ensureContentTree();
   const rel = cssIndexPath(index.file);
   const abs = absFromRel(rel);
   await fs.mkdir(path.dirname(abs), { recursive: true });
-  await fs.writeFile(abs, `${JSON.stringify(index, null, 2)}\n`, "utf8");
+  await atomicWrite(abs, `${JSON.stringify(index, null, 2)}\n`);
   return rel;
 }
 
@@ -697,12 +746,12 @@ export async function readCssIndexes(): Promise<CssFileIndex[]> {
 const JS_INDEX_MAX_BYTES = 4 * 1024 * 1024;
 
 /** 写一个 JS 符号索引：content/.langhuan/index/js/<hash>.json（源文件不动）。 */
-export async function writeJsIndex(index: JsFileIndex): Promise<string> {
+async function writeJsIndexUnlocked(index: JsFileIndex): Promise<string> {
   await ensureContentTree();
   const rel = jsIndexPath(index.file);
   const abs = absFromRel(rel);
   await fs.mkdir(path.dirname(abs), { recursive: true });
-  await fs.writeFile(abs, `${JSON.stringify(index, null, 2)}\n`, "utf8");
+  await atomicWrite(abs, `${JSON.stringify(index, null, 2)}\n`);
   return rel;
 }
 
@@ -731,4 +780,64 @@ export async function readJsIndexes(): Promise<JsFileIndex[]> {
   }
   out.sort((a, b) => a.file.localeCompare(b.file, "zh"));
   return out;
+}
+
+export function writeIndex(...args: Parameters<typeof writeIndexUnlocked>): ReturnType<typeof writeIndexUnlocked> {
+  return withLibraryLock(() => writeIndexUnlocked(...args));
+}
+
+export function writeAssetsIndex(...args: Parameters<typeof writeAssetsIndexUnlocked>): ReturnType<typeof writeAssetsIndexUnlocked> {
+  return withLibraryLock(() => writeAssetsIndexUnlocked(...args));
+}
+
+export function writeTrashIndex(...args: Parameters<typeof writeTrashIndexUnlocked>): ReturnType<typeof writeTrashIndexUnlocked> {
+  return withLibraryLock(() => writeTrashIndexUnlocked(...args));
+}
+
+export function writeQuizStore(...args: Parameters<typeof writeQuizStoreUnlocked>): ReturnType<typeof writeQuizStoreUnlocked> {
+  return withLibraryLock(() => writeQuizStoreUnlocked(...args));
+}
+
+export function scanLibrary(...args: Parameters<typeof scanLibraryUnlocked>): ReturnType<typeof scanLibraryUnlocked> {
+  return withLibraryLock(() => scanLibraryUnlocked(...args));
+}
+
+export function writeTextDoc(...args: Parameters<typeof writeTextDocUnlocked>): ReturnType<typeof writeTextDocUnlocked> {
+  return withLibraryLock(() => writeTextDocUnlocked(...args));
+}
+
+export function writeAssetBinary(...args: Parameters<typeof writeAssetBinaryUnlocked>): ReturnType<typeof writeAssetBinaryUnlocked> {
+  return withLibraryLock(() => writeAssetBinaryUnlocked(...args));
+}
+
+export function softDeleteDoc(...args: Parameters<typeof softDeleteDocUnlocked>): ReturnType<typeof softDeleteDocUnlocked> {
+  return withLibraryLock(() => softDeleteDocUnlocked(...args));
+}
+
+export function hardDeletePath(...args: Parameters<typeof hardDeletePathUnlocked>): ReturnType<typeof hardDeletePathUnlocked> {
+  return withLibraryLock(() => hardDeletePathUnlocked(...args));
+}
+
+export function restoreTrashItem(...args: Parameters<typeof restoreTrashItemUnlocked>): ReturnType<typeof restoreTrashItemUnlocked> {
+  return withLibraryLock(() => restoreTrashItemUnlocked(...args));
+}
+
+export function purgeTrashItem(...args: Parameters<typeof purgeTrashItemUnlocked>): ReturnType<typeof purgeTrashItemUnlocked> {
+  return withLibraryLock(() => purgeTrashItemUnlocked(...args));
+}
+
+export function writeRawTextFile(...args: Parameters<typeof writeRawTextFileUnlocked>): ReturnType<typeof writeRawTextFileUnlocked> {
+  return withLibraryLock(() => writeRawTextFileUnlocked(...args));
+}
+
+export function writeRawBase64File(...args: Parameters<typeof writeRawBase64FileUnlocked>): ReturnType<typeof writeRawBase64FileUnlocked> {
+  return withLibraryLock(() => writeRawBase64FileUnlocked(...args));
+}
+
+export function writeCssIndex(...args: Parameters<typeof writeCssIndexUnlocked>): ReturnType<typeof writeCssIndexUnlocked> {
+  return withLibraryLock(() => writeCssIndexUnlocked(...args));
+}
+
+export function writeJsIndex(...args: Parameters<typeof writeJsIndexUnlocked>): ReturnType<typeof writeJsIndexUnlocked> {
+  return withLibraryLock(() => writeJsIndexUnlocked(...args));
 }

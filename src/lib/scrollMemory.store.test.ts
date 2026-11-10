@@ -62,6 +62,7 @@ vi.mock("./storage/contentMigration", () => ({
 }));
 
 import { useStore } from "./store";
+import { putLibraryDoc } from "./storage/contentApi";
 import {
   MD_SCROLL_STORAGE_KEY,
   readScrollMemory,
@@ -95,7 +96,7 @@ beforeEach(() => {
 });
 
 describe("deleteDoc forgets the scroll position", () => {
-  it("drops the entry of the deleted markdown", () => {
+  it("drops the entry of the deleted markdown", async () => {
     const doc = useStore.getState().createDoc({
       type: "md",
       path: "笔记/长文.md",
@@ -105,14 +106,14 @@ describe("deleteDoc forgets the scroll position", () => {
     seedScroll(doc.path);
     expect(readScrollMemory(doc.path)).not.toBeNull();
 
-    useStore.getState().deleteDoc(doc.id);
+    await useStore.getState().deleteDoc(doc.id);
 
     expect(readScrollMemory(doc.path)).toBeNull();
     const raw = localStorage.getItem(MD_SCROLL_STORAGE_KEY);
     expect(JSON.parse(raw ?? "{}")).not.toHaveProperty(doc.path);
   });
 
-  it("leaves other documents' positions alone", () => {
+  it("leaves other documents' positions alone", async () => {
     const victim = useStore.getState().createDoc({
       type: "md",
       path: "a.md",
@@ -128,14 +129,14 @@ describe("deleteDoc forgets the scroll position", () => {
     seedScroll("a.md", 100);
     seedScroll("b.md", 200);
 
-    useStore.getState().deleteDoc(victim.id);
+    await useStore.getState().deleteDoc(victim.id);
 
     expect(readScrollMemory("a.md")).toBeNull();
     expect(readScrollMemory("b.md")!.top).toBe(200);
     expect(useStore.getState().documents.some((d) => d.id === keeper.id)).toBe(true);
   });
 
-  it("deleteFolder clears every doc under it", () => {
+  it("deleteFolder clears every doc under it", async () => {
     useStore.getState().createDoc({
       type: "md",
       path: "pack/a.md",
@@ -158,7 +159,7 @@ describe("deleteDoc forgets the scroll position", () => {
     seedScroll("pack/sub/b.md", 20);
     seedScroll("outside.md", 30);
 
-    useStore.getState().deleteFolder("pack");
+    await useStore.getState().deleteFolder("pack");
 
     expect(readScrollMemory("pack/a.md")).toBeNull();
     expect(readScrollMemory("pack/sub/b.md")).toBeNull();
@@ -182,6 +183,19 @@ describe("renameDoc carries the scroll position", () => {
     const moved = readScrollMemory("新名.md");
     expect(moved?.top).toBe(800);
     expect(moved?.ratio).toBeCloseTo(0.4, 5);
+  });
+
+  it("a failed rename restores the old path's reading position along with its draft", async () => {
+    const doc = useStore.getState().createDoc({ type: "md", path: "before-failure.md", content: "body", open: false });
+    await useStore.getState().saveDocNow(doc.id, { force: true });
+    seedScroll(doc.path, 800);
+    vi.mocked(putLibraryDoc).mockRejectedValueOnce(new Error("move blocked"));
+    useStore.getState().renameDoc(doc.id, "after-failure.md");
+    await vi.waitFor(() => expect(useStore.getState().status?.message).toContain("move blocked"));
+    expect(useStore.getState().documents.find((d) => d.id === doc.id)?.path).toBe("before-failure.md");
+    expect(readScrollMemory("before-failure.md")?.top).toBe(800);
+    expect(readScrollMemory("after-failure.md")).toBeNull();
+    expect(useStore.getState().isDirty(doc.id)).toBe(true);
   });
 
   it("does not invent an entry when the doc was never read", () => {
@@ -238,7 +252,7 @@ describe("renameDoc carries the scroll position", () => {
 });
 
 describe("deleted doc does not resurrect on reopen", () => {
-  it("a doc recreated at the same path starts from the top", () => {
+  it("a doc recreated at the same path starts from the top", async () => {
     const doc = useStore.getState().createDoc({
       type: "md",
       path: "same-path.md",
@@ -246,7 +260,7 @@ describe("deleted doc does not resurrect on reopen", () => {
       open: false,
     });
     seedScroll("same-path.md", 1500);
-    useStore.getState().deleteDoc(doc.id);
+    await useStore.getState().deleteDoc(doc.id);
     expect(readScrollMemory("same-path.md")).toBeNull();
 
     // 同 path 新建（例如从回收站恢复）：不该带上旧进度。

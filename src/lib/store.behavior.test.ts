@@ -73,7 +73,7 @@ vi.mock("./storage/contentMigration", () => ({
 
 import { useStore } from "./store";
 import type { LocateResult } from "./locate/types";
-import { bulkWriteLibrary, putLibraryDoc } from "./storage/contentApi";
+import { bulkWriteLibrary, putLibraryDoc, deleteLibraryDoc, restoreLibraryTrash, putLibraryAsset, deleteLibraryAsset } from "./storage/contentApi";
 
 /** Sorted keys that must remain on useStore.getState() after any slice extract. */
 const EXPECTED_STATE_KEYS = [
@@ -547,7 +547,7 @@ describe("store behavior snapshots", () => {
     resetLibraryState();
   });
 
-  it("createDoc / renameDoc / moveDocsToFolder / deleteDoc", () => {
+  it("createDoc / renameDoc / moveDocsToFolder / deleteDoc", async () => {
     const doc = useStore.getState().createDoc({
       type: "md",
       path: "notes/a.md",
@@ -566,13 +566,13 @@ describe("store behavior snapshots", () => {
     expect(n).toBe(1);
     expect(useStore.getState().documents[0]?.path).toBe("archive/b.md");
 
-    useStore.getState().deleteDoc(doc.id);
+    await useStore.getState().deleteDoc(doc.id);
     expect(useStore.getState().documents).toHaveLength(0);
     expect(useStore.getState().trash).toHaveLength(1);
     expect(useStore.getState().trash[0]?.doc.path).toBe("archive/b.md");
   });
 
-  it("createFolder / deleteFolder soft-deletes contained docs", () => {
+  it("createFolder / deleteFolder soft-deletes contained docs", async () => {
     const folder = useStore.getState().createFolder("proj", "");
     expect(folder).toBe("proj");
     expect(useStore.getState().emptyFolders).toContain("proj");
@@ -583,7 +583,7 @@ describe("store behavior snapshots", () => {
       content: "x",
       open: false,
     });
-    const n = useStore.getState().deleteFolder("proj");
+    const n = await useStore.getState().deleteFolder("proj");
     expect(n).toBe(1);
     expect(useStore.getState().documents.find((x) => x.id === d.id)).toBeUndefined();
     expect(useStore.getState().trash.some((t) => t.doc.id === d.id)).toBe(true);
@@ -653,7 +653,7 @@ describe("store behavior snapshots", () => {
   });
 
 
-  it("preview undo / redo via setDraft; empty undo is no-op; save keeps stacks", () => {
+  it("preview undo / redo via setDraft; empty undo is no-op; save keeps stacks", async () => {
     const doc = useStore.getState().createDoc({
       type: "md",
       path: "notes/undo.md",
@@ -680,7 +680,7 @@ describe("store behavior snapshots", () => {
     expect(useStore.getState().status?.message).toBe("已重做预览编辑");
 
     // Policy: save does not clear stacks; undo only setDraft (never auto-save).
-    useStore.getState().saveDoc(id);
+    await useStore.getState().saveDocNow(id);
     expect(useStore.getState().undoPreviewEdit()).toBe(true);
     expect(useStore.getState().getContent(id)).toBe("v0\n");
     expect(useStore.getState().isDirty(id)).toBe(true);
@@ -690,7 +690,7 @@ describe("store behavior snapshots", () => {
     expect(useStore.getState().getContent(id)).toBe("v0\n");
   });
 
-  it("draft / dirty / saveDoc / discardDraft + version push on save", () => {
+  it("draft / dirty / saveDoc / discardDraft + version push on save", async () => {
     const doc = useStore.getState().createDoc({
       type: "md",
       path: "d.md",
@@ -704,7 +704,7 @@ describe("store behavior snapshots", () => {
     expect(useStore.getState().getContent(doc.id)).toBe("changed");
     expect(useStore.getState().anyDirty()).toBe(true);
 
-    useStore.getState().saveDoc(doc.id);
+    await useStore.getState().saveDocNow(doc.id);
     expect(useStore.getState().isDirty(doc.id)).toBe(false);
     expect(useStore.getState().documents[0]?.content).toBe("changed");
     expect(pushVersion).toHaveBeenCalled();
@@ -725,13 +725,14 @@ describe("store behavior snapshots", () => {
     expect(useStore.getState().getContent(doc.id)).toBe("changed");
   });
 
-  it("saveDoc noop: same body skips version/updatedAt and says 已是最新", () => {
+  it("saveDoc noop: same body skips version/updatedAt and says 已是最新", async () => {
     const doc = useStore.getState().createDoc({
       type: "md",
       path: "noop.md",
       content: "same\r\nline",
       open: true,
     });
+    await useStore.getState().saveDocNow(doc.id, { force: true });
     const before = useStore.getState().documents.find((d) => d.id === doc.id)!;
     const updatedAt = before.updatedAt;
     const docsRef = useStore.getState().documents;
@@ -739,7 +740,7 @@ describe("store behavior snapshots", () => {
 
     // Draft equals saved after newline normalize
     useStore.getState().setDraft(doc.id, "same\nline");
-    useStore.getState().saveDoc(doc.id);
+    await useStore.getState().saveDocNow(doc.id);
 
     expect(pushVersion).not.toHaveBeenCalled();
     expect(useStore.getState().documents).toBe(docsRef);
@@ -751,7 +752,7 @@ describe("store behavior snapshots", () => {
     // Second ⌘S with no draft
     pushVersion.mockClear();
     const docsRef2 = useStore.getState().documents;
-    useStore.getState().saveDoc(doc.id);
+    await useStore.getState().saveDocNow(doc.id);
     expect(pushVersion).not.toHaveBeenCalled();
     expect(useStore.getState().documents).toBe(docsRef2);
     expect(useStore.getState().status?.message).toContain("已是最新");
@@ -802,15 +803,16 @@ describe("store behavior snapshots", () => {
       content: "<p>x</p>",
       open: false,
     });
-    useStore.getState().deleteDoc(doc.id);
+    await useStore.getState().deleteDoc(doc.id);
     expect(useStore.getState().trash).toHaveLength(1);
 
-    useStore.getState().restoreFromTrash(doc.id);
+    vi.mocked(restoreLibraryTrash).mockResolvedValueOnce(doc);
+    await useStore.getState().restoreFromTrash(doc.id);
     expect(useStore.getState().trash).toHaveLength(0);
     expect(useStore.getState().documents.some((d) => d.id === doc.id)).toBe(true);
 
-    useStore.getState().deleteDoc(doc.id);
-    useStore.getState().purgeTrashItem(doc.id);
+    await useStore.getState().deleteDoc(doc.id);
+    await useStore.getState().purgeTrashItem(doc.id);
     expect(useStore.getState().trash).toHaveLength(0);
     expect(clearVersions).toHaveBeenCalledWith(doc.id);
   });
@@ -832,7 +834,7 @@ describe("store behavior snapshots", () => {
     expect(useStore.getState().tagFilters).toEqual(["验收"]);
   });
 
-  it("exportPayload / importLibrary merge", () => {
+  it("exportPayload / importLibrary merge", async () => {
     useStore.getState().createDoc({
       type: "md",
       path: "keep.md",
@@ -842,7 +844,7 @@ describe("store behavior snapshots", () => {
     const payload = useStore.getState().exportPayload();
     expect(payload.documents).toHaveLength(1);
 
-    const n = useStore.getState().importLibrary(
+    const n = await useStore.getState().importLibrary(
       {
         documents: [
           {
@@ -949,7 +951,7 @@ describe("store behavior snapshots", () => {
     put.mockResolvedValue(undefined as never);
     useStore.setState({ status: null });
     bulk.mockRejectedValueOnce(new Error("bulk boom"));
-    useStore.getState().importLibrary(
+    await expect(useStore.getState().importLibrary(
       {
         documents: [
           {
@@ -965,7 +967,7 @@ describe("store behavior snapshots", () => {
         trash: [],
       },
       "replace"
-    );
+    )).rejects.toThrow("bulk boom");
     await vi.waitFor(() => {
       expect(useStore.getState().status?.message || "").toContain("bulk boom");
     });
@@ -1077,7 +1079,7 @@ describe("store behavior snapshots", () => {
       content: "same\nline",
       open: false,
     });
-    await vi.waitFor(() => expect(vi.mocked(putLibraryDoc)).toHaveBeenCalled());
+    await useStore.getState().saveDocNow(doc.id, { force: true });
     vi.mocked(putLibraryDoc).mockClear();
 
     useStore.getState().setDraft(doc.id, "same\r\nline");
@@ -1088,4 +1090,185 @@ describe("store behavior snapshots", () => {
     expect(same.message).toContain("已是最新");
     expect(vi.mocked(putLibraryDoc)).not.toHaveBeenCalled();
   });
+  it("late failed save preserves the newer typed draft and confirmed body", async () => {
+    const doc = useStore.getState().createDoc({ type: "md", path: "late-failure.md", content: "saved", open: false });
+    await useStore.getState().saveDocNow(doc.id, { force: true });
+    let reject!: (e: Error) => void;
+    vi.mocked(putLibraryDoc).mockImplementationOnce(() => new Promise((_resolve, fail) => { reject = fail; }));
+    useStore.getState().setDraft(doc.id, "attempt one");
+    const pending = useStore.getState().saveDocNow(doc.id);
+    await vi.waitFor(() => expect(reject).toBeTypeOf("function"));
+    useStore.getState().setDraft(doc.id, "newer typing");
+    reject(new Error("disk full"));
+    expect((await pending).ok).toBe(false);
+    expect(useStore.getState().drafts[doc.id]).toBe("newer typing");
+    expect(useStore.getState().documents.find((d) => d.id === doc.id)?.content).toBe("saved");
+    expect((await useStore.getState().saveDocNow(doc.id)).ok).toBe(true);
+    expect(useStore.getState().getContent(doc.id)).toBe("newer typing");
+  });
+
+  it("late successful save leaves newer typing dirty instead of clearing it", async () => {
+    const doc = useStore.getState().createDoc({ type: "md", path: "late-success.md", content: "saved", open: false });
+    await useStore.getState().saveDocNow(doc.id, { force: true });
+    let finish!: () => void;
+    vi.mocked(putLibraryDoc).mockImplementationOnce((written) => new Promise((resolve) => { finish = () => resolve(written); }));
+    useStore.getState().setDraft(doc.id, "attempt one");
+    const pending = useStore.getState().saveDocNow(doc.id);
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    useStore.getState().setDraft(doc.id, "newer typing");
+    finish(); await pending;
+    expect(useStore.getState().documents.find((d) => d.id === doc.id)?.content).toBe("attempt one");
+    expect(useStore.getState().getContent(doc.id)).toBe("newer typing");
+    expect(useStore.getState().isDirty(doc.id)).toBe(true);
+  });
+
+  it("overlapping saves land in order and keep the latest confirmed body", async () => {
+    const doc = useStore.getState().createDoc({ type: "md", path: "ordered.md", content: "zero", open: false });
+    await useStore.getState().saveDocNow(doc.id, { force: true });
+    let finish!: () => void;
+    vi.mocked(putLibraryDoc).mockImplementationOnce((written) => new Promise((resolve) => { finish = () => resolve(written); }));
+    useStore.getState().setDraft(doc.id, "one"); const first = useStore.getState().saveDocNow(doc.id);
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    useStore.getState().setDraft(doc.id, "two"); const second = useStore.getState().saveDocNow(doc.id);
+    finish(); await Promise.all([first, second]);
+    expect(useStore.getState().documents.find((d) => d.id === doc.id)?.content).toBe("two");
+    expect(useStore.getState().isDirty(doc.id)).toBe(false);
+  });
+
+  it("failed new-note persist keeps a retryable draft even when body is unchanged", async () => {
+    vi.mocked(putLibraryDoc).mockRejectedValueOnce(new Error("readonly"));
+    const doc = useStore.getState().createDoc({ type: "md", path: "retry-create.md", content: "new note", open: false });
+    await vi.waitFor(() => expect(useStore.getState().drafts[doc.id]).toBe("new note"));
+    expect(useStore.getState().isDirty(doc.id)).toBe(true);
+    expect(useStore.getState().anyDirty()).toBe(true);
+    const retry = await useStore.getState().saveDocNow(doc.id);
+    expect(retry.ok && retry.saved).toBe(true);
+    expect(useStore.getState().drafts[doc.id]).toBeUndefined();
+  });
+
+  it("failed rename rolls back the path and keeps newer draft text", async () => {
+    const doc = useStore.getState().createDoc({ type: "md", path: "rename-before.md", content: "original", open: false });
+    await useStore.getState().saveDocNow(doc.id, { force: true });
+    vi.mocked(putLibraryDoc).mockRejectedValueOnce(new Error("move failed"));
+    useStore.getState().setDraft(doc.id, "unsaved typing");
+    useStore.getState().renameDoc(doc.id, "rename-after.md");
+    await vi.waitFor(() => expect(useStore.getState().status?.message).toContain("move failed"));
+    expect(useStore.getState().documents.find((d) => d.id === doc.id)?.path).toBe("rename-before.md");
+    expect(useStore.getState().getContent(doc.id)).toBe("unsaved typing");
+  });
+
+  it("failed delete leaves the live note and latest text retryable", async () => {
+    const doc = useStore.getState().createDoc({ type: "md", path: "delete-failure.md", content: "saved", open: false });
+    useStore.getState().setDraft(doc.id, "unsaved");
+    vi.mocked(deleteLibraryDoc).mockRejectedValueOnce(new Error("trash full"));
+    expect(await useStore.getState().deleteDoc(doc.id)).toBe(false);
+    expect(useStore.getState().documents.some((d) => d.id === doc.id)).toBe(true);
+    expect(useStore.getState().getContent(doc.id)).toBe("unsaved");
+    expect(useStore.getState().status?.message).toContain("删除失败");
+    expect(await useStore.getState().deleteDoc(doc.id)).toBe(true);
+    expect(useStore.getState().trash[0].doc.content).toBe("unsaved");
+  });
+
+  it("restore trusts the server's conflict-safe path and keeps trash on failure", async () => {
+    const doc = { id: "restore-test", path: "occupied.md", type: "md" as const, content: "recovered", starred: false, createdAt: 1, updatedAt: 1 };
+    useStore.setState({ trash: [{ doc, deletedAt: 2 }] });
+    vi.mocked(restoreLibraryTrash).mockRejectedValueOnce(new Error("readonly"));
+    await useStore.getState().restoreFromTrash(doc.id);
+    expect(useStore.getState().trash).toHaveLength(1);
+    vi.mocked(restoreLibraryTrash).mockResolvedValueOnce({ ...doc, path: "occupied (1).md" });
+    await useStore.getState().restoreFromTrash(doc.id);
+    expect(useStore.getState().trash).toHaveLength(0);
+    expect(useStore.getState().documents.find((d) => d.id === doc.id)?.path).toBe("occupied (1).md");
+  });
+
+  it("attachment write failure returns no insertable link or optimistic asset", async () => {
+    const doc = useStore.getState().createDoc({ type: "md", path: "image-failure.md", content: "body", open: false });
+    vi.mocked(putLibraryAsset).mockRejectedValueOnce(new Error("disk full"));
+    const result = await useStore.getState().ingestImageFile(doc.id, new Blob(["image"], { type: "image/png" }), "test.png");
+    expect(result).toBeNull();
+    expect(useStore.getState().assets).toHaveLength(0);
+    expect(useStore.getState().status?.message).toContain("失败");
+  });
+
+  it("attachment delete failure retains the asset and permits retry", async () => {
+    const asset = { id: "keep-asset", path: "a.png", mime: "image/png", size: 4, createdAt: 1 };
+    useStore.setState({ assets: [asset] });
+    vi.mocked(deleteLibraryAsset).mockRejectedValueOnce(new Error("denied"));
+    await useStore.getState().removeAsset(asset.id);
+    expect(useStore.getState().assets).toEqual([asset]);
+    expect(useStore.getState().status?.message).toContain("失败");
+    await useStore.getState().removeAsset(asset.id);
+    expect(useStore.getState().assets).toEqual([]);
+  });
+
+  it("a save completing across a rename retains the draft and orders the move after it", async () => {
+    const doc = useStore.getState().createDoc({ type: "md", path: "before.md", content: "old", open: false });
+    await useStore.getState().saveDocNow(doc.id, { force: true });
+    let finish!: () => void;
+    vi.mocked(putLibraryDoc).mockImplementationOnce((written) => new Promise((resolve) => { finish = () => resolve(written); }));
+    useStore.getState().setDraft(doc.id, "latest text");
+    const saving = useStore.getState().saveDocNow(doc.id);
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    useStore.getState().renameDoc(doc.id, "after.md");
+    const callsBeforeFinish = vi.mocked(putLibraryDoc).mock.calls.length;
+    await Promise.resolve();
+    expect(vi.mocked(putLibraryDoc).mock.calls).toHaveLength(callsBeforeFinish);
+    finish(); await saving;
+    expect(useStore.getState().drafts[doc.id]).toBe("latest text");
+    await useStore.getState().saveDocNow(doc.id);
+    expect(vi.mocked(putLibraryDoc).mock.calls.at(-1)?.[0]).toMatchObject({ path: "after.md", content: "latest text" });
+    expect(useStore.getState().isDirty(doc.id)).toBe(false);
+  });
+
+  it("typing during a durable delete keeps a retryable latest draft", async () => {
+    const doc = useStore.getState().createDoc({ type: "md", path: "delete-typing.md", content: "saved", open: false });
+    await useStore.getState().saveDocNow(doc.id, { force: true });
+    let finish!: () => void;
+    vi.mocked(deleteLibraryDoc).mockImplementationOnce(() => new Promise<void>((resolve) => { finish = resolve; }));
+    const deleting = useStore.getState().deleteDoc(doc.id);
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    useStore.getState().setDraft(doc.id, "new typing during delete");
+    finish();
+    expect(await deleting).toBe(false);
+    expect(useStore.getState().drafts[doc.id]).toBe("new typing during delete");
+    expect(useStore.getState().documents.some((d) => d.id === doc.id)).toBe(true);
+    expect(useStore.getState().trash[0].doc.content).toBe("saved");
+    expect((await useStore.getState().saveDocNow(doc.id)).ok).toBe(true);
+    expect(useStore.getState().getContent(doc.id)).toBe("new typing during delete");
+  });
+
+  it.each(["replace", "merge"] as const)("failed %s import preserves the original library and drafts for retry", async (mode) => {
+    const doc = useStore.getState().createDoc({ type: "md", path: "keep-original.md", content: "confirmed", open: false });
+    await useStore.getState().saveDocNow(doc.id, { force: true });
+    useStore.getState().setDraft(doc.id, "unique unsaved text");
+    const before = useStore.getState().documents;
+    const payload = { documents: [{ ...doc, id: "incoming", path: "incoming.md", content: "imported" }], trash: [] };
+    vi.mocked(bulkWriteLibrary).mockRejectedValueOnce(new Error("partial import failed"));
+    await expect(useStore.getState().importLibrary(payload, mode)).rejects.toThrow("partial import failed");
+    expect(useStore.getState().documents).toBe(before);
+    expect(useStore.getState().drafts[doc.id]).toBe("unique unsaved text");
+    expect(useStore.getState().isDirty(doc.id)).toBe(true);
+    expect(clearVersions).not.toHaveBeenCalled();
+    expect(useStore.getState().status?.message).toContain("草稿已保留");
+    expect(await useStore.getState().importLibrary(payload, mode)).toBe(1);
+    expect(useStore.getState().documents.some((d) => d.path === "incoming.md")).toBe(true);
+  });
+  it("an import completion never drops edits made while it was writing", async () => {
+    const doc = useStore.getState().createDoc({ type: "md", path: "edit-import.md", content: "before", open: false });
+    await useStore.getState().saveDocNow(doc.id, { force: true });
+    const normal = vi.mocked(bulkWriteLibrary).getMockImplementation()!;
+    let finish!: () => void;
+    vi.mocked(bulkWriteLibrary).mockImplementationOnce(async (args) => {
+      await new Promise<void>((resolve) => { finish = resolve; });
+      return normal(args);
+    });
+    const importing = useStore.getState().importLibrary({ documents: [{ ...doc, content: "imported" }], trash: [] }, "replace");
+    useStore.getState().setDraft(doc.id, "typed during import");
+    finish();
+    await expect(importing).rejects.toThrow("导入期间");
+    expect(useStore.getState().getContent(doc.id)).toBe("typed during import");
+    expect(useStore.getState().documents[0].content).toBe("before");
+    expect(useStore.getState().isDirty(doc.id)).toBe(true);
+  });
+
 });

@@ -1,7 +1,8 @@
 "use client";
 
 import type { StateCreator } from "zustand";
-import type { Document } from "../../types";
+import { keepContentDrafts } from "../helpers/persistSchedule";
+import type { Document, TrashItem } from "../../types";
 import { normalizeReadingPrefs } from "../../readingPrefs";
 import { createSeedDocuments } from "../../seed";
 import { uid } from "../../utils";
@@ -75,7 +76,8 @@ export const createSyncBackupSlice: StateCreator<
         // Mirror optional FS-Access sync result into primary content/
         void bulkWriteLibrary({ documents: docs, assets }).catch((e) => {
           const msg = e instanceof Error ? e.message : String(e);
-          get().setStatus(`写入 content/ 失败：${msg}`);
+          keepContentDrafts(get, set, docs.map((d) => d.id));
+          get().setStatus(`写入 content/ 失败，草稿已保留，可重新保存：${msg}`);
         });
         void get().refreshStorageUsage();
       },
@@ -87,10 +89,25 @@ export const createSyncBackupSlice: StateCreator<
         readingPrefs: get().readingPrefs,
         quizDocs: get().quizDocs,
       }),
-  importLibrary: (payload, mode) => {
+  importLibrary: async (payload, mode) => {
+        const beforeDocuments = get().documents;
+        const beforeDrafts = get().drafts;
+        const persistImport = async (documents: Document[], trash?: TrashItem[]) => {
+          try {
+            await bulkWriteLibrary({ documents, ...(trash ? { trash } : {}) });
+            if (get().documents !== beforeDocuments || get().drafts !== beforeDrafts) {
+              throw new Error("导入期间笔记发生变化，当前内容已保留；主库可能已部分写入，请检查后重试");
+            }
+          } catch (e) {
+            keepContentDrafts(get, set, get().documents.map((d) => d.id));
+            get().setStatus(`导入写入失败，原有内容与草稿已保留，可重试：${e instanceof Error ? e.message : String(e)}`);
+            throw e;
+          }
+        };
         if (mode === "replace") {
           const oldIds = get().documents.map((d) => d.id);
           const assets = payload.assets || [];
+          await persistImport(payload.documents, payload.trash || []);
           set({
             documents: payload.documents,
             trash: payload.trash || [],
@@ -106,17 +123,7 @@ export const createSyncBackupSlice: StateCreator<
           void saveAssetMetaList(assets);
           for (const id of oldIds) void clearVersions(id);
           const replaceCount = payload.documents.length;
-          void bulkWriteLibrary({
-            documents: payload.documents,
-            trash: payload.trash || [],
-          })
-            .then(() => {
-              get().setStatus(`已替换导入 ${replaceCount} 篇文档`);
-            })
-            .catch((e) => {
-              const msg = e instanceof Error ? e.message : String(e);
-              get().setStatus(`整库替换写入失败：${msg}`);
-            });
+          get().setStatus(`已替换导入 ${replaceCount} 篇文档`);
           void get().refreshStorageUsage();
           return replaceCount;
         }
@@ -183,6 +190,7 @@ export const createSyncBackupSlice: StateCreator<
           }
           nextQuiz = [...byId.values()];
         }
+        await persistImport(nextDocs);
         set({
           documents: nextDocs,
           assets: nextAssets,
@@ -191,14 +199,7 @@ export const createSyncBackupSlice: StateCreator<
         });
         void saveAssetMetaList(nextAssets);
         const mergeCount = n;
-        void bulkWriteLibrary({ documents: nextDocs })
-          .then(() => {
-            get().setStatus(`已合并导入 ${mergeCount} 篇文档`);
-          })
-          .catch((e) => {
-            const msg = e instanceof Error ? e.message : String(e);
-            get().setStatus(`合并导入写入失败：${msg}`);
-          });
+        get().setStatus(`已合并导入 ${mergeCount} 篇文档`);
         void get().refreshStorageUsage();
         return mergeCount;
       },
@@ -241,14 +242,14 @@ export const createSyncBackupSlice: StateCreator<
                     version: 1,
                     updatedAt: Date.now(),
                     docs: merged,
-                  });
+                  }).catch((e) => get().setStatus(`练习记录写入失败：${String(e)}`));
                 } else if ((get().quizDocs || []).length) {
                   void putQuizStore({
                     format: "langhuan-quiz",
                     version: 1,
                     updatedAt: Date.now(),
                     docs: get().quizDocs,
-                  });
+                  }).catch((e) => get().setStatus(`练习记录写入失败：${String(e)}`));
                 }
               })
               .catch(() => {});

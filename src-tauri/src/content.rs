@@ -4,6 +4,37 @@ use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
+use std::io::Write;
+use std::sync::Mutex;
+
+// All metadata read/modify/write and scans share this non-reentrant lock.
+static LIBRARY_META_LOCK: Mutex<()> = Mutex::new(());
+
+fn atomic_write(file: &Path, data: &[u8]) -> Result<(), String> {
+    let parent = file.parent().ok_or("文件没有父目录")?;
+    fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    let tmp = parent.join(format!(".{}.{}.tmp", file.file_name().unwrap().to_string_lossy(), new_id("write")));
+    let result = (|| {
+        let mut out = fs::OpenOptions::new().write(true).create_new(true).open(&tmp).map_err(|e| e.to_string())?;
+        out.write_all(data).map_err(|e| e.to_string())?;
+        out.sync_all().map_err(|e| e.to_string())?;
+        drop(out);
+        // Never remove the destination to work around a failed replacement.
+        // Unsupported replacement semantics fail safely, retaining the old file.
+        fs::rename(&tmp, file).map_err(|e| e.to_string())
+    })();
+    let _ = fs::remove_file(&tmp);
+    result
+}
+
+fn unlink_if_present(file: &Path) -> Result<(), String> {
+    match fs::remove_file(file) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Manager};
@@ -255,14 +286,15 @@ fn empty_index() -> FsIndex {
     }
 }
 
-fn read_index(root: &Path) -> FsIndex {
-    let file = meta_dir(root).join(FS_INDEX_FILE);
-    match fs::read_to_string(&file) {
-        Ok(raw) => serde_json::from_str::<FsIndex>(&raw)
-            .ok()
-            .filter(|p| p.format == "langhuan-fs-index")
-            .unwrap_or_else(empty_index),
-        Err(_) => empty_index(),
+fn read_index(root: &Path) -> Result<FsIndex, String> {
+    match fs::read_to_string(meta_dir(root).join(FS_INDEX_FILE)) {
+        Ok(raw) => {
+            let index: FsIndex = serde_json::from_str(&raw).map_err(|e| format!("index.json 损坏，已停止写入：{e}"))?;
+            if index.format != "langhuan-fs-index" { return Err("index.json 格式无效".into()); }
+            Ok(index)
+        },
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(empty_index()),
+        Err(e) => Err(e.to_string()),
     }
 }
 
@@ -270,14 +302,14 @@ fn write_index(root: &Path, index: &FsIndex) -> Result<(), String> {
     ensure_tree(root)?;
     let file = meta_dir(root).join(FS_INDEX_FILE);
     let raw = serde_json::to_string_pretty(index).map_err(|e| e.to_string())? + "\n";
-    fs::write(file, raw).map_err(|e| e.to_string())
+    atomic_write(&file, raw.as_bytes())
 }
 
-fn read_assets_index(root: &Path) -> Vec<AssetMeta> {
-    let file = meta_dir(root).join(ASSETS_INDEX_FILE);
-    match fs::read_to_string(&file) {
-        Ok(raw) => serde_json::from_str(&raw).unwrap_or_default(),
-        Err(_) => vec![],
+fn read_assets_index(root: &Path) -> Result<Vec<AssetMeta>, String> {
+    match fs::read_to_string(meta_dir(root).join(ASSETS_INDEX_FILE)) {
+        Ok(raw) => serde_json::from_str(&raw).map_err(|e| format!("元数据损坏，已停止写入：{e}")),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(vec![]),
+        Err(e) => Err(e.to_string()),
     }
 }
 
@@ -285,14 +317,14 @@ fn write_assets_index(root: &Path, list: &[AssetMeta]) -> Result<(), String> {
     ensure_tree(root)?;
     let file = meta_dir(root).join(ASSETS_INDEX_FILE);
     let raw = serde_json::to_string_pretty(list).map_err(|e| e.to_string())? + "\n";
-    fs::write(file, raw).map_err(|e| e.to_string())
+    atomic_write(&file, raw.as_bytes())
 }
 
-fn read_trash_index(root: &Path) -> Vec<TrashItem> {
-    let file = meta_dir(root).join(TRASH_INDEX_FILE);
-    match fs::read_to_string(&file) {
-        Ok(raw) => serde_json::from_str(&raw).unwrap_or_default(),
-        Err(_) => vec![],
+fn read_trash_index(root: &Path) -> Result<Vec<TrashItem>, String> {
+    match fs::read_to_string(meta_dir(root).join(TRASH_INDEX_FILE)) {
+        Ok(raw) => serde_json::from_str(&raw).map_err(|e| format!("元数据损坏，已停止写入：{e}")),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(vec![]),
+        Err(e) => Err(e.to_string()),
     }
 }
 
@@ -300,34 +332,26 @@ fn write_trash_index(root: &Path, list: &[TrashItem]) -> Result<(), String> {
     ensure_tree(root)?;
     let file = meta_dir(root).join(TRASH_INDEX_FILE);
     let raw = serde_json::to_string_pretty(list).map_err(|e| e.to_string())? + "\n";
-    fs::write(file, raw).map_err(|e| e.to_string())
+    atomic_write(&file, raw.as_bytes())
 }
 
-fn walk_files(dir: &Path, prefix: &str, out: &mut Vec<String>) {
-    let entries = match fs::read_dir(dir) {
-        Ok(e) => e,
-        Err(_) => return,
-    };
-    for ent in entries.flatten() {
+fn walk_files(dir: &Path, prefix: &str, out: &mut Vec<String>) -> Result<(), String> {
+    // Never rebuild an index from a partial / unreadable directory listing.
+    for ent in fs::read_dir(dir).map_err(|e| e.to_string())? {
+        let ent = ent.map_err(|e| e.to_string())?;
         let name = ent.file_name().to_string_lossy().to_string();
         if name.starts_with('.') || name == "node_modules" || name == ".git" {
             continue;
         }
-        let rel = if prefix.is_empty() {
-            name.clone()
-        } else {
-            format!("{prefix}/{name}")
-        };
-        let path = ent.path();
-        if path.is_dir() {
-            if name == FS_INDEX_DIR {
-                continue;
-            }
-            walk_files(&path, &rel, out);
-        } else if path.is_file() {
+        let rel = if prefix.is_empty() { name.clone() } else { format!("{prefix}/{name}") };
+        let kind = ent.file_type().map_err(|e| e.to_string())?;
+        if kind.is_dir() {
+            walk_files(&ent.path(), &rel, out)?;
+        } else if kind.is_file() {
             out.push(rel.replace('\\', "/"));
         }
     }
+    Ok(())
 }
 
 fn mtime_ms(path: &Path) -> f64 {
@@ -340,13 +364,14 @@ fn mtime_ms(path: &Path) -> f64 {
 }
 
 pub fn scan_library(app: &AppHandle) -> Result<LibrarySnapshot, String> {
+    let _guard = LIBRARY_META_LOCK.lock().map_err(|_| "库写入锁不可用".to_string())?;
     let root = resolve_content_root(app)?;
     ensure_tree(&root)?;
-    let index = read_index(&root);
-    let assets_meta = read_assets_index(&root);
-    let trash = read_trash_index(&root);
+    let index = read_index(&root)?;
+    let assets_meta = read_assets_index(&root)?;
+    let trash = read_trash_index(&root)?;
     let mut files = Vec::new();
-    walk_files(&root, "", &mut files);
+    walk_files(&root, "", &mut files)?;
 
     let mut documents = Vec::new();
     let mut asset_by_path: HashMap<String, AssetMeta> = HashMap::new();
@@ -438,7 +463,7 @@ pub fn scan_library(app: &AppHandle) -> Result<LibrarySnapshot, String> {
     })
 }
 
-pub fn write_text_doc(
+fn write_text_doc_unlocked(
     app: &AppHandle,
     path: String,
     content: String,
@@ -454,19 +479,25 @@ pub fn write_text_doc(
     if rel.is_empty() {
         return Err("路径无效".into());
     }
-    if let Some(prev_raw) = &previous_path {
-        let prev = safe_rel_path(prev_raw);
-        if !prev.is_empty() && prev != rel {
-            let _ = fs::remove_file(abs_from_rel(&root, &prev)?);
-        }
-    }
     let abs = abs_from_rel(&root, &rel)?;
     if let Some(parent) = abs.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    fs::write(&abs, content.as_bytes()).map_err(|e| e.to_string())?;
+    let mut index = read_index(&root)?;
+    if previous_path.as_ref().map(|p| safe_rel_path(p) != rel).unwrap_or(false) {
+        if let Some(target) = index.documents.get(&rel) {
+            if target.id != id { return Err("移动目标已被其他笔记占用".into()); }
+        } else {
+            match fs::read_to_string(&abs) {
+                Ok(existing) if existing != content => return Err("移动目标已被其他文件占用".into()),
+                Ok(_) => {},
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {},
+                Err(e) => return Err(e.to_string()),
+            }
+        }
+    }
+    atomic_write(&abs, content.as_bytes())?;
     let now = now_ms();
-    let mut index = read_index(&root);
     if let Some(prev_raw) = &previous_path {
         let prev = safe_rel_path(prev_raw);
         if !prev.is_empty() && prev != rel {
@@ -495,6 +526,12 @@ pub fn write_text_doc(
     index.documents.insert(rel.clone(), entry.clone());
     index.updated_at = now;
     write_index(&root, &index)?;
+    if let Some(prev_raw) = &previous_path {
+        let prev = safe_rel_path(prev_raw);
+        if !prev.is_empty() && prev != rel {
+            let _ = unlink_if_present(&abs_from_rel(&root, &prev)?);
+        }
+    }
     Ok(Document {
         id: entry.id,
         path: normalize_imported_path(&rel),
@@ -515,6 +552,7 @@ pub fn write_asset_binary(
     doc_id: Option<String>,
     created_at: Option<f64>,
 ) -> Result<AssetMeta, String> {
+    let _guard = LIBRARY_META_LOCK.lock().map_err(|_| "库写入锁不可用".to_string())?;
     let root = resolve_content_root(app)?;
     ensure_tree(&root)?;
     let rel = safe_rel_path(&path);
@@ -526,8 +564,8 @@ pub fn write_asset_binary(
     if let Some(parent) = abs.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    fs::write(&abs, &data).map_err(|e| e.to_string())?;
-    let mut list = read_assets_index(&root);
+    let mut list = read_assets_index(&root)?;
+    atomic_write(&abs, &data)?;
     let existing = list.iter().find(|a| safe_rel_path(&a.path) == rel).cloned();
     let meta = AssetMeta {
         id: id
@@ -550,12 +588,13 @@ pub fn write_asset_binary(
 }
 
 pub fn soft_delete_doc(app: &AppHandle, rel_path: String) -> Result<TrashItem, String> {
+    let _guard = LIBRARY_META_LOCK.lock().map_err(|_| "库写入锁不可用".to_string())?;
     let root = resolve_content_root(app)?;
     let rel = safe_rel_path(&rel_path);
     if rel.is_empty() {
         return Err("路径无效".into());
     }
-    let mut index = read_index(&root);
+    let mut index = read_index(&root)?;
     let meta = index.documents.get(&rel).cloned();
     let abs = abs_from_rel(&root, &rel)?;
     let content = fs::read_to_string(&abs).map_err(|_| "文件不存在".to_string())?;
@@ -571,55 +610,59 @@ pub fn soft_delete_doc(app: &AppHandle, rel_path: String) -> Result<TrashItem, S
         created_at: meta.as_ref().map(|m| m.created_at).unwrap_or_else(now_ms),
         updated_at: meta.as_ref().map(|m| m.updated_at).unwrap_or_else(now_ms),
     };
-    let _ = fs::remove_file(&abs);
-    index.documents.remove(&rel);
-    index.updated_at = now_ms();
-    write_index(&root, &index)?;
     let item = TrashItem {
         doc: doc.clone(),
         deleted_at: now_ms(),
     };
-    let mut trash = read_trash_index(&root);
+    let mut trash = read_trash_index(&root)?;
     trash.retain(|t| t.doc.id != doc.id);
     trash.insert(0, item.clone());
     write_trash_index(&root, &trash)?;
+    unlink_if_present(&abs)?;
+    index.documents.remove(&rel);
+    index.updated_at = now_ms();
+    write_index(&root, &index)?;
     Ok(item)
 }
 
 pub fn hard_delete_path(app: &AppHandle, rel_path: String) -> Result<bool, String> {
+    let _guard = LIBRARY_META_LOCK.lock().map_err(|_| "库写入锁不可用".to_string())?;
     let root = resolve_content_root(app)?;
     let rel = safe_rel_path(&rel_path);
     if rel.is_empty() {
         return Ok(false);
     }
-    let _ = fs::remove_file(abs_from_rel(&root, &rel)?);
-    let mut index = read_index(&root);
+    let mut index = read_index(&root)?;
+    let mut assets = read_assets_index(&root)?;
     if index.documents.remove(&rel).is_some() {
         index.updated_at = now_ms();
         write_index(&root, &index)?;
     }
-    let mut assets = read_assets_index(&root);
     let before = assets.len();
     assets.retain(|a| safe_rel_path(&a.path) != rel);
     if assets.len() != before {
         write_assets_index(&root, &assets)?;
     }
+    unlink_if_present(&abs_from_rel(&root, &rel)?)?;
     Ok(true)
 }
 
 pub fn restore_trash_item(app: &AppHandle, id: String) -> Result<Document, String> {
+    let _guard = LIBRARY_META_LOCK.lock().map_err(|_| "库写入锁不可用".to_string())?;
     let root = resolve_content_root(app)?;
-    let trash = read_trash_index(&root);
+    let trash = read_trash_index(&root)?;
     let item = trash
         .iter()
         .find(|t| t.doc.id == id)
         .cloned()
         .ok_or_else(|| "回收站中未找到".to_string())?;
-    let written = write_text_doc(
+    let index = read_index(&root)?;
+    let target = unique_restore_path(&root, &item.doc.path, &index)?;
+    let written = write_text_doc_unlocked(
         app,
-        item.doc.path.clone(),
+        target,
         item.doc.content.clone(),
-        item.doc.id.clone(),
+        if index.documents.values().any(|entry| entry.id == item.doc.id) { new_id("doc") } else { item.doc.id.clone() },
         Some(item.doc.starred),
         Some(item.doc.created_at),
         Some(now_ms()),
@@ -631,8 +674,9 @@ pub fn restore_trash_item(app: &AppHandle, id: String) -> Result<Document, Strin
 }
 
 pub fn purge_trash_item(app: &AppHandle, id: String) -> Result<bool, String> {
+    let _guard = LIBRARY_META_LOCK.lock().map_err(|_| "库写入锁不可用".to_string())?;
     let root = resolve_content_root(app)?;
-    let trash = read_trash_index(&root);
+    let trash = read_trash_index(&root)?;
     let next: Vec<_> = trash.iter().filter(|t| t.doc.id != id).cloned().collect();
     if next.len() == trash.len() {
         return Ok(false);
@@ -666,6 +710,96 @@ pub fn content_root_path(app: &AppHandle) -> Result<String, String> {
 }
 
 pub fn write_trash_list(app: &AppHandle, trash: Vec<TrashItem>) -> Result<(), String> {
+    let _guard = LIBRARY_META_LOCK.lock().map_err(|_| "库写入锁不可用".to_string())?;
     let root = resolve_content_root(app)?;
     write_trash_index(&root, &trash)
+}
+
+
+pub fn write_text_doc(
+    app: &AppHandle, path: String, content: String, id: String,
+    starred: Option<bool>, created_at: Option<f64>, updated_at: Option<f64>,
+    previous_path: Option<String>,
+) -> Result<Document, String> {
+    let _guard = LIBRARY_META_LOCK.lock().map_err(|_| "库写入锁不可用".to_string())?;
+    write_text_doc_unlocked(app, path, content, id, starred, created_at, updated_at, previous_path)
+}
+
+fn unique_restore_path(root: &Path, original: &str, index: &FsIndex) -> Result<String, String> {
+    let original = safe_rel_path(original);
+    let p = Path::new(&original);
+    let stem = p.file_stem().ok_or("恢复路径无效")?.to_string_lossy();
+    let ext = p.extension().map(|e| format!(".{}", e.to_string_lossy())).unwrap_or_default();
+    let dir = p.parent().unwrap_or(Path::new(""));
+    let mut candidate = original.clone();
+    for n in 1.. {
+        let occupied = match fs::symlink_metadata(abs_from_rel(root, &candidate)?) {
+            Ok(_) => true,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
+            Err(e) => return Err(e.to_string()),
+        };
+        if !index.documents.contains_key(&candidate) && !occupied { return Ok(candidate); }
+        candidate = dir.join(format!("{} ({}){}", stem, n, ext)).to_string_lossy().replace('\\', "/");
+    }
+    unreachable!()
+}
+
+
+#[cfg(test)]
+mod reliability_tests {
+    use super::*;
+    struct TempRoot(PathBuf);
+    impl TempRoot {
+        fn new() -> Self {
+            let root = std::env::temp_dir().join(new_id("langhuan-reliability"));
+            fs::create_dir_all(&root).unwrap(); Self(root)
+        }
+    }
+    impl Drop for TempRoot { fn drop(&mut self) { let _ = fs::remove_dir_all(&self.0); } }
+    fn entry(id: &str) -> FsIndexEntry {
+        FsIndexEntry { id: id.into(), starred: false, created_at: 0.0, updated_at: 0.0, last_synced_at: 0.0 }
+    }
+    #[test]
+    fn failed_replacement_cleans_temp_and_keeps_original() {
+        let root = TempRoot::new(); let live = root.0.join("note.md");
+        atomic_write(&live, b"original").unwrap();
+        let blocked = root.0.join("blocked.md"); fs::create_dir(&blocked).unwrap();
+        assert!(atomic_write(&blocked, b"new").is_err());
+        assert_eq!(fs::read(&live).unwrap(), b"original");
+        assert!(fs::read_dir(&root.0).unwrap().all(|e| !e.unwrap().file_name().to_string_lossy().ends_with(".tmp")));
+    }
+    #[test]
+    fn atomic_write_replaces_existing_file() {
+        let root = TempRoot::new(); let file = root.0.join("note.md");
+        atomic_write(&file, b"old").unwrap(); atomic_write(&file, b"new").unwrap();
+        assert_eq!(fs::read(file).unwrap(), b"new");
+    }
+    #[test]
+    fn restore_avoids_disk_and_index_collisions() {
+        let root = TempRoot::new(); atomic_write(&root.0.join("note.md"), b"other").unwrap();
+        let mut index = empty_index(); index.documents.insert("note (1).md".into(), entry("other"));
+        assert_eq!(unique_restore_path(&root.0, "note.md", &index).unwrap(), "note (2).md");
+        assert_eq!(fs::read(root.0.join("note.md")).unwrap(), b"other");
+    }
+    #[test]
+    fn shared_lock_keeps_concurrent_metadata_updates() {
+        let root = TempRoot::new();
+        let threads: Vec<_> = (0..16).map(|n| {
+            let root = root.0.clone();
+            std::thread::spawn(move || {
+                let _guard = LIBRARY_META_LOCK.lock().unwrap();
+                let mut index = read_index(&root).unwrap();
+                index.documents.insert(format!("{n}.md"), entry(&n.to_string()));
+                write_index(&root, &index).unwrap();
+            })
+        }).collect();
+        for thread in threads { thread.join().unwrap(); }
+        assert_eq!(read_index(&root.0).unwrap().documents.len(), 16);
+    }
+    #[test]
+    fn corrupt_metadata_is_not_silently_reset() {
+        let root = TempRoot::new();
+        atomic_write(&meta_dir(&root.0).join(FS_INDEX_FILE), b"broken").unwrap();
+        assert!(read_index(&root.0).is_err());
+    }
 }

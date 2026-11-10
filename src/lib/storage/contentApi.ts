@@ -439,20 +439,16 @@ export async function putQuizStore(store: QuizStoreFile): Promise<void> {
   };
   const content = JSON.stringify(payload, null, 2) + "\n";
   if (isTauriRuntime()) {
-    try {
-      await tauriInvoke("library_put_doc", {
-        args: {
-          path: QUIZ_REL,
-          content,
-          id: "meta_quiz",
-          starred: false,
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-        },
-      });
-    } catch {
-      /* best-effort */
-    }
+    await tauriInvoke("library_put_doc", {
+      args: {
+        path: QUIZ_REL,
+        content,
+        id: "meta_quiz",
+        starred: false,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      },
+    });
     return;
   }
   const res = await fetch("/api/library/file", {
@@ -461,7 +457,8 @@ export async function putQuizStore(store: QuizStoreFile): Promise<void> {
     body: JSON.stringify({ path: QUIZ_REL, content }),
   });
   if (!res.ok) {
-    /* best-effort — IDB still holds quizDocs */
+    const text = await res.text().catch(() => "");
+    throw new Error(text || `练习记录写入失败 (${res.status})`);
   }
 }
 

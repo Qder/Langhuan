@@ -31,7 +31,7 @@ import { BUILTIN_TEMPLATES, applyTemplate, dailyNoteSpec } from "../../templates
 import { ensureUniquePath } from "../helpers/paths";
 import { invalidateInspect } from "../inspectGate";
 import { softNavigate } from "../helpers/navigation";
-import { scheduleContentPersist, persistContent } from "../helpers/persistSchedule";
+import { scheduleContentPersist, persistContent, isContentUnconfirmed } from "../helpers/persistSchedule";
 import { renameScrollMemoryMany } from "../../scrollMemory";
 import type { LanghuanState } from "../types";
 import {
@@ -320,11 +320,11 @@ export const createDocsSlice: StateCreator<
         const { drafts, documents } = get();
         if (!(id in drafts)) return false;
         const doc = documents.find((d) => d.id === id);
-        return !!doc && drafts[id] !== doc.content;
+        return !!doc && (isContentUnconfirmed(id) || drafts[id] !== doc.content);
       },
   anyDirty: () => {
         const { drafts, documents } = get();
-        return documents.some((d) => d.id in drafts && drafts[d.id] !== d.content);
+        return documents.some((d) => d.id in drafts && (isContentUnconfirmed(d.id) || drafts[d.id] !== d.content));
       },
   setDraft: (id, content) =>
         set((s) => ({ drafts: { ...s.drafts, [id]: content } })),
@@ -390,7 +390,7 @@ export const createDocsSlice: StateCreator<
         const name = prev ? basename(prev.path) : "";
         // Unchanged body (after newline normalize): clear draft only — no new
         // documents[] identity, updatedAt, version, or content persist.
-        if (!opts?.force && prev && normalizeNewlines(prev.content) === content) {
+        if (!opts?.force && prev && !isContentUnconfirmed(target) && normalizeNewlines(prev.content) === content) {
           if (target in get().drafts) {
             set((s) => ({
               drafts: Object.fromEntries(
@@ -411,29 +411,25 @@ export const createDocsSlice: StateCreator<
             path: prev.path,
           });
         }
-        set((s) => ({
-          documents: s.documents.map((d) =>
-            d.id === target ? { ...d, content, updatedAt: Date.now() } : d
-          ),
-          drafts: Object.fromEntries(Object.entries(s.drafts).filter(([k]) => k !== target)),
-        }));
-        const doc = get().documents.find((d) => d.id === target);
-        void get().refreshStorageUsage();
+        // Keep the draft and the last confirmed body until the primary write lands.
+        const doc = prev ? { ...prev, content, updatedAt: Date.now() } : undefined;
         const wrote = await persistContent(get, set, doc);
         if (!wrote.ok) {
-          // Disk still holds the previous body, so memory must not claim the new
-          // one: restore the saved content and keep the text as a pending draft.
-          // The note stays dirty and the next ⌘S retries instead of looking safe.
-          set((s) => ({
-            documents: s.documents.map((d) =>
-              d.id === target && prev ? { ...d, content: prev.content } : d
-            ),
-            drafts: { ...s.drafts, [target]: content },
-          }));
+          set((s) => ({ drafts: { ...s.drafts, [target]: s.drafts[target] ?? content } }));
           const message = `保存失败：${wrote.message}`;
           get().setStatus(message);
           return { ok: false, message };
         }
+        set((s) => ({
+          documents: s.documents.map((d) =>
+            d.id === target && d.path === doc?.path ? { ...d, content, updatedAt: doc.updatedAt } : d
+          ),
+          // A later edit belongs to the user, not to this completed request.
+          drafts: Object.fromEntries(Object.entries(s.drafts).filter(([k, v]) =>
+            k !== target || v !== content || s.documents.find((d) => d.id === target)?.path !== doc?.path
+          )),
+        }));
+        void get().refreshStorageUsage();
         const message = `已保存 ${doc ? basename(doc.path) : ""}`;
         get().setStatus(message);
         return { ok: true, saved: true, path: doc?.path ?? "", message };
@@ -481,9 +477,12 @@ export const createDocsSlice: StateCreator<
             viewMode: open ? "source" : s.viewMode,
           };
         });
-        get().setStatus(`已新建 ${basename(doc.path)}`);
+        const pendingMessage = `正在保存新建笔记 ${basename(doc.path)}…`;
+        get().setStatus(pendingMessage);
         void get().refreshStorageUsage();
-        scheduleContentPersist(get, set, doc);
+        void scheduleContentPersist(get, set, doc).then((result) => {
+          if (result.ok && get().status?.message === pendingMessage) get().setStatus(`已新建 ${basename(doc.path)}`);
+        });
         return doc;
       },
   createFolder: (name, parentPath = "") => {
@@ -565,8 +564,13 @@ export const createDocsSlice: StateCreator<
             docs.map((d) => d.path)
           ),
         }));
-        for (const doc of created) scheduleContentPersist(get, set, doc);
-        if (n && !opts?.quiet) get().setStatus(`已导入 ${n} 篇文档`);
+        const pendingMessage = `已接收 ${n} 篇文档，正在写入…`;
+        if (n && !opts?.quiet) get().setStatus(pendingMessage);
+        void Promise.all(created.map((doc) => scheduleContentPersist(get, set, doc))).then((results) => {
+          if (n && !opts?.quiet && results.every((r) => r.ok) && get().status?.message === pendingMessage) {
+            get().setStatus(`已导入 ${n} 篇文档`);
+          }
+        });
         void get().refreshStorageUsage();
         return n;
       },

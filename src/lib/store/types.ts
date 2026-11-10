@@ -356,16 +356,16 @@ export type LanghuanState = {
   /** Move a folder under newParentPath ("" = library root). Refuses self/descendant. */
   moveFolder: (oldPath: string, newParentPath: string) => string | null;
   /** Soft-delete → recycle bin. */
-  deleteDoc: (id: string) => void;
+  deleteDoc: (id: string) => Promise<boolean>;
   /**
    * Soft-delete every document under folderPath into trash (same as deleteDoc),
    * remove the folder and descendants from emptyFolders, and close related tabs.
    * Library root ("") is refused. Returns number of docs moved to trash.
    */
-  deleteFolder: (folderPath: string) => number;
-  restoreFromTrash: (id: string) => void;
-  purgeTrashItem: (id: string) => void;
-  emptyTrash: () => void;
+  deleteFolder: (folderPath: string) => Promise<number>;
+  restoreFromTrash: (id: string) => Promise<void>;
+  purgeTrashItem: (id: string) => Promise<void>;
+  emptyTrash: () => Promise<void>;
   purgeExpiredTrash: () => number;
   toggleStar: (id: string) => void;
   setDocTags: (id: string, tags: string[]) => void;
@@ -384,7 +384,7 @@ export type LanghuanState = {
   /** Apply documents returned from a folder sync-in (preserves drafts for untouched ids). */
   applySyncedDocuments: (docs: Document[], assets?: AssetMeta[]) => void;
   /** Replace or merge library from backup payload. */
-  importLibrary: (payload: BackupPayload, mode: "merge" | "replace") => number;
+  importLibrary: (payload: BackupPayload, mode: "merge" | "replace") => Promise<number>;
   exportPayload: () => BackupPayload;
   setDocMeta: (id: string, patch: Partial<DocMeta>) => void;
   setSavedSearches: (list: SavedSearch[]) => void;
@@ -422,7 +422,7 @@ export type LanghuanState = {
     file: File | Blob,
     filename?: string
   ) => Promise<{ href: string; snippet: string; asset: AssetMeta } | null>;
-  removeAsset: (id: string) => void;
+  removeAsset: (id: string) => Promise<void>;
   /** Open document tabs (ordered). */
   openTabs: string[];
   /** Pinned tab ids (subset of openTabs). */

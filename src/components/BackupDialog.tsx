@@ -70,7 +70,7 @@ export function BackupDialog() {
     setError(null);
     try {
       const { payload, report } = await parseLibraryZipDetailed(pendingFile);
-      importLibrary(payload, mode);
+      await importLibrary(payload, mode);
       const summary = formatBackupIntegritySummary(report);
       setStatus(
         report.ok

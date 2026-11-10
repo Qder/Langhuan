@@ -3,6 +3,7 @@
 import type { Document } from "../../types";
 import { putLibraryDoc } from "../../storage/contentApi";
 import { writeThroughDoc } from "../../storage/fsSync";
+import { renameScrollMemoryMany } from "../../scrollMemory";
 import type { LanghuanState } from "../types";
 
 function scheduleWriteThrough(get: () => LanghuanState, set: (p: Partial<LanghuanState>) => void, doc: Document | undefined) {
@@ -29,14 +30,34 @@ export type ContentPersistResult =
  * local, and keyed by path so unrelated notes never wait on each other.
  */
 const pathWriteChains = new Map<string, Promise<unknown>>();
+// Only tracks unconfirmed operations, never a second copy of draft text.
+const unconfirmedWrites = new Map<string, number>();
+let writeSequence = 0;
+export function isContentUnconfirmed(docId: string): boolean {
+  return unconfirmedWrites.has(docId);
+}
 
-function enqueuePathWrite<T>(key: string, task: () => Promise<T>): Promise<T> {
-  const prev = pathWriteChains.get(key) ?? Promise.resolve();
-  const run = prev.then(task, task);
+/** A failed bulk mutation may have partially landed: keep current text retryable. */
+export function keepContentDrafts(get: () => LanghuanState, set: (p: Partial<LanghuanState>) => void, ids: string[]) {
+  const wanted = new Set(ids);
+  const drafts = { ...get().drafts };
+  for (const doc of get().documents) {
+    if (!wanted.has(doc.id)) continue;
+    unconfirmedWrites.set(doc.id, ++writeSequence);
+    drafts[doc.id] = drafts[doc.id] ?? doc.content;
+  }
+  set({ drafts });
+}
+
+function enqueuePathWrite<T>(keys: string[], task: () => Promise<T>): Promise<T> {
+  const unique = [...new Set(keys)];
+  const run = Promise.all(unique.map((key) => pathWriteChains.get(key))).then(task);
   const tail = run.catch(() => undefined);
-  pathWriteChains.set(key, tail);
+  for (const key of unique) pathWriteChains.set(key, tail);
   void tail.then(() => {
-    if (pathWriteChains.get(key) === tail) pathWriteChains.delete(key);
+    for (const key of unique) {
+      if (pathWriteChains.get(key) === tail) pathWriteChains.delete(key);
+    }
   });
   return run;
 }
@@ -69,18 +90,40 @@ export function persistContent(
   previousPath?: string
 ): Promise<ContentPersistResult> {
   if (!doc) return Promise.resolve({ ok: false, message: "没有可写入的文档" });
-  return enqueuePathWrite(doc.path, () => writePrimary(get, set, doc, previousPath));
+  const sequence = ++writeSequence;
+  unconfirmedWrites.set(doc.id, sequence);
+  // Keep per-path ordering, and also order the same note across a rename.
+  const keys = [`path:${doc.path}`, `doc:${doc.id}`, ...(previousPath ? [`path:${previousPath}`] : [])];
+  return enqueuePathWrite(keys, () => writePrimary(get, set, doc, previousPath)).then((result) => {
+    if (result.ok && unconfirmedWrites.get(doc.id) === sequence) unconfirmedWrites.delete(doc.id);
+    return result;
+  });
 }
 
-/** Fire-and-forget primary persist: same write, status reported on failure. */
+/** Scheduled primary persist: reports failures; callers may await confirmation. */
 export function scheduleContentPersist(
   get: () => LanghuanState,
   set: (p: Partial<LanghuanState>) => void,
   doc: Document | undefined,
   previousPath?: string
 ) {
-  if (!doc) return;
-  void persistContent(get, set, doc, previousPath).then((r) => {
-    if (!r.ok) get().setStatus(`写入 content/ 失败：${r.message}`);
+  if (!doc) return Promise.resolve<ContentPersistResult>({ ok: false, message: "没有可写入的文档" });
+  return persistContent(get, set, doc, previousPath).then((r) => {
+    if (!r.ok) {
+      const current = get().documents.find((d) => d.id === doc.id);
+      if (current) {
+        if (previousPath && current.path === doc.path) {
+          renameScrollMemoryMany([[doc.path, previousPath]]);
+        }
+        // Retain the latest text in the existing persisted draft map. A failed
+        // move rolls back its path, so repeating rename retries the same move.
+        set({
+          documents: get().documents.map((d) => d.id === doc.id && d.path === doc.path && previousPath ? { ...d, path: previousPath } : d),
+          drafts: { ...get().drafts, [doc.id]: get().drafts[doc.id] ?? current.content },
+        });
+      }
+      get().setStatus(`写入 content/ 失败（草稿已保留，可重新保存/移动）：${r.message}`);
+    }
+    return r;
   });
 }
