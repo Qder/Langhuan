@@ -5,9 +5,9 @@ import { get, set, del } from "idb-keyval";
 import { MIGRATION_FLAG, STORE_KEY } from "./constants";
 
 /**
- * IndexedDB-backed Zustand storage with one-shot localStorage → IDB migration.
- * After a successful migrate, the legacy localStorage key is removed so the
- * ~5MB quota no longer holds the full library.
+ * IndexedDB-backed Zustand storage with localStorage → IDB migration.
+ * Keep the original localStorage key as a rollback copy; Step 3 must not erase
+ * an old learning-data source even when copying into IDB succeeds.
  */
 const memoryFallback = new Map<string, string>();
 
@@ -29,7 +29,6 @@ const idbStateStorage: StateStorage = {
       try {
         await set(name, legacy);
         localStorage.setItem(MIGRATION_FLAG, String(Date.now()));
-        localStorage.removeItem(name);
       } catch {
         // Keep serving legacy if IDB write fails.
       }

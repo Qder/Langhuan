@@ -357,3 +357,6 @@ describe("captureExplainThreadToLibrary → 讲解-<短标题>.md", () => {
     expect(diskBodyOf(first.path)).toContain("第二答 BETA");
   });
 });
+
+// This suite mocks library I/O; real learning migration is covered in learningPersistence.test.ts.
+vi.mock("../storage/learningPersistence", () => ({ installLearningPersistence: vi.fn(), hydrateLearningState: vi.fn(async () => undefined) }));

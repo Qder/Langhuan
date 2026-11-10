@@ -273,3 +273,6 @@ describe("deleted doc does not resurrect on reopen", () => {
     expect(readScrollMemory("same-path.md")).toBeNull();
   });
 });
+
+// This suite mocks library I/O; real learning migration is covered in learningPersistence.test.ts.
+vi.mock("./storage/learningPersistence", () => ({ installLearningPersistence: vi.fn(), hydrateLearningState: vi.fn(async () => undefined) }));

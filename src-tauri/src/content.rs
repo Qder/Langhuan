@@ -803,3 +803,87 @@ mod reliability_tests {
         assert!(read_index(&root.0).is_err());
     }
 }
+
+// Versioned learning metadata uses the same root and library mutex as note/quiz writes.
+fn learning_kind(rel: &str) -> Option<(&'static str, &'static str)> {
+    match rel {
+        ".langhuan/annotations.json" => Some(("langhuan-annotations", "annotations")),
+        ".langhuan/saved-searches.json" => Some(("langhuan-saved-searches", "searches")),
+        ".langhuan/reading-progress.json" => Some(("langhuan-reading-progress", "progress")),
+        ".langhuan/quiz.json" => Some(("langhuan-quiz", "docs")),
+        _ => {
+            let name = rel.strip_prefix(".langhuan/versions/")?;
+            if name.ends_with(".json") && !name.contains('/') && !name.contains('\\') && name.len() > 5 {
+                Some(("langhuan-versions", "versions"))
+            } else { None }
+        }
+    }
+}
+fn encoded_doc_id(id: &str) -> String {
+    id.as_bytes().iter().map(|b| {
+        if b.is_ascii_alphanumeric() || b"-_.!~*'()".contains(b) { (*b as char).to_string() }
+        else { format!("%{:02X}", b) }
+    }).collect()
+}
+fn validate_learning(rel: &str, raw: &str) -> Result<(), String> {
+    let (format, field) = learning_kind(rel).ok_or("学习数据路径无效")?;
+    let v: serde_json::Value = serde_json::from_str(raw).map_err(|e| format!("{rel} 数据损坏：{e}"))?;
+    if v["format"].as_str() != Some(format) || v["version"].as_u64() != Some(1) { return Err("学习文件格式或版本无效".into()); }
+    let strings = |a: &serde_json::Value, keys: &[&str]| keys.iter().all(|k| a[*k].is_string());
+    let numbers = |a: &serde_json::Value, keys: &[&str]| keys.iter().all(|k| a[*k].is_number());
+    let valid = if field == "progress" {
+        v[field].as_object().map(|m| m.iter().all(|(p, a)| !p.is_empty() && numbers(a, &["top", "ratio", "savedAt"]) && a["top"].as_f64().unwrap_or(-1.0) >= 0.0 && (0.0..=1.0).contains(&a["ratio"].as_f64().unwrap_or(-1.0)))).unwrap_or(false)
+    } else {
+        v[field].as_array().map(|items| items.iter().all(|a| match field {
+            "annotations" => strings(a, &["id", "docId", "path", "quote", "note", "contextBefore", "contextAfter"]) && numbers(a, &["start", "end", "plainOffset", "createdAt", "updatedAt"]) && ["cinnabar", "gold", "teal"].contains(&a["color"].as_str().unwrap_or("")) && ["active", "stale"].contains(&a["status"].as_str().unwrap_or("")) && a.get("heading").map(|v| v.is_string()).unwrap_or(true),
+            "searches" => strings(a, &["id", "name", "query"]) && numbers(a, &["createdAt"]),
+            "versions" => strings(a, &["id", "docId", "content", "path"]) && numbers(a, &["savedAt"]) && a["docId"] == v["docId"],
+            "docs" => strings(a, &["docId"]) && numbers(a, &["updatedAt"]) && a.get("forceQuiz").map(|v| v.is_boolean()).unwrap_or(true) && a["items"].as_array().map(|q| q.iter().all(|i| strings(i, &["id", "stem"]) && numbers(i, &["updatedAt"]) && ["unseen", "know", "dont_know", "peeked"].contains(&i["state"].as_str().unwrap_or("")))).unwrap_or(false),
+            _ => false,
+        })).unwrap_or(false)
+    };
+    let version_id_ok = field != "versions" || v["docId"].as_str().map(|id| !id.is_empty() && format!(".langhuan/versions/{}.json", encoded_doc_id(id)) == rel).unwrap_or(false);
+    if !valid || !version_id_ok || (field == "docs" && !v["updatedAt"].is_number()) { return Err(format!("{rel} 数据损坏；保留原文件，请检查后重试")); }
+    Ok(())
+}
+fn read_learning_at(root: &Path, rel: &str) -> Result<Option<String>, String> {
+    if learning_kind(rel).is_none() { return Err("学习数据路径无效".into()); }
+    match fs::read_to_string(abs_from_rel(root, rel)?) {
+        Ok(raw) => { validate_learning(rel, &raw)?; Ok(Some(raw)) },
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e.to_string()),
+    }
+}
+fn write_learning_at(root: &Path, rel: &str, raw: &str) -> Result<(), String> {
+    validate_learning(rel, raw)?;
+    read_learning_at(root, rel)?; // Never replace unreadable bytes with empty metadata.
+    atomic_write(&abs_from_rel(root, rel)?, raw.as_bytes())
+}
+pub fn read_learning_file(app: &AppHandle, rel: String) -> Result<Option<String>, String> {
+    let _guard = LIBRARY_META_LOCK.lock().map_err(|_| "库写入锁不可用")?;
+    read_learning_at(&resolve_content_root(app)?, &rel)
+}
+pub fn write_learning_file(app: &AppHandle, rel: String, raw: String) -> Result<(), String> {
+    let _guard = LIBRARY_META_LOCK.lock().map_err(|_| "库写入锁不可用")?;
+    write_learning_at(&resolve_content_root(app)?, &rel, &raw)
+}
+#[cfg(test)]
+mod learning_tests {
+    use super::*;
+    #[test]
+    fn corrupt_learning_bytes_are_preserved() {
+        let root = std::env::temp_dir().join(new_id("learning"));
+        let rel = ".langhuan/annotations.json";
+        atomic_write(&root.join(rel), b"broken").unwrap();
+        assert!(write_learning_at(&root, rel, r#"{"format":"langhuan-annotations","version":1,"annotations":[]}"#).is_err());
+        assert_eq!(fs::read(root.join(rel)).unwrap(), b"broken");
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn learning_schema_and_paths_are_checked() {
+        assert!(validate_learning(".langhuan/annotations.json", r#"{"format":"langhuan-annotations","version":1,"annotations":[]}"#).is_ok());
+        assert!(validate_learning(".langhuan/annotations.json", r#"{"format":"langhuan-annotations","version":1,"annotations":[{}]}"#).is_err());
+        assert!(learning_kind(".langhuan/versions/../secrets.json").is_none());
+        assert_eq!(encoded_doc_id("文/档"), "%E6%96%87%2F%E6%A1%A3");
+    }
+}

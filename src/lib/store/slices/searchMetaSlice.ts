@@ -53,7 +53,7 @@ export const createSearchMetaSlice: StateCreator<
         });
       },
   clearTagFilters: () => set({ tagFilters: [] }),
-  setSavedSearches: (list) => set({ savedSearches: list }),
+  setSavedSearches: (list) => set({ savedSearches: list.slice(0, 30) }),
   addSavedSearch: (name, query) => {
         const n = name.trim();
         const q = query.trim();

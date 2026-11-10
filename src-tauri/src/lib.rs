@@ -116,6 +116,15 @@ fn library_read_file(app: AppHandle, path: String) -> Result<FilePayload, String
     })
 }
 
+#[tauri::command]
+fn library_read_learning(app: AppHandle, path: String) -> Result<Option<String>, String> {
+    content::read_learning_file(&app, path)
+}
+#[tauri::command]
+fn library_write_learning(app: AppHandle, path: String, content: String) -> Result<(), String> {
+    content::write_learning_file(&app, path, content)
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct BulkArgs {
@@ -212,6 +221,8 @@ pub fn run() {
             library_trash_purge,
             library_mkdir,
             library_read_file,
+            library_read_learning,
+            library_write_learning,
             library_bulk,
             explain::ide_explain,
             explain::ide_explain_cancel,

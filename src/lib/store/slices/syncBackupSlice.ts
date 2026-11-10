@@ -1,6 +1,7 @@
 "use client";
 
 import type { StateCreator } from "zustand";
+import { hydrateLearningState } from "../../storage/learningPersistence";
 import { keepContentDrafts } from "../helpers/persistSchedule";
 import type { Document, TrashItem } from "../../types";
 import { normalizeReadingPrefs } from "../../readingPrefs";
@@ -16,8 +17,6 @@ import {
   blobToBase64,
   bulkWriteLibrary,
   fetchLibrary,
-  fetchQuizStore,
-  putQuizStore,
 } from "../../storage/contentApi";
 import { takeIdbLibrary } from "../../storage/contentMigration";
 import { pruneStaleIndexes } from "../../locate/indexFreshness";
@@ -224,35 +223,6 @@ export const createSyncBackupSlice: StateCreator<
               jsIndexes: pruneStaleIndexes("js", snap.jsIndexes ?? [], sourceSnapshot),
             });
             void saveAssetMetaList(snap.assets);
-            void fetchQuizStore()
-              .then((qs) => {
-                if (qs.docs?.length) {
-                  const local = get().quizDocs || [];
-                  const byId = new Map(local.map((d) => [d.docId, d]));
-                  for (const d of qs.docs) {
-                    const ex = byId.get(d.docId);
-                    if (!ex || (d.updatedAt || 0) >= (ex.updatedAt || 0)) {
-                      byId.set(d.docId, d);
-                    }
-                  }
-                  const merged = [...byId.values()];
-                  set({ quizDocs: merged });
-                  void putQuizStore({
-                    format: "langhuan-quiz",
-                    version: 1,
-                    updatedAt: Date.now(),
-                    docs: merged,
-                  }).catch((e) => get().setStatus(`练习记录写入失败：${String(e)}`));
-                } else if ((get().quizDocs || []).length) {
-                  void putQuizStore({
-                    format: "langhuan-quiz",
-                    version: 1,
-                    updatedAt: Date.now(),
-                    docs: get().quizDocs,
-                  }).catch((e) => get().setStatus(`练习记录写入失败：${String(e)}`));
-                }
-              })
-              .catch(() => {});
             get().setStatus(`已从 content/ 载入 ${snap.documents.length} 篇`);
             void get().refreshStorageUsage();
             return;
@@ -315,6 +285,8 @@ export const createSyncBackupSlice: StateCreator<
             const msg = e instanceof Error ? e.message : String(e);
             get().setStatus(`载入 content/ 失败：${msg}`);
           }
+        } finally {
+          await hydrateLearningState(get, set);
         }
       },
   resetSeed: () => {

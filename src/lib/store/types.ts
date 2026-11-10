@@ -415,7 +415,7 @@ export type LanghuanState = {
   setQuizItemState: (docId: string, itemId: string, state: QuizItemState) => void;
   setQuizForce: (docId: string, force: boolean) => void;
   syncQuizForDoc: (docId: string) => QuizDoc | null;
-  persistQuizStore: () => void;
+  persistQuizStore: () => Promise<void>;
   /** Persist a pasted/dropped image; returns markdown snippet to insert. */
   ingestImageFile: (
     docId: string,

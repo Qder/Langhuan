@@ -1,6 +1,8 @@
 "use client";
 
 import type { StateCreator } from "zustand";
+import { persistLearningFile } from "../../storage/learningIO";
+import { LEARNING_PATHS } from "../../storage/learningData";
 import type { AssetMeta } from "../../types";
 import { createAnnotation, updateAnnotationNote, resolveAnnotation, normalizeAnnotation, rematchAnnotationWithAnchor, summarizeReanchor, formatReanchorStatus, type RematchResult } from "../../annotations";
 import {
@@ -9,7 +11,6 @@ import {
   upsertQuizDoc,
   type QuizDoc,
 } from "../../quiz";
-import { putQuizStore } from "../../storage/contentApi";
 import {
   deleteAssetBlob,
   putAssetBlob,
@@ -276,18 +277,18 @@ export const createAssetsSlice: StateCreator<
         const msg = formatReanchorStatus(summarizeReanchor(matches));
         if (msg) get().setStatus(msg);
       },
-  persistQuizStore: () => {
+  persistQuizStore: async () => {
         const docs = get().quizDocs;
-        void putQuizStore({
-          format: "langhuan-quiz",
-          version: 1,
-          updatedAt: Date.now(),
-          docs,
-        }).catch((e) => get().setStatus(`练习记录写入失败，本机记录已保留，可再次保存重试：${e instanceof Error ? e.message : String(e)}`));
+        try {
+          await persistLearningFile(LEARNING_PATHS.quiz, { format: "langhuan-quiz", version: 1, updatedAt: Date.now(), docs });
+        } catch (e) {
+          get().setStatus(`练习记录写入失败，本机记录已保留，可再次保存重试：${e instanceof Error ? e.message : String(e)}`);
+          throw e;
+        }
       },
   upsertQuizDoc: (doc) => {
         set((s) => ({ quizDocs: upsertQuizDoc(s.quizDocs, doc) }));
-        get().persistQuizStore();
+        void get().persistQuizStore().catch(() => {});
       },
   setQuizItemState: (docId, itemId, state) => {
         set((s) => {
@@ -296,7 +297,7 @@ export const createAssetsSlice: StateCreator<
           const next = applyQuizItemState(prev, itemId, state);
           return { quizDocs: upsertQuizDoc(s.quizDocs, next) };
         });
-        get().persistQuizStore();
+        void get().persistQuizStore().catch(() => {});
       },
   setQuizForce: (docId, force) => {
         set((s) => {
@@ -307,7 +308,7 @@ export const createAssetsSlice: StateCreator<
             : { docId, items: [], updatedAt: now, forceQuiz: force };
           return { quizDocs: upsertQuizDoc(s.quizDocs, next) };
         });
-        get().persistQuizStore();
+        void get().persistQuizStore().catch(() => {});
       },
   syncQuizForDoc: (docId) => {
         const content = get().getContent(docId);
@@ -315,7 +316,7 @@ export const createAssetsSlice: StateCreator<
         const synced = syncQuizDocFromSource(docId, content, prev);
         if (synced) {
           set((s) => ({ quizDocs: upsertQuizDoc(s.quizDocs, synced) }));
-          get().persistQuizStore();
+          void get().persistQuizStore().catch(() => {});
         }
         return synced;
       },

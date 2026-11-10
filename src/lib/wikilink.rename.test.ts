@@ -317,3 +317,6 @@ describe("extractWikiLinks in HTML", () => {
     expect(refs[1]).toMatchObject({ embed: true, heading: "节", alias: "显" });
   });
 });
+
+// This suite mocks library I/O; real learning migration is covered in learningPersistence.test.ts.
+vi.mock("./storage/learningPersistence", () => ({ installLearningPersistence: vi.fn(), hydrateLearningState: vi.fn(async () => undefined) }));

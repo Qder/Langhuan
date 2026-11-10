@@ -11,5 +11,7 @@ commands.allow = [
   "library_trash_purge",
   "library_mkdir",
   "library_read_file",
+  "library_read_learning",
+  "library_write_learning",
   "library_bulk"
 ]

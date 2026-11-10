@@ -1,6 +1,8 @@
 "use client";
 
 import { create } from "zustand";
+import { installLearningPersistence } from "../storage/learningPersistence";
+import { setLearningErrorHandler } from "../storage/learningIO";
 import { normalizeAnnotation } from "../annotations";
 import { persist } from "zustand/middleware";
 import type { AssetMeta, Document, TrashItem } from "../types";
@@ -59,7 +61,7 @@ export const useStore = create<LanghuanState>()(
       name: STORE_KEY,
       storage: idbJSONStorage,
       partialize: (s) => ({
-        // documents / trash / assets live in content/ — IDB keeps UI prefs only
+        // Library bodies live in content/; learning fields below remain dual-written rollback copies.
         drafts: s.drafts,
         emptyFolders: s.emptyFolders,
         theme: s.theme,
@@ -209,3 +211,6 @@ export const useStore = create<LanghuanState>()(
     }
   )
 );
+
+setLearningErrorHandler((message) => useStore.getState().setStatus(message));
+installLearningPersistence(useStore);

@@ -1,6 +1,9 @@
+import { isLearningPath, parseLearningFile } from "@/lib/storage/learningData";
 import { NextRequest, NextResponse } from "next/server";
 import {
   ensureContentTree,
+  readLearningFile,
+  writeLearningFile,
   ensureLibraryDir,
   hardDeletePath,
   readFileBytes,
@@ -21,7 +24,7 @@ const CSS_INDEX_MAX_SOURCE_BYTES = 2 * 1024 * 1024;
 /** 同理，超过这个体积的 JS 不建索引。 */
 const JS_INDEX_MAX_SOURCE_BYTES = 2 * 1024 * 1024;
 import { FS_INDEX_DIR } from "@/lib/storage/constants";
-import { emptyQuizStore, normalizeQuizStore } from "@/lib/quiz";
+import { emptyQuizStore } from "@/lib/quiz";
 import { safeRelPath } from "@/lib/storage/pathSanitize";
 
 export const runtime = "nodejs";
@@ -52,6 +55,11 @@ function isQuizMetaPath(p: string): boolean {
 export async function GET(req: NextRequest) {
   try {
     const pathParam = req.nextUrl.searchParams.get("path") || "";
+    if (req.nextUrl.searchParams.get("learning") === "1") {
+      if (pathHasTraversal(pathParam) || !isLearningPath(pathParam)) throw new Error("学习数据路径无效");
+      const value = await readLearningFile(pathParam);
+      return NextResponse.json(value, { headers: { "Cache-Control": "no-store" } });
+    }
     const file = await readFileBytes(pathParam);
     if (!file) {
       if (isQuizMetaPath(pathParam)) {
@@ -144,6 +152,11 @@ export async function PUT(req: NextRequest) {
       const written = await writeJsIndex(index);
       return NextResponse.json({ ok: true, jsIndex: true, path: written, index });
     }
+    if (body.path && isLearningPath(body.path)) {
+      if (typeof body.content !== "string") throw new Error("缺少学习数据 content");
+      await writeLearningFile(body.path, parseLearningFile(body.path, body.content));
+      return NextResponse.json({ ok: true, path: body.path });
+    }
     if (body.raw) {
       if (!body.path) {
         return NextResponse.json({ ok: false, error: "缺少 path" }, { status: 400 });
@@ -165,7 +178,8 @@ export async function PUT(req: NextRequest) {
     // Meta file: content/.langhuan/quiz.json — do not index as a library document.
     if (rel === `${FS_INDEX_DIR}/${QUIZ_INDEX_FILE}` || rel === QUIZ_INDEX_FILE) {
       try {
-        const parsed = normalizeQuizStore(JSON.parse(body.content));
+        const parsed = parseLearningFile(QUIZ_META_REL, body.content);
+        if (parsed.format !== "langhuan-quiz") throw new Error("quiz.json 格式无效");
         await writeQuizStore(parsed);
         return NextResponse.json({ ok: true, quiz: true, path: `${FS_INDEX_DIR}/${QUIZ_INDEX_FILE}` });
       } catch (e) {

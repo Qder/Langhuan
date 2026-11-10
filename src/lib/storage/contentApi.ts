@@ -1,4 +1,5 @@
 "use client";
+import { LEARNING_PATHS, parseLearningFile, type LearningFile } from "./learningData";
 
 import type { AssetMeta, Document, TrashItem } from "../types";
 import type { ProjectMeta } from "../project";
@@ -7,10 +8,8 @@ import type { CssFileIndex } from "../locate/cssLocate";
 import type { JsFileIndex } from "../locate/jsIndex";
 import {
   emptyQuizStore,
-  normalizeQuizStore,
   type QuizStoreFile,
 } from "../quiz";
-import { FS_INDEX_DIR, FS_QUIZ_FILE } from "./constants";
 
 /** Unified copy when Tauri lacks HTML project import / CSS·JS index (option A). */
 export const DESKTOP_UNSUPPORTED_PROJECTS =
@@ -402,63 +401,33 @@ export async function blobToBase64(blob: Blob): Promise<string> {
   return btoa(binary);
 }
 
-const QUIZ_REL = `${FS_INDEX_DIR}/${FS_QUIZ_FILE}`;
-
-/** Load content/.langhuan/quiz.json via existing file API (no new endpoint). */
-export async function fetchQuizStore(): Promise<QuizStoreFile> {
+/** Same file endpoint / Tauri facade as quiz; strict reads distinguish missing and corrupt. */
+export async function fetchLearningFile(rel: string): Promise<LearningFile | null> {
   if (isTauriRuntime()) {
-    try {
-      const file = await tauriInvoke<{ base64: string }>("library_read_file", {
-        path: QUIZ_REL,
-      });
-      const json = atob(file.base64);
-      return normalizeQuizStore(JSON.parse(json));
-    } catch {
-      return emptyQuizStore();
-    }
+    const raw = await tauriInvoke<string | null>("library_read_learning", { path: rel });
+    return raw === null ? null : parseLearningFile(rel, raw);
   }
-  const res = await fetch(`/api/library/file?path=${encodeURIComponent(QUIZ_REL)}`, {
-    cache: "no-store",
-  });
-  if (!res.ok) return emptyQuizStore();
-  try {
-    const text = await res.text();
-    return normalizeQuizStore(JSON.parse(text));
-  } catch {
-    return emptyQuizStore();
-  }
+  const res = await fetch(`/api/library/file?path=${encodeURIComponent(rel)}&learning=1`, { cache: "no-store" });
+  if (!res.ok) throw new Error(await res.text() || `学习数据读取失败 (${res.status})`);
+  const raw = await res.text();
+  return raw.trim() === "null" ? null : parseLearningFile(rel, raw);
 }
-
-/** Persist quiz metadata to content/.langhuan/quiz.json via file PUT. */
-export async function putQuizStore(store: QuizStoreFile): Promise<void> {
-  const payload: QuizStoreFile = {
-    format: "langhuan-quiz",
-    version: 1,
-    updatedAt: store.updatedAt || Date.now(),
-    docs: store.docs || [],
-  };
-  const content = JSON.stringify(payload, null, 2) + "\n";
+export async function putLearningFile(rel: string, value: LearningFile): Promise<void> {
+  const content = JSON.stringify(value, null, 2) + "\n";
+  parseLearningFile(rel, content);
   if (isTauriRuntime()) {
-    await tauriInvoke("library_put_doc", {
-      args: {
-        path: QUIZ_REL,
-        content,
-        id: "meta_quiz",
-        starred: false,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      },
-    });
+    await tauriInvoke("library_write_learning", { path: rel, content });
     return;
   }
   const res = await fetch("/api/library/file", {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ path: QUIZ_REL, content }),
+    method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path: rel, content }),
   });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(text || `练习记录写入失败 (${res.status})`);
-  }
+  if (!res.ok) throw new Error(await res.text() || `学习数据写入失败 (${res.status})`);
 }
-
+export async function fetchQuizStore(): Promise<QuizStoreFile> {
+  const value = await fetchLearningFile(LEARNING_PATHS.quiz);
+  return value?.format === "langhuan-quiz" ? value : emptyQuizStore();
+}
+export async function putQuizStore(store: QuizStoreFile): Promise<void> {
+  await putLearningFile(LEARNING_PATHS.quiz, store);
+}

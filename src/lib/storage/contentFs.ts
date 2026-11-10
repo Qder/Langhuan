@@ -1,3 +1,4 @@
+import { isLearningPath, parseLearningFile, type LearningFile } from "./learningData";
 /**
  * Server-side library rooted at process.cwd()/content.
  * Node runtime only — do not import from client components.
@@ -228,6 +229,9 @@ async function writeQuizStoreUnlocked(store: QuizStoreFile): Promise<void> {
     updatedAt: store.updatedAt || Date.now(),
     docs: Array.isArray(store.docs) ? store.docs : [],
   };
+  const rel = `${FS_INDEX_DIR}/${QUIZ_INDEX_FILE}`;
+  parseLearningFile(rel, JSON.stringify(payload));
+  await readLearningFileUnlocked(rel);
   await atomicWrite(file, JSON.stringify(payload, null, 2) + "\n");
 }
 
@@ -840,4 +844,23 @@ export function writeCssIndex(...args: Parameters<typeof writeCssIndexUnlocked>)
 
 export function writeJsIndex(...args: Parameters<typeof writeJsIndexUnlocked>): ReturnType<typeof writeJsIndexUnlocked> {
   return withLibraryLock(() => writeJsIndexUnlocked(...args));
+}
+
+/** Hidden learning metadata never enters the document index. Missing != unreadable. */
+async function readLearningFileUnlocked(rel: string): Promise<LearningFile | null> {
+  if (!isLearningPath(rel)) throw new Error("学习数据路径无效");
+  try { return parseLearningFile(rel, await fs.readFile(absFromRel(rel), "utf8")); }
+  catch (e) { if ((e as NodeJS.ErrnoException).code === "ENOENT") return null; throw e; }
+}
+export function readLearningFile(rel: string): Promise<LearningFile | null> {
+  return withLibraryLock(() => readLearningFileUnlocked(rel));
+}
+export function writeLearningFile(rel: string, value: LearningFile): Promise<void> {
+  return withLibraryLock(async () => {
+    const raw = JSON.stringify(value, null, 2) + "\n";
+    parseLearningFile(rel, raw);
+    // Preserve unreadable bytes in place. A retry must never turn corruption into [].
+    await readLearningFileUnlocked(rel);
+    await atomicWrite(absFromRel(rel), raw);
+  });
 }

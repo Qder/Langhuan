@@ -1,9 +1,8 @@
 /**
  * 预览阅读位置的跨会话记忆（Markdown 与 HTML 共用，按 path 隔离）。
  *
- * 存在 localStorage，与主题（`langhuan-theme`）同一层级：这是一份「本机偏好」，
- * 不是文档数据，所以不进 content/，也不进 zustand 的持久化子树——那里每次
- * 结构性改动都要同步 `store.behavior.test.ts` 的键快照，为一个滚动数字不值得。
+ * localStorage 是旧版回滚副本；应用初始化后合并 content/.langhuan/reading-progress.json。
+ * 主库写入单独防抖，不把主题/布局等设备偏好写进知识库。
  *
  * 键名：`lh.mdScroll`，值是 `{ [docPath]: Entry }`。HTML 也走同一份 map，
  * 不另开键，这样改名 / 删除已经接在 docs/trash 上的迁移对两种文档都生效。
@@ -24,7 +23,7 @@ export type ScrollMemoryEntry = {
   savedAt: number;
 };
 
-type ScrollMemoryMap = Record<string, ScrollMemoryEntry>;
+export type ScrollMemoryMap = Record<string, ScrollMemoryEntry>;
 
 type ScrollMemoryListener = () => void;
 const listeners = new Set<ScrollMemoryListener>();
@@ -76,7 +75,7 @@ function isEntry(v: unknown): v is ScrollMemoryEntry {
 
 function readMap(): ScrollMemoryMap {
   const s = storage();
-  if (!s) return {};
+  if (!s) return fallbackMap;
   try {
     const raw = s.getItem(MD_SCROLL_STORAGE_KEY);
     if (!raw) return {};
@@ -98,14 +97,43 @@ function readMap(): ScrollMemoryMap {
   }
 }
 
-function writeMap(map: ScrollMemoryMap): void {
-  const s = storage();
-  if (!s) return;
+let libraryWriter: ((map: ScrollMemoryMap) => Promise<void>) | undefined;
+let libraryError: (error: unknown) => void = () => {};
+let pendingLibraryMap: ScrollMemoryMap | undefined;
+let libraryTimer: ReturnType<typeof setTimeout> | undefined;
+let fallbackMap: ScrollMemoryMap = {};
+export function configureScrollMemoryLibrary(writer: (map: ScrollMemoryMap) => Promise<void>, onError: (error: unknown) => void): void {
+  libraryWriter = writer; libraryError = onError;
+}
+/** Awaitable retry/flush. Browser shutdown cannot guarantee an async flush completes. */
+export async function flushScrollMemoryLibrary(): Promise<void> {
+  if (libraryTimer) clearTimeout(libraryTimer);
+  libraryTimer = undefined;
+  const snapshot = pendingLibraryMap;
+  if (!snapshot || !libraryWriter) return;
   try {
-    s.setItem(MD_SCROLL_STORAGE_KEY, JSON.stringify(map));
-    notifyScrollMemory();
-  } catch {
-    // 配额满 / 隐私模式：阅读位置丢了不影响阅读，静默放弃。
+    await libraryWriter(snapshot);
+    if (pendingLibraryMap === snapshot) pendingLibraryMap = undefined;
+  } catch (e) { libraryError(e); throw e; }
+}
+/** Hydrate the legacy rollback key without scheduling a second library write. */
+export function hydrateScrollMemoryMap(map: ScrollMemoryMap): void {
+  // A pre-hydrate retry snapshot is incomplete; it must not overwrite the merged map later.
+  if (libraryTimer) clearTimeout(libraryTimer);
+  libraryTimer = undefined; pendingLibraryMap = undefined;
+  writeMap(map, false);
+}
+
+function writeMap(map: ScrollMemoryMap, persistLibrary = true): void {
+  fallbackMap = map;
+  const s = storage();
+  try { s?.setItem(MD_SCROLL_STORAGE_KEY, JSON.stringify(map)); }
+  catch (e) { if (libraryWriter) libraryError(e); }
+  notifyScrollMemory();
+  if (persistLibrary && libraryWriter) {
+    pendingLibraryMap = map;
+    if (libraryTimer) clearTimeout(libraryTimer);
+    libraryTimer = setTimeout(() => { void flushScrollMemoryLibrary().catch(() => {}); }, 500);
   }
 }
 

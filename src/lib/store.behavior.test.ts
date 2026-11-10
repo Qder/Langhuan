@@ -1272,3 +1272,6 @@ describe("store behavior snapshots", () => {
   });
 
 });
+
+// This suite mocks library I/O; real learning migration is covered in learningPersistence.test.ts.
+vi.mock("./storage/learningPersistence", () => ({ installLearningPersistence: vi.fn(), hydrateLearningState: vi.fn(async () => undefined) }));
